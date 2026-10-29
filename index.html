@@ -2462,7 +2462,7 @@ function fieldTick(dt) {
   burning.length = 0;
   const wd = U.uWindDir.value;
   for (let k = 0; k < FN * FN; k++) {
-    if (fTr[k] > 0) fTr[k] = Math.max(0, fTr[k] - dt / 9);
+    if (fTr[k] > 0) fTr[k] = Math.max(0, fTr[k] - dt / 18);   // 밟혀 눌린 풀은 18초에 걸쳐 일어선다
     if (fFire[k] > 0) {
       if (fFuel[k] > 0) {
         fFire[k] = Math.min(1, fFire[k] + dt * 5);
