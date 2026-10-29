@@ -87,6 +87,7 @@
     <tr><td>회전 속도</td><td><input id="gTurn" type="range" min="0.4" max="3" step="0.05" value="1.1"></td><td><b id="gTurnV"></b></td></tr>
     <tr><td>포탑 회전</td><td><input id="gTurret" type="range" min="0.3" max="4" step="0.1" value="1.2"></td><td><b id="gTurretV"></b></td></tr>
   </table>
+  <div class="grp" style="color:#e8dcc0; opacity:.6">버전 0.1.0 · 빌드 2026-10-29 11:52</div>
   </div>
 </div>
 <div id="touchUI" style="display:none">
@@ -2462,7 +2463,7 @@ function fieldTick(dt) {
   burning.length = 0;
   const wd = U.uWindDir.value;
   for (let k = 0; k < FN * FN; k++) {
-    if (fTr[k] > 0) fTr[k] = Math.max(0, fTr[k] - dt / 18);   // 밟혀 눌린 풀은 18초에 걸쳐 일어선다
+    if (fTr[k] > 0) fTr[k] = Math.max(0, fTr[k] - dt / 30);   // 밟혀 눌린 풀은 30초에 걸쳐 일어선다
     if (fFire[k] > 0) {
       if (fFuel[k] > 0) {
         fFire[k] = Math.min(1, fFire[k] + dt * 5);
@@ -4173,9 +4174,9 @@ const sfx = (() => {
   };
 })();
 // ---------------------------------------------------------------- 적 탱크 / 전투
-// 체력 100, 방어력: 정면 90% / 측면 50% / 후면 0%. 포탄 100, 근처 폭발 20 (방어 무시)
+// 체력 100, 방어력: 정면 70% / 측면 50% / 후면 0%. 포탄 100, 근처 폭발 20 (방어 무시)
 const MAX_HP = 100, SHELL_DMG = 100, RELOAD = 3, HEAR_SHOT_R = 45;
-const ARMOR = { front: 0.9, side: 0.5, rear: 0 };
+const ARMOR = { front: 0.7, side: 0.5, rear: 0 };
 const SPLASH_R = 2.5, SAFE_SPLASH_R = 2.8, SPLASH_DMG = 20, _spl = new THREE.Vector3(), _splQ = new THREE.Quaternion();
 // 같은 모델에 모래색 도장. 모델은 한 번만 만들고(AO 굽기 포함) 적마다 복제한다
 const ETC = { hull: 0x8a6c3e, low: 0x6e5836, turret: 0x9e7c48, wheel: 0x3c3a34, barrel: 0x7c6038, plate: 0x6e5432, top: 0xae8c56, muzzle: 0x64502e };
