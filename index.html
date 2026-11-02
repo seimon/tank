@@ -48,7 +48,7 @@
   #topRight .msg { color: #e8dcc0; background: rgba(20, 18, 16, .6); padding: 4px 8px; border-radius: 4px; }
   #upOffer .rar { font-size: 11px; opacity: .85; }
   /* 픽셀 HUD: 게임 화면과 같은 저해상도 캔버스를 그대로 늘려서 */
-  #phud { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 2;
+  #phud, #phudS { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 2;
           image-rendering: crisp-edges; image-rendering: pixelated; }
   #hud { z-index: 6; display: none; max-height: calc(100vh - 40px); overflow-y: auto; }
   #dmgFloat div { position: fixed; transform: translate(-50%, -100%); font: bold 13px monospace; text-shadow: 0 0 2px #000, 0 0 2px #000, 0 0 2px #000;
@@ -69,6 +69,7 @@
 <body>
 <canvas id="c"></canvas>
 <div id="loading"><div>미니탱크 디오라마</div><div class="bar"><div id="loadFill"></div></div><div id="loadTxt">불러오는 중…</div><div class="ver"></div></div>
+<canvas id="phudS"></canvas>
 <canvas id="phud"></canvas>
 <div id="aiTags"></div>
 <div id="dmgFloat"></div>
@@ -86,7 +87,7 @@
   <div>AO <button id="aoBtn">켜짐</button> 강도 <input id="aoK" type="range" min="0" max="4" step="0.1" value="1.8"> <b id="aoKv">1.8</b> <button id="aoWhite">흰색 보기</button></div>
   <div>주광 <input id="moonI" type="range" min="0" max="4" step="0.05" value="1.5"> <b id="moonIV">1.50</b> <input id="moonC" type="color" value="#9aaad0"></div>
   <div>소리 <input id="vol" type="range" min="0" max="1" step="0.05" value="0.5"> <b id="volV">0.50</b></div>
-  <div>WASD 이동 · QE 포탑 · ↑↓ 포각 · Space 발사 · R 세우기 · 1·2·3 성장 선택 · ESC 일시정지</div>
+  <div>WASD 이동 · QE 포탑 · RF/↑↓ 포각 · Space 발사 · G 세우기·재시작 · 1·2·3 성장 선택 · ESC 일시정지</div>
   <div>마우스 드래그 카메라 회전 · 휠 줌</div>
   <div class="grp">성장 테스트</div>
   <div><button id="tDropGold">보물 상자 떨구기</button> <button id="tDropRepair">회복 상자 떨구기</button> <button id="tDropEnemy">적 탱크 떨구기</button> <button id="tDropSpg">적 자주포</button></div>
@@ -108,7 +109,7 @@
 </div>
 <script>
   // 버전·빌드 시각: 여기 한 곳만 고치면 로딩 화면과 설정 메뉴에 같이 나온다
-  const BUILD_TXT = '버전 0.1.0 · 빌드 2026-11-02 15:34';
+  const BUILD_TXT = '버전 0.1.0 · 빌드 2026-11-02 20:08';
   for (const e of document.querySelectorAll('.ver')) e.textContent = BUILD_TXT;
 </script>
 <div id="touchUI" style="display:none">
@@ -119,9 +120,9 @@
 <div id="topRight">
   <div id="upOffer" style="display:none"></div>
   <div id="deadMsg" class="msg" style="display:none">내 탱크가 파괴됐다</div>
-  <button id="respawnBtn" style="display:none">재출격 (R)</button>
+  <button id="respawnBtn" style="display:none">재출격 (G)</button>
   <div id="clearMsg" class="msg" style="display:none">미션 클리어! 적 탱크 100대 격파</div>
-  <button id="restartBtn" style="display:none">새로 시작 (R)</button>
+  <button id="restartBtn" style="display:none">새로 시작 (G)</button>
 </div>
 <script type="module">
 import * as THREE from 'three';
@@ -4095,14 +4096,14 @@ const keys = new Set();
 addEventListener('keydown', (e) => {
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
   keys.add(e.code);
-  if (e.code === 'KeyR') {   // R: 미션 클리어면 새로 시작, 파괴됐으면 재출격, 아니면 세우기
+  if (e.code === 'KeyG') {   // G: 미션 클리어면 새로 시작, 파괴됐으면 재출격, 아니면 세우기
     const restart = document.getElementById('restartBtn'), respawn = document.getElementById('respawnBtn');
     if (restart.style.display !== 'none') restart.click();
     else if (respawn.style.display !== 'none') respawn.click();
     else uprightTank();
   }
 });
-// 뒤집혔을 때 그 자리에서 바로 세운다 (R키, 터치 '세우기' 버튼)
+// 뒤집혔을 때 그 자리에서 바로 세운다 (G키, 터치 '세우기' 버튼)
 function uprightTank() {
   if (!tank.solid) return;
   _fwd.set(0, 0, 1).applyQuaternion(tank.q);
@@ -4741,7 +4742,7 @@ function damageTank(T, raw, face, src, kind) {
   if (aiShow) floatTank(T, d, raw, face, src, a, kind);
   if (d <= 0) return 0;
   T.hp -= d;
-  if (T === tank) shake = Math.min(1.2, shake + Math.min(0.3, 0.05 + d * 0.005));
+  if (T === tank) { shake = Math.min(1.2, shake + Math.min(0.3, 0.05 + d * 0.005)); hudHit(d); }
   if (T.hp <= 0) destroyTankBody(T);
   return d;
 }
@@ -4847,7 +4848,7 @@ function sightClear(a, b) {
 }
 // 시야: 25m, 앞쪽 ±45도. 5m 안은 소리로 안다. 사거리 19m. 흩뜨림 0.04rad (모두 config.js의 enemy.ai)
 const SIGHT_R = AI.sightRange, SIGHT_COS = Math.cos(AI.sightAngle * DEG), HEAR_R = AI.hearRange, FIRE_R = AI.fireRange, ENEMY_SPREAD = EC.spread, PROWL_R = AI.prowlRange;
-// 뒤집히거나 벽에 기대 서 버리면 2초 뒤 그 자리에서 바로 세운다 (내 탱크의 R키와 같다)
+// 뒤집히거나 벽에 기대 서 버리면 2초 뒤 그 자리에서 바로 세운다 (내 탱크의 G키와 같다)
 function rescueTip(E, dt) {
   _fwd.set(0, 1, 0).applyQuaternion(E.q);
   E.tip = _fwd.y < 0.55 ? (E.tip || 0) + dt : 0;
@@ -5236,23 +5237,30 @@ function updateAiView() {
 }
 
 // ---------------------------------------------------------------- 픽셀 HUD
-// 게임 화면과 같은 저해상도 캔버스에 노란주황색 한 가지로, 선과 3x5 픽셀 글자만. 값이 바뀔 때만 다시 그린다
+// 게임 화면과 같은 저해상도에, 노란주황색 한 가지와 5x7 고정폭 글자로. 줄 높이 7칸, 줄 간격 4칸.
+// HUD 칸 = 1픽셀인 작은 캔버스 두 장(색, 검은 그림자)에 값이 바뀔 때만 다시 그려 두고, 화면 캔버스로 늘려 옮긴다.
+// 색은 스크린(또는 더하기) 블렌딩, 그 밑에 그림자를 살짝 깐다. 피해를 입으면 몇 칸 높이 띠마다 좌우로 치지직 어긋난다
 const phud = document.getElementById('phud'), pg = phud.getContext('2d');
-const HUD_COL = '#ffb43a';
-// 글자: 5x7 픽셀. 일곱 줄, 줄마다 다섯 칸을 비트로 (16 = 왼쪽 끝 … 1 = 오른쪽 끝)
+const phudS = document.getElementById('phudS'), sg = phudS.getContext('2d');
+const HC = Object.assign({ color: '#ffb43a', blend: 'screen', shadow: 0.55, glitchTime: 0.45, glitchPx: 6 }, CFG.hud);
+phud.style.mixBlendMode = HC.blend;
+const hudC = document.createElement('canvas'), hc = hudC.getContext('2d');   // 색
+const hudK = document.createElement('canvas'), kc = hudK.getContext('2d');   // 그림자
+hudC.width = hudK.width = 240; hudC.height = hudK.height = 140;
+// 글자: 5x7 고정폭 (한 글자 6칸). 일곱 줄, 줄마다 다섯 칸을 비트로 (16 = 왼쪽 끝 … 1 = 오른쪽 끝)
 const FONT = {
-  0: [14, 17, 19, 21, 25, 17, 14], 1: [4, 12, 4, 4, 4, 4, 14], 2: [14, 17, 1, 2, 4, 8, 31], 3: [31, 2, 4, 2, 1, 17, 14], 4: [2, 6, 10, 18, 31, 2, 2],
-  5: [31, 16, 30, 1, 1, 17, 14], 6: [6, 8, 16, 30, 17, 17, 14], 7: [31, 1, 2, 4, 8, 8, 8], 8: [14, 17, 17, 14, 17, 17, 14], 9: [14, 17, 17, 15, 1, 2, 12],
-  A: [14, 17, 17, 31, 17, 17, 17], B: [30, 17, 17, 30, 17, 17, 30], C: [14, 17, 16, 16, 16, 17, 14], D: [28, 18, 17, 17, 17, 18, 28], E: [31, 16, 16, 30, 16, 16, 31],
-  F: [31, 16, 16, 30, 16, 16, 16], G: [14, 17, 16, 23, 17, 17, 15], H: [17, 17, 17, 31, 17, 17, 17], I: [14, 4, 4, 4, 4, 4, 14], J: [7, 2, 2, 2, 2, 18, 12],
-  K: [17, 18, 20, 24, 20, 18, 17], L: [16, 16, 16, 16, 16, 16, 31], M: [17, 27, 21, 21, 17, 17, 17], N: [17, 17, 25, 21, 19, 17, 17], O: [14, 17, 17, 17, 17, 17, 14],
-  P: [30, 17, 17, 30, 16, 16, 16], Q: [14, 17, 17, 17, 21, 18, 13], R: [30, 17, 17, 30, 20, 18, 17], S: [15, 16, 16, 14, 1, 1, 30], T: [31, 4, 4, 4, 4, 4, 4],
-  U: [17, 17, 17, 17, 17, 17, 14], V: [17, 17, 17, 17, 17, 10, 4], W: [17, 17, 17, 21, 21, 21, 10], X: [17, 17, 10, 4, 10, 17, 17], Y: [17, 17, 17, 10, 4, 4, 4],
-  Z: [31, 1, 2, 4, 8, 16, 31], '/': [1, 1, 2, 4, 8, 16, 16], ':': [0, 12, 12, 0, 12, 12, 0], '.': [0, 0, 0, 0, 0, 12, 12], '-': [0, 0, 0, 14, 0, 0, 0],
-  '+': [0, 4, 4, 31, 4, 4, 0], '%': [24, 25, 2, 4, 8, 19, 3], '°': [12, 18, 18, 12, 0, 0, 0], ' ': [0, 0, 0, 0, 0, 0, 0],
+  0: [14, 17, 19, 21, 25, 17, 14], 1: [28, 4, 4, 4, 4, 4, 31], 2: [14, 17, 1, 2, 4, 8, 31], 3: [14, 17, 1, 6, 1, 17, 14], 4: [2, 6, 10, 18, 18, 31, 2],
+  5: [31, 16, 30, 1, 1, 17, 14], 6: [14, 16, 16, 30, 17, 17, 14], 7: [31, 1, 2, 4, 8, 8, 8], 8: [14, 17, 17, 14, 17, 17, 14], 9: [14, 17, 17, 15, 1, 1, 14],
+  A: [4, 10, 17, 17, 31, 17, 17], B: [28, 18, 18, 28, 18, 18, 28], C: [14, 17, 16, 16, 16, 17, 14], D: [28, 18, 17, 17, 17, 18, 28], E: [30, 16, 16, 30, 16, 16, 30],
+  F: [30, 16, 16, 30, 16, 16, 16], G: [15, 16, 16, 23, 17, 17, 15], H: [17, 17, 17, 31, 17, 17, 17], I: [14, 4, 4, 4, 4, 4, 14], J: [2, 2, 2, 2, 2, 18, 12],
+  K: [17, 18, 20, 24, 20, 18, 17], L: [16, 16, 16, 16, 16, 16, 30], M: [17, 27, 21, 17, 17, 17, 17], N: [17, 17, 25, 21, 19, 17, 17], O: [14, 17, 17, 17, 17, 17, 14],
+  P: [28, 18, 18, 28, 16, 16, 16], Q: [14, 17, 17, 17, 21, 18, 13], R: [30, 17, 17, 30, 20, 18, 17], S: [14, 16, 16, 12, 2, 2, 28], T: [31, 4, 4, 4, 4, 4, 4],
+  U: [17, 17, 17, 17, 17, 17, 14], V: [17, 17, 17, 17, 17, 10, 4], W: [17, 17, 17, 17, 21, 27, 17], X: [17, 17, 10, 4, 10, 17, 17], Y: [17, 10, 4, 4, 4, 4, 4],
+  Z: [31, 1, 2, 4, 8, 16, 31], '/': [0, 1, 2, 4, 8, 16, 0], ':': [0, 8, 0, 0, 0, 8, 0], '.': [0, 0, 0, 0, 0, 0, 8], '-': [0, 0, 0, 14, 0, 0, 0],
+  '+': [0, 4, 4, 31, 4, 4, 0], '%': [24, 25, 2, 4, 8, 19, 3], '°': [8, 20, 8, 0, 0, 0, 0], ' ': [0, 0, 0, 0, 0, 0, 0],
 };
-let hudKey = '', hk = 1;
-const px = (x, y, w = 1, h = 1) => pg.fillRect(x * hk, y * hk, w * hk, h * hk);   // HUD 좌표 1칸 = 화면 픽셀 hk개
+let hudKey = '', hk = 1, glitchUntil = 0, glitchPow = 0, hudGlitched = false;
+const px = (x, y, w = 1, h = 1) => { hc.fillRect(x, y, w, h); kc.fillRect(x, y, w, h); };
 function htext(s, x, y) {
   for (const ch of String(s).toUpperCase()) {
     const g = FONT[ch] || FONT[' '];
@@ -5261,48 +5269,79 @@ function htext(s, x, y) {
   }
   return x;
 }
-function hbar(x, y, w, f) {   // 테두리 + 안쪽을 비율만큼 채운 막대 (높이 7칸)
+// 게이지: 1칸 테두리 + 채운 만큼 꽉 칠한 막대 (높이 7칸). dots면 채운 부분을 격자 도트로
+function hbar(x, y, w, f, dots) {
+  const fw = Math.round(w * Math.max(0, Math.min(1, f)));
   px(x, y, w, 1); px(x, y + 6, w, 1); px(x, y, 1, 7); px(x + w - 1, y, 1, 7);
-  const fw = Math.round((w - 4) * Math.max(0, Math.min(1, f)));
-  if (fw > 0) px(x + 2, y + 2, fw, 3);
+  if (!dots) { if (fw > 0) px(x, y, fw, 7); }
+  else for (let yy = y + 1; yy < y + 6; yy++) for (let xx = x + 1; xx < x + fw; xx++) if ((xx + yy) % 2 === 0) px(xx, yy);
 }
 function hline(x0, y0, x1, y1) {   // 1칸 굵기 직선
   const n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0), 1);
   for (let i = 0; i <= n; i++) px(Math.round(x0 + (x1 - x0) * i / n), Math.round(y0 + (y1 - y0) * i / n));
 }
+// 내 탱크가 피해를 입었을 때: 클수록 세게, glitchTime 동안 HUD가 치지직
+function hudHit(d) {
+  glitchUntil = performance.now() + HC.glitchTime * 1000;
+  glitchPow = Math.min(1, 0.45 + d / 40);
+}
 function drawHud() {
-  const W = rt.width, H = rt.height;
-  if (phud.width !== W || phud.height !== H) { phud.width = W; phud.height = H; hudKey = ''; }
+  const W = rt.width, H = rt.height, now = performance.now();
+  if (phud.width !== W || phud.height !== H) { phud.width = phudS.width = W; phud.height = phudS.height = H; hudKey = ''; }
   hk = Math.max(1, Math.floor(H / 360));
   const alive = tank.solid || tank.falling;
   const hp = alive ? Math.max(0, Math.round(tank.hp)) : 0;
   const elev = Math.round(THREE.MathUtils.radToDeg(tank.elev));
-  const spd = Math.round(Math.hypot(tank.vel.x, tank.vel.z) * 3.6);
+  const spd = Math.round(Math.hypot(tank.vel.x, tank.vel.z) * 3.6), spdMax = VMAX * (tank.spdM || 1) * 3.6;
   const ta = Math.round(THREE.MathUtils.radToDeg(Math.atan2(Math.sin(tank.tyaw || 0), Math.cos(tank.tyaw || 0))));   // + = 왼쪽
-  const rl = tank.cool > 0 ? Math.round((1 - tank.cool / tank.reload) * 20) : 20;
-  const key = [W, H, hp, tank.maxHp, gold, growLevel, enemyLeft(), elev, spd, ta, rl, alive, tank.goldMul, tank.mg ? [tank.mg.count, tank.mg.rate, tank.mg.damage, tank.mg.range].join(':') : ''].join('|');
-  if (key === hudKey) return;
-  hudKey = key;
-  pg.clearRect(0, 0, W, H);
-  pg.fillStyle = HUD_COL;
-  const x0 = 5, L = 11, bx = x0 + 22, bw = 64, tx = bx + bw + 5;
-  let y = 5;
-  htext('HP', x0, y); hbar(bx, y, bw, hp / tank.maxHp); htext(alive ? hp : 'KO', tx, y); y += L;
-  htext('G', x0, y); hbar(bx, y, bw, gold / offerCost()); htext(`${gold}/${offerCost()}${tank.goldMul > 1 ? ' X' + tank.goldMul : ''}`, tx, y); y += L;
-  htext('RLD', x0, y); hbar(bx, y, bw, rl / 20); if (rl >= 20) htext('OK', tx, y); y += L;
-  htext(`LV ${growLevel}`, x0, y); htext(`ENEMY ${enemyLeft()}`, x0 + 48, y); y += L;
-  htext(`SPD ${spd} KM/H`, x0, y); y += L;
-  // 포각: 수평선 위로 기울어진 짧은 선
-  const ex = htext(`ELV ${elev}°`, x0, y) + 4, er = Math.max(-0.2, tank.elev);
-  hline(ex, y + 6, ex + 11, y + 6); hline(ex, y + 6, ex + Math.round(Math.cos(er) * 11), y + 6 - Math.round(Math.sin(er) * 11));
-  y += L + 3;
-  // 포탑: 위가 차체 앞인 작은 차체 테두리 + 포탑이 겨눈 방향 선
-  const cx = htext(`TUR ${ta > 0 ? 'L' : ta < 0 ? 'R' : ''}${Math.abs(ta)}°`, x0, y) + 9, cy = y + 3;
-  px(cx - 4, cy - 6, 9, 1); px(cx - 4, cy + 7, 9, 1); px(cx - 4, cy - 6, 1, 14); px(cx + 4, cy - 6, 1, 14);
-  const tr = (tank.tyaw || 0);
-  hline(cx, cy, cx - Math.round(Math.sin(tr) * 9), cy - Math.round(Math.cos(tr) * 9));
-  y += L + 6;
-  if (tank.mg) htext(`MG${tank.mg.count > 1 ? 'X2' : ''} ${tank.mg.rate}/S DMG ${tank.mg.damage} ${tank.mg.range}M`, x0, y);
+  const rl = tank.cool > 0 ? Math.round((1 - tank.cool / tank.reload) * 40) : 40;
+  const blink = rl < 40 ? Math.floor(now / 250) % 2 : 0;   // RELOAD 글자 깜빡임
+  const key = [hp, tank.maxHp, alive, gold, offerCost(), tank.goldMul, rl, blink, spd, Math.round(spdMax), elev, ta, growLevel, enemyLeft(),
+    tank.mg ? [tank.mg.count, tank.mg.rate, tank.mg.damage, tank.mg.range].join(':') : ''].join('|');
+  const glitch = now < glitchUntil;
+  if (key !== hudKey) {
+    hudKey = key;
+    hc.clearRect(0, 0, hudC.width, hudC.height); kc.clearRect(0, 0, hudK.width, hudK.height);
+    hc.fillStyle = HC.color; kc.fillStyle = '#000';
+    const x0 = 7, L = 11, vx = 41, bw = 60, tx = vx + bw + 4;   // 이름 칸, 줄 간격(7 + 4), 값·게이지 칸
+    let y = 6;
+    htext('HP', x0, y); hbar(vx, y, bw, hp / tank.maxHp); htext(alive ? hp : 'KO', tx, y); y += L;
+    htext('GOLD', x0, y); hbar(vx, y, bw, gold / offerCost()); htext(`${gold}/${offerCost()}${tank.goldMul > 1 ? ' X' + tank.goldMul : ''}`, tx, y); y += L;
+    htext('AMMO', x0, y); hbar(vx, y, bw, rl / 40, rl < 40); htext(rl < 40 ? (blink ? '' : 'RELOAD') : 'READY', tx, y); y += L;
+    htext('SPD', x0, y); hbar(vx, y, bw, spd / spdMax); htext(`${spd}KM/H`, tx, y); y += L;
+    // 포각: 부호를 늘 붙이고, 옆에 받침선과 포신 각도 그림
+    htext('ELV', x0, y); htext(`${elev < 0 ? '-' : '+'}${Math.abs(elev)}°`, vx, y);
+    const ex = vx + 24, er = Math.max(-0.2, tank.elev);
+    px(ex, y + 1, 3, 1); px(ex + 3, y + 2); px(ex + 4, y + 3, 1, 3); px(ex, y + 6, 6, 1);
+    hline(ex + 4, y + 6, ex + 4 + Math.round(Math.cos(er) * 6), y + 6 - Math.round(Math.sin(er) * 6));
+    y += L;
+    // 포탑: L/R + 세 자리 각도, 옆에 위가 차체 앞인 궤도 두 줄 + 포탑 원 + 포신
+    htext('TUR', x0, y); htext(`${ta < 0 ? 'R' : 'L'}${String(Math.abs(ta)).padStart(3, '0')}°`, vx, y);
+    const cx = vx + 36, cy = y + 3, tr = tank.tyaw || 0;
+    px(cx - 4, y, 1, 7); px(cx + 4, y, 1, 7);
+    px(cx - 1, cy - 2, 3, 1); px(cx - 1, cy + 2, 3, 1); px(cx - 2, cy - 1, 1, 3); px(cx + 2, cy - 1, 1, 3);
+    hline(cx - Math.round(Math.sin(tr) * 2), cy - Math.round(Math.cos(tr) * 2), cx - Math.round(Math.sin(tr) * 9), cy - Math.round(Math.cos(tr) * 9));
+    y += L;
+    htext('LV', x0, y); htext(growLevel, vx, y); y += L;
+    htext('ENEMY', x0, y); htext(enemyLeft(), vx, y); y += L;
+    if (tank.mg) { htext('MG', x0, y); htext(`${tank.mg.count > 1 ? 'X2 ' : ''}${tank.mg.rate}/S DMG ${tank.mg.damage} ${tank.mg.range}M`, vx, y); }
+  } else if (!glitch && !hudGlitched) return;
+  hudGlitched = glitch;
+  // 화면으로 옮기기: 평소엔 통째로, 치지직일 땐 1~4칸 높이 띠마다 좌우로 몇 칸씩 어긋나게
+  pg.clearRect(0, 0, W, H); sg.clearRect(0, 0, W, H);
+  pg.imageSmoothingEnabled = sg.imageSmoothingEnabled = false;
+  const k = glitch ? glitchPow * Math.min(1, (glitchUntil - now) / (HC.glitchTime * 1000) * 1.5) : 0;
+  const CW = hudC.width, CH = hudC.height;
+  for (let sy = 0; sy < CH;) {
+    const sh = glitch ? Math.min(CH - sy, 1 + (Math.random() * 4 | 0)) : CH;
+    const dx = glitch && Math.random() < 0.2 + 0.5 * k ? Math.round((Math.random() * 2 - 1) * HC.glitchPx * k) : 0;
+    pg.drawImage(hudC, 0, sy, CW, sh, dx * hk, sy * hk, CW * hk, sh * hk);
+    if (HC.shadow > 0) {
+      sg.globalAlpha = HC.shadow * 0.5; sg.drawImage(hudK, 0, sy, CW, sh, dx * hk, sy * hk, CW * hk, sh * hk);
+      sg.globalAlpha = HC.shadow; sg.drawImage(hudK, 0, sy, CW, sh, (dx + 1) * hk, (sy + 1) * hk, CW * hk, sh * hk);
+    }
+    sy += sh;
+  }
 }
 
 // 바람에 날리는 마른 풀 부스러기와 흙먼지: 카메라가 보는 곳 둘레에서 바람 방향으로 흘러간다.
@@ -5349,7 +5388,7 @@ function tick(dt) {
   const thr = (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0) || touch.thr;
   const steer = (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0) - (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) || touch.steer;
   const turn = thr < 0 ? -steer : steer;   // 후진할 땐 자동차처럼 좌우가 반대
-  const de = (keys.has('ArrowUp') || touch.up ? 1 : 0) - (keys.has('ArrowDown') || touch.down ? 1 : 0);
+  const de = (keys.has('ArrowUp') || keys.has('KeyR') || touch.up ? 1 : 0) - (keys.has('ArrowDown') || keys.has('KeyF') || touch.down ? 1 : 0);   // 포각: R·↑ 올림, F·↓ 내림
   tank.elev = Math.max(-0.1, Math.min(0.96, tank.elev + de * 0.55 * dt));
   const tq = (keys.has('KeyQ') || touch.tl ? 1 : 0) - (keys.has('KeyE') || touch.tr ? 1 : 0);   // 포탑 회전: Q(◀) 왼쪽, E(▶) 오른쪽
   if (tank.solid) turretStep(tank, tq, dt);
