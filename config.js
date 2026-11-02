@@ -70,9 +70,16 @@ window.CONFIG = {
     blastRatio: 0.1,            // 폭발 범위 안 대미지 비율
     spread: 0.04,               // 일부러 흩뜨리는 조준 오차 (라디안. 클수록 잘 빗나간다)
     goldDropMax: 24,            // 터질 때 뱉는 골드 최대 개수
+    // 레벨: 전체 적(자주포 포함) 중 끝에서 몇 대째부터 어느 레벨인가 (last = 끝에서 이 대수 안이면, mg = 기관총 수. 나머지 성능은 같다)
+    // 기본: 마지막 2대 = 레벨 3, 그 앞 4대 = 레벨 2, 나머지는 레벨 1
+    levels: [
+      { last: 2, level: 3, mg: 2 },
+      { last: 6, level: 2, mg: 1 },
+    ],
+    mg: { range: 18, rate: 1, damage: 4 },   // 적 기관총: 사거리 (m), 초당 발사 수, 한 발 대미지 (내 방어력 적용 후 소수점 버림)
 
     // 등장 / 클리어
-    clearKills: 20,             // 이만큼 부수면 미션 클리어 (자주포는 세지 않음)
+    clearKills: 20,             // 적 전체 대수 (자주포 포함). 모두 부수면 미션 클리어
     concurrentStart: 1,         // 동시에 있을 수 있는 적 수 (처음)
     concurrentEvery: 5,         // 성장 몇 단계마다 동시 적 수 +1
     concurrentMax: 4,           // 동시 적 수 최대
@@ -166,7 +173,9 @@ window.CONFIG = {
   // 성장
   // --------------------------------------------------------------------------
   growth: {
-    goldPerOffer: 100,          // 골드가 이만큼 모이면 선택지 3개가 뜬다. 고르면 이만큼 낸다
+    goldPerOffer: 100,          // 골드가 이만큼 모이면 선택지 3개가 뜬다. 고르면 이만큼 낸다 (처음)
+    goldStepEvery: 10,          // 성장 이 단계마다
+    goldStepAdd: 100,           // 필요한 골드가 이만큼 늘어난다 (0~9단계 100, 10~19단계 200, …)
     // 레어도별 등장 가중치 (상대 비율)와 표시 색
     rarity: {
       common:    { name: '일반', weight: 100, color: '#b4b4b4' },
@@ -184,26 +193,27 @@ window.CONFIG = {
     upgrades: [
       { id: 'speed',      name: '속도 증가',        desc: '최대 속도 +{v}%',                 rarity: 'common',    value: 10 },
       { id: 'accel',      name: '가속 증가',        desc: '가속도 +{v}%',                    rarity: 'common',    value: 15 },
-      { id: 'turn',       name: '선회 증가',        desc: '차체 회전 +{v}%',                 rarity: 'common',    value: 12 },
-      { id: 'turret',     name: '포탑 회전',        desc: '포탑 회전 +{v}%',                 rarity: 'common',    value: 20 },
+      { id: 'turn',       name: '선회 증가',        desc: '차체 회전 속도 +{v}%',                 rarity: 'common',    value: 12 },
+      { id: 'turret',     name: '포탑 회전',        desc: '포탑 회전 속도 +{v}%',                 rarity: 'common',    value: 20 },
       { id: 'magnet',     name: '자석',             desc: '골드 끌어오기 거리 +{v}%',        rarity: 'common',    value: 25 },
-      { id: 'heal',       name: '즉시 수리',        desc: 'HP를 처음 체력으로 회복',         rarity: 'common',    weight: 0.6 },
+      { id: 'heal',       name: '즉시 수리',        desc: '최대 HP로 완전히 수리',           rarity: 'common',    weight: 0.6 },
+      { id: 'maxHp',      name: '최대 HP 증가',     desc: '최대 HP +{v} (HP도 함께)',        rarity: 'common',    value: 20, max: 10 },
       { id: 'reload',     name: '재장전 단축',      desc: '재장전 시간 -{v}%',               rarity: 'uncommon',  value: 12 },
       { id: 'muzzle',     name: '포탄 속도',        desc: '발사 속도 +{v}% (사거리 증가)',   rarity: 'uncommon',  value: 10 },
       { id: 'blast',      name: '폭발 범위',        desc: '폭발 범위 +{v}m',                 rarity: 'uncommon',  value: 2 },
       { id: 'blastDmg',   name: '범위 대미지 증가', desc: '폭발 범위 대미지 +{v}%p',         rarity: 'uncommon',  value: 10 },
       { id: 'armor',      name: '장갑 강화',        desc: '받는 피해 -{v}%',                 rarity: 'uncommon',  value: 10 },
-      { id: 'ram',        name: '충돌 공격',        desc: '빠르게(10km/h↑) 들이받으면 적 탱크·금고에 대미지 10', rarity: 'uncommon', max: 1 },
+      { id: 'ram',        name: '충돌 공격',        desc: '빠르게 들이받으면 적 탱크·금고에 피해를 입힘', rarity: 'legendary', max: 1 },
       { id: 'water',      name: '물놀이',           desc: '물에서도 느려지지 않음',          rarity: 'uncommon',  max: 1 },
-      { id: 'mgRate',     name: '기관총 연사',      desc: '기관총 초당 발사 +{v}',           rarity: 'uncommon',  value: 1 },
+      { id: 'mgRate',     name: '기관총 연사',      desc: '기관총 초당 발사 +{v}',           rarity: 'rare',  value: 1 },
       { id: 'mgDmg',      name: '기관총 대미지',    desc: '기관총 대미지 +{v}',              rarity: 'uncommon',  value: 1 },
       { id: 'mgRange',    name: '기관총 사거리',    desc: '기관총 사거리 +{v}m',             rarity: 'uncommon',  value: 4 },
       { id: 'damage',     name: '대포 파괴력',      desc: '포탄 대미지 +{v}%',               rarity: 'rare',      value: 20 },
       { id: 'gold',       name: '골드 x{n}',        desc: '골드 하나를 주우면 {n}개로',      rarity: 'rare' },
       { id: 'goldKeep',   name: '골드 움켜쥐기',    desc: '내 탱크가 터져도 골드를 잃지 않음', rarity: 'rare',    max: 1 },
-      { id: 'mg',         name: '기관총',           desc: '가까운 적·금고를 자동 공격 (초당 1발, 대미지 1). 두 번째는 포탑 지붕 왼쪽에 1정 더', rarity: 'rare', max: 2 },
-      { id: 'pierce',     name: '관통탄',           desc: '적 방어력 -{v}%p (모든 방향)',    rarity: 'rare',      value: 10, max: 4 },
-      { id: 'superPierce',name: '슈퍼 관통탄',      desc: '적 방어력 -{v}%p (모든 방향)',    rarity: 'legendary', value: 40, max: 1 },
+      { id: 'mg',         name: '기관총',           desc: '가까운 적·금고를 자동 공격', rarity: 'rare', max: 2 },
+      { id: 'pierce',     name: '관통탄',           desc: '내 포탄이 적 방어력을 {v}%p 무시함', rarity: 'rare',      value: 10, max: 3 },
+      { id: 'superPierce',name: '슈퍼 관통탄',      desc: '내 포탄이 적 방어력을 {v}%p 무시함', rarity: 'legendary', value: 50, max: 1 },
       { id: 'autoRepair', name: '자동 수리',        desc: '10초마다 HP 1 회복',              rarity: 'legendary', max: 1 },
     ],
   },
