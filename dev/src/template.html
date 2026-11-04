@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>LITTLE IRON</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }   /* 검정 = 화면 비율 밖의 레터박스 */
+  canvas#c { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block;
+             image-rendering: crisp-edges; image-rendering: pixelated; }
+  #hud { position: fixed; left: 10px; top: 10px; color: #e8dcc0; font: 12px/1.6 monospace;
+         background: rgba(20, 18, 16, .6); padding: 8px 10px; border-radius: 4px; user-select: none; }
+  #hud select, #hud input { vertical-align: middle; }
+  #hud { max-width: calc(100vw - 40px); }
+  #hudTop { flex-wrap: wrap; }
+  #hud .grp { margin-top: 6px; padding-top: 4px; border-top: 1px solid rgba(232, 220, 192, .3); color: #ffd25a; }
+  #hud table.sl { border-collapse: collapse; } #hud table.sl td { padding: 0 4px 0 0; white-space: nowrap; }
+  #loading { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+             background: #000; color: #fff; font: 14px monospace; z-index: 10; }
+  #loadCv { position: fixed; left: 0; top: 0; }
+  /* 타이틀: 게임 화면(레터박스 안) 위에 네 귀퉁이로. 크기·자리는 viewRect()가 화면 높이에 맞춰 정한다 */
+  #title { position: fixed; pointer-events: none; z-index: 5; }
+  #title img, #title canvas { position: absolute; display: block; user-select: none; }
+  #title canvas { image-rendering: crisp-edges; image-rendering: pixelated; }
+  #tCall { left: 0; top: 0; }
+  /* 터치 조작 (스마트폰 세로 화면 하단): 왼쪽 아날로그 패드, 오른쪽 포각·발사·자세 버튼 */
+  #touchUI { position: fixed; left: 0; right: 0; bottom: 0; height: 0; z-index: 5; user-select: none; -webkit-user-select: none; }
+  #touchUI * { touch-action: none; -webkit-tap-highlight-color: transparent; }
+  #stick { position: fixed; left: 18px; bottom: 22px; width: 132px; height: 132px; border-radius: 50%;
+           background: rgba(20, 18, 16, .35); border: 2px solid rgba(232, 220, 192, .45); }
+  #knob { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%;
+          background: rgba(232, 220, 192, .55); border: 2px solid rgba(255, 255, 255, .6); }
+  /* 오른쪽: 맨 위 포탑 회전 ◀ ▶, 왼쪽 열 포각 ▲ ▼, 오른쪽 열 발사(크게)와 세우기(작게) */
+  #tright { position: fixed; right: 16px; bottom: 22px; display: grid; grid-template-columns: auto auto; grid-template-rows: auto auto auto auto; gap: 10px; align-items: center; justify-items: center; }
+  #tTL, #tTR { width: 56px; height: 48px; grid-row: 1; border-radius: 14px !important; }
+  #tTL { grid-column: 1; } #tTR { grid-column: 2; }
+  #tright button { border-radius: 50%; border: 2px solid rgba(232, 220, 192, .55); background: rgba(20, 18, 16, .45); color: #e8dcc0; font: bold 15px monospace; }
+  #tUp, #tDown { width: 56px; height: 56px; grid-column: 1; }
+  #tUp { grid-row: 2; } #tDown { grid-row: 3; }
+  #tFire { width: 84px; height: 84px; grid-column: 2; grid-row: 2 / span 2; background: rgba(150, 40, 20, .55) !important; font-size: 17px !important; }
+  #tFix { width: 50px; height: 50px; grid-column: 2; grid-row: 4; font-size: 10px !important; white-space: nowrap; }
+  #tright button.on { background: rgba(232, 220, 192, .45) !important; color: #222; }
+  /* 픽셀 HUD: 게임 화면과 같은 저해상도 캔버스를 그대로 늘려서 */
+  #phud, #phudS { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 2;
+          image-rendering: crisp-edges; image-rendering: pixelated; }
+  /* 픽셀 UI (한글): HUD와 같은 방식, HUD보다 위. 클릭은 받지 않는다 (항목을 누르면 창 전체에서 가로챈다) */
+  #pui, #puiS { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 5; }
+  #hud { z-index: 6; display: none; max-height: calc(100vh - 40px); overflow-y: auto; }
+  #dmgFloat div { position: fixed; transform: translate(-50%, -100%); font: bold 13px monospace; text-shadow: 0 0 2px #000, 0 0 2px #000, 0 0 2px #000;
+                  pointer-events: none; white-space: nowrap; z-index: 4; }
+  #pickLog { margin: 4px 0; padding: 4px 6px; background: rgba(0, 0, 0, .3); border-radius: 3px; }
+  #aiTags div { position: fixed; transform: translate(-50%, -100%); font: bold 12px monospace; color: #7fe8ff; text-shadow: 0 0 2px #000, 0 0 2px #000;
+                pointer-events: none; white-space: nowrap; z-index: 3; }
+  .ver { color: #e8dcc0; opacity: .6; font: 12px monospace; }
+</style>
+<script src="config.js"></script>
+<script src="fonts/galmuri11c.js"></script>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="loading"><canvas id="loadCv"></canvas></div>
+<canvas id="phudS"></canvas>
+<canvas id="phud"></canvas>
+<canvas id="puiS"></canvas>
+<canvas id="pui"></canvas>
+<div id="aiTags"></div>
+<div id="dmgFloat"></div>
+<div id="hud">
+  <div style="display:flex; align-items:center; gap:8px; white-space:nowrap"><b style="color:#ffd25a">설정</b> <span style="opacity:.6">` 키로 열고 닫기</span>
+       <span style="margin-left:auto"><button id="toTitle">타이틀 화면으로</button> <button id="camreset">카메라 초기화</button></span></div>
+  <div id="stats">-</div>
+  <div id="hudBody">
+  <div>내 탱크 <b id="tankPos">-</b> <span style="opacity:.6">(config.js player.start와 같은 형식)</span></div>
+  <div>해상도 <select id="res"><option>180</option><option>240</option><option selected>300</option><option>360</option><option>420</option><option value="max">최대</option></select>
+       <button id="aaBtn">AA 꺼짐</button> <button id="ppBtn">Pixel Perfect 꺼짐</button> <button id="olBtn">외곽선 꺼짐</button> <button id="grassBtn">풀: 텍스처2 (이삭 풀)</button> <button id="cbox">충돌박스</button> <button id="touchBtn">터치 버튼 꺼짐</button>
+       <button id="camModeBtn">시점: 포탑 방향</button></div>
+  <div>바람 <input id="wind" type="range" min="0" max="2" step="0.05" value="1"> <b id="windV">1.00</b>
+       방향 <input id="windDir" type="range" min="0" max="360" step="5" value="215"> <b id="windDirV">215°</b>
+       먼지 <input id="debris" type="range" min="0" max="1" step="0.05" value="0.3"> <b id="debrisV">0.30</b></div>
+  <div>포그 <input id="fog" type="range" min="0" max="0.025" step="0.0005" value="0.0105"> <b id="fogV">0.0105</b> <input id="fogC" type="color" value="#414a5e"></div>
+  <div>AO <button id="aoBtn">켜짐</button> 강도 <input id="aoK" type="range" min="0" max="4" step="0.1" value="1.8"> <b id="aoKv">1.8</b> <button id="aoWhite">흰색 보기</button></div>
+  <div>주광 <input id="moonI" type="range" min="0" max="4" step="0.05" value="1.5"> <b id="moonIV">1.50</b> <input id="moonC" type="color" value="#9aaad0"></div>
+  <div>소리 <input id="vol" type="range" min="0" max="1" step="0.05" value="0.5"> <b id="volV">0.50</b></div>
+  <div>WASD 이동 · QE 포탑 · RF/↑↓ 포각 · Space 발사 · G 세우기(전투 불능: 재출격, 적군 섬멸: 새로 시작) · 1·2·3 성장 선택 · ESC 일시정지 · T 첫 화면으로(일시정지·적군 섬멸 창)</div>
+  <div>마우스 드래그 카메라 회전 · 휠 줌</div>
+  <div class="grp">성장 테스트</div>
+  <div><button id="tDropGold">보물 상자 떨구기</button> <button id="tDropRepair">회복 상자 떨구기</button> <button id="tDropEnemy">적 탱크 떨구기</button> <button id="tDropSpg">적 자주포</button> <button id="tDropJeep">적 지프</button></div>
+  <div><button id="gOffer">성장 선택지 표시</button> <button id="gReroll">선택지 다시 고르기</button> <button id="gRand10">10레벨 무작위 성장</button> <button id="gReset">성장 초기화</button> <button id="aiBtn">적 AI 표시 꺼짐</button> <button id="aiStopBtn">적 AI 정지 꺼짐</button> <button id="dbgDie">내 탱크 파괴</button> <button id="dbgWipe">적군 섬멸</button> <button id="gLog">고른 성장 목록</button></div>
+  <div id="pickLog" style="display:none"></div>
+  <table class="sl">
+    <tr><td>대포 재장전</td><td><input id="gReload" type="range" step="0.1"></td><td><b id="gReloadV"></b></td></tr>
+    <tr><td>발사 속도</td><td><input id="gMuzzle" type="range" step="0.5"></td><td><b id="gMuzzleV"></b></td></tr>
+    <tr><td>대미지</td><td><input id="gDmg" type="range" step="5"></td><td><b id="gDmgV"></b></td></tr>
+    <tr><td>폭발 범위</td><td><input id="gSplash" type="range" step="0.5"></td><td><b id="gSplashV"></b></td></tr>
+    <tr><td>범위 대미지</td><td><input id="gBlastDmg" type="range" step="0.05"></td><td><b id="gBlastDmgV"></b></td></tr>
+    <tr><td>탱크 가속도</td><td><input id="gAcc" type="range" step="0.25"></td><td><b id="gAccV"></b></td></tr>
+    <tr><td>최대 속도</td><td><input id="gSpd" type="range" step="0.1"></td><td><b id="gSpdV"></b></td></tr>
+    <tr><td>회전 속도</td><td><input id="gTurn" type="range" step="1"></td><td><b id="gTurnV"></b></td></tr>
+    <tr><td>포탑 회전</td><td><input id="gTurret" type="range" step="1"></td><td><b id="gTurretV"></b></td></tr>
+  </table>
+  <div class="grp ver"></div>
+  </div>
+</div>
+<script>
+  // 버전·빌드 시각: 여기 한 곳만 고치면 로딩 화면과 설정 메뉴에 같이 나온다
+  const VERSION = '0.5.016', BUILD = '2026-11-04', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
+  for (const e of document.querySelectorAll('.ver')) e.textContent = BUILD_TXT;
+</script>
+<div id="touchUI" style="display:none">
+  <div id="stick"><div id="knob"></div></div>
+  <div id="tright"><button id="tTL">◀</button><button id="tTR">▶</button><button id="tUp">▲</button><button id="tDown">▼</button><button id="tFire">발사</button><button id="tFix">세우기</button></div>
+</div>
+<div id="title">
+  <canvas id="tLogo"></canvas>
+  <canvas id="tBrand"></canvas>
+  <canvas id="tBadge"></canvas>
+  <canvas id="tCall"></canvas>
+  <canvas id="tVer"></canvas>
+  <canvas id="tPress"></canvas>
+</div>
+<script type="module">
+<!-- @GAME: tools/build.py가 src/*.js를 순서대로 여기에 넣는다 -->
+</script>
+</body>
+</html>

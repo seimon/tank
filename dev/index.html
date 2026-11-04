@@ -1,4 +1,5 @@
 <!doctype html>
+<!-- 자동으로 만든 파일입니다. 직접 고치지 말고 src/를 고친 뒤 python tools/build.py 로 다시 만드세요. -->
 <html lang="ko">
 <head>
 <meta charset="utf-8">
@@ -16,21 +17,13 @@
   #hud .grp { margin-top: 6px; padding-top: 4px; border-top: 1px solid rgba(232, 220, 192, .3); color: #ffd25a; }
   #hud table.sl { border-collapse: collapse; } #hud table.sl td { padding: 0 4px 0 0; white-space: nowrap; }
   #loading { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
-             background: #3d4658; color: #e8dcc0; font: 14px monospace; z-index: 10; }
+             background: #000; color: #fff; font: 14px monospace; z-index: 10; }
   #loadCv { position: fixed; left: 0; top: 0; }
-  #topRight { position: fixed; right: 12px; top: 12px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; font: 13px/1.4 monospace; }
-  #topRight button { font: bold 15px monospace; padding: 8px 14px; border: 2px solid #e8dcc0; border-radius: 4px; background: rgba(20, 18, 16, .78); color: #ffd25a; cursor: pointer; }
   /* 타이틀: 게임 화면(레터박스 안) 위에 네 귀퉁이로. 크기·자리는 viewRect()가 화면 높이에 맞춰 정한다 */
   #title { position: fixed; pointer-events: none; z-index: 5; }
   #title img, #title canvas { position: absolute; display: block; user-select: none; }
   #title canvas { image-rendering: crisp-edges; image-rendering: pixelated; }
   #tCall { left: 0; top: 0; }
-  #pauseCv { position: fixed; pointer-events: none; z-index: 5; }
-  #upOffer { color: #e8dcc0; background: rgba(20, 18, 16, .78); border: 2px solid #ffd25a; border-radius: 4px; padding: 6px 10px; font: 13px/1.7 monospace; }
-  #upOffer .t { color: #ffd25a; font-weight: bold; }
-  #upOffer b { color: #ffd25a; } #upOffer span { opacity: .75; }
-  #upOffer .picked { text-decoration: underline; text-underline-offset: 3px; }
-  #upOffer .dim { opacity: .3; }
   /* 터치 조작 (스마트폰 세로 화면 하단): 왼쪽 아날로그 패드, 오른쪽 포각·발사·자세 버튼 */
   #touchUI { position: fixed; left: 0; right: 0; bottom: 0; height: 0; z-index: 5; user-select: none; -webkit-user-select: none; }
   #touchUI * { touch-action: none; -webkit-tap-highlight-color: transparent; }
@@ -48,11 +41,11 @@
   #tFire { width: 84px; height: 84px; grid-column: 2; grid-row: 2 / span 2; background: rgba(150, 40, 20, .55) !important; font-size: 17px !important; }
   #tFix { width: 50px; height: 50px; grid-column: 2; grid-row: 4; font-size: 10px !important; white-space: nowrap; }
   #tright button.on { background: rgba(232, 220, 192, .45) !important; color: #222; }
-  #topRight .msg { color: #e8dcc0; background: rgba(20, 18, 16, .6); padding: 4px 8px; border-radius: 4px; }
-  #upOffer .rar { font-size: 11px; opacity: .85; }
   /* 픽셀 HUD: 게임 화면과 같은 저해상도 캔버스를 그대로 늘려서 */
   #phud, #phudS { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 2;
           image-rendering: crisp-edges; image-rendering: pixelated; }
+  /* 픽셀 UI (한글): HUD와 같은 방식, HUD보다 위. 클릭은 받지 않는다 (항목을 누르면 창 전체에서 가로챈다) */
+  #pui, #puiS { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 5; }
   #hud { z-index: 6; display: none; max-height: calc(100vh - 40px); overflow-y: auto; }
   #dmgFloat div { position: fixed; transform: translate(-50%, -100%); font: bold 13px monospace; text-shadow: 0 0 2px #000, 0 0 2px #000, 0 0 2px #000;
                   pointer-events: none; white-space: nowrap; z-index: 4; }
@@ -62,6 +55,7 @@
   .ver { color: #e8dcc0; opacity: .6; font: 12px monospace; }
 </style>
 <script src="config.js"></script>
+<script src="fonts/galmuri11c.js"></script>
 <script type="importmap">
 { "imports": {
   "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
@@ -74,6 +68,8 @@
 <div id="loading"><canvas id="loadCv"></canvas></div>
 <canvas id="phudS"></canvas>
 <canvas id="phud"></canvas>
+<canvas id="puiS"></canvas>
+<canvas id="pui"></canvas>
 <div id="aiTags"></div>
 <div id="dmgFloat"></div>
 <div id="hud">
@@ -83,7 +79,7 @@
   <div id="hudBody">
   <div>내 탱크 <b id="tankPos">-</b> <span style="opacity:.6">(config.js player.start와 같은 형식)</span></div>
   <div>해상도 <select id="res"><option>180</option><option>240</option><option selected>300</option><option>360</option><option>420</option><option value="max">최대</option></select>
-       <button id="aaBtn">AA 꺼짐</button> <button id="ppBtn">Pixel Perfect 꺼짐</button> <button id="olBtn">외곽선 꺼짐</button> <button id="grassBtn">풀: 폴리곤</button> <button id="cbox">충돌박스</button> <button id="touchBtn">터치 버튼 꺼짐</button>
+       <button id="aaBtn">AA 꺼짐</button> <button id="ppBtn">Pixel Perfect 꺼짐</button> <button id="olBtn">외곽선 꺼짐</button> <button id="grassBtn">풀: 텍스처2 (이삭 풀)</button> <button id="cbox">충돌박스</button> <button id="touchBtn">터치 버튼 꺼짐</button>
        <button id="camModeBtn">시점: 포탑 방향</button></div>
   <div>바람 <input id="wind" type="range" min="0" max="2" step="0.05" value="1"> <b id="windV">1.00</b>
        방향 <input id="windDir" type="range" min="0" max="360" step="5" value="215"> <b id="windDirV">215°</b>
@@ -92,11 +88,11 @@
   <div>AO <button id="aoBtn">켜짐</button> 강도 <input id="aoK" type="range" min="0" max="4" step="0.1" value="1.8"> <b id="aoKv">1.8</b> <button id="aoWhite">흰색 보기</button></div>
   <div>주광 <input id="moonI" type="range" min="0" max="4" step="0.05" value="1.5"> <b id="moonIV">1.50</b> <input id="moonC" type="color" value="#9aaad0"></div>
   <div>소리 <input id="vol" type="range" min="0" max="1" step="0.05" value="0.5"> <b id="volV">0.50</b></div>
-  <div>WASD 이동 · QE 포탑 · RF/↑↓ 포각 · Space 발사 · G 세우기·재시작 · 1·2·3 성장 선택 · ESC 일시정지</div>
+  <div>WASD 이동 · QE 포탑 · RF/↑↓ 포각 · Space 발사 · G 세우기(전투 불능: 재출격, 적군 섬멸: 새로 시작) · 1·2·3 성장 선택 · ESC 일시정지 · T 첫 화면으로(일시정지·적군 섬멸 창)</div>
   <div>마우스 드래그 카메라 회전 · 휠 줌</div>
   <div class="grp">성장 테스트</div>
   <div><button id="tDropGold">보물 상자 떨구기</button> <button id="tDropRepair">회복 상자 떨구기</button> <button id="tDropEnemy">적 탱크 떨구기</button> <button id="tDropSpg">적 자주포</button> <button id="tDropJeep">적 지프</button></div>
-  <div><button id="gOffer">성장 선택지 표시</button> <button id="gReroll">선택지 다시 고르기</button> <button id="gReset">성장 초기화</button> <button id="aiBtn">적 AI 표시 꺼짐</button> <button id="aiStopBtn">적 AI 정지 꺼짐</button> <button id="gLog">고른 성장 목록</button></div>
+  <div><button id="gOffer">성장 선택지 표시</button> <button id="gReroll">선택지 다시 고르기</button> <button id="gRand10">10레벨 무작위 성장</button> <button id="gReset">성장 초기화</button> <button id="aiBtn">적 AI 표시 꺼짐</button> <button id="aiStopBtn">적 AI 정지 꺼짐</button> <button id="dbgDie">내 탱크 파괴</button> <button id="dbgWipe">적군 섬멸</button> <button id="gLog">고른 성장 목록</button></div>
   <div id="pickLog" style="display:none"></div>
   <table class="sl">
     <tr><td>대포 재장전</td><td><input id="gReload" type="range" step="0.1"></td><td><b id="gReloadV"></b></td></tr>
@@ -114,7 +110,7 @@
 </div>
 <script>
   // 버전·빌드 시각: 여기 한 곳만 고치면 로딩 화면과 설정 메뉴에 같이 나온다
-  const VERSION = '0.4.023', BUILD = '2026-11-03', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
+  const VERSION = '0.5.016', BUILD = '2026-11-04', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
   for (const e of document.querySelectorAll('.ver')) e.textContent = BUILD_TXT;
 </script>
 <div id="touchUI" style="display:none">
@@ -129,15 +125,8 @@
   <canvas id="tVer"></canvas>
   <canvas id="tPress"></canvas>
 </div>
-<canvas id="pauseCv" style="display:none"></canvas>
-<div id="topRight">
-  <div id="upOffer" style="display:none"></div>
-  <div id="deadMsg" class="msg" style="display:none">내 탱크가 파괴됐다</div>
-  <button id="respawnBtn" style="display:none">재출격 (G)</button>
-  <div id="clearMsg" class="msg" style="display:none">미션 클리어! 적 탱크 100대 격파</div>
-  <button id="restartBtn" style="display:none">새로 시작 (G)</button>
-</div>
 <script type="module">
+// ===== src/00_core.js =====
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -237,14 +226,16 @@ function drawLoading() {
   const src = cv._src || (cv._src = document.createElement('canvas'));
   src.width = W; src.height = H;
   const g = src.getContext('2d');
-  g.fillStyle = '#3d4658'; g.fillRect(0, 0, W, H);
-  const put = (t, y, k, col) => { g.fillStyle = col; fontDraw(t, Math.round((W - fontWidth(t) * k) / 2), y, k, (a, b, sz) => g.fillRect(a, b, sz, sz)); };
-  const bw = Math.min(240, W - 20), bx = Math.round((W - bw) / 2), by = Math.round(H / 2) - 3;
-  put('LITTLE IRON', by - 21, 2, '#e8dcc0');
-  g.fillStyle = '#e8dcc0'; g.fillRect(bx, by, bw, 1); g.fillRect(bx, by + 6, bw, 1); g.fillRect(bx, by, 1, 7); g.fillRect(bx + bw - 1, by, 1, 7);   // HUD 게이지처럼
-  g.fillStyle = '#ffd25a'; g.fillRect(bx, by, Math.round(bw * loadK), 7);
-  put(loadLabel, by + 15, 1, '#e8dcc0');
-  put(`VERSION ${VERSION}`, H - 18, 1, '#8a93a6');
+  g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+  // 검은 바탕에 모두 흰색. 글자는 모두 HUD 글꼴 기본 크기(7칸), 게이지(7칸) 위아래로 8칸씩 띄운다
+  const put = (t, y) => fontDraw(t, Math.round((W - fontWidth(t)) / 2), y, 1, (a, b) => g.fillRect(a, b, 1, 1));
+  const bw = Math.min(240, W - 20), bx = Math.round((W - bw) / 2), by = Math.round(H / 2) - 3, GAP = 8;
+  g.fillStyle = '#fff';
+  put('LITTLE IRON', by - GAP - 7);
+  g.fillRect(bx, by, bw, 1); g.fillRect(bx, by + 6, bw, 1); g.fillRect(bx, by, 1, 7); g.fillRect(bx + bw - 1, by, 1, 7);   // HUD 게이지처럼
+  g.fillRect(bx, by, Math.round(bw * loadK), 7);
+  put(loadLabel, by + 7 + GAP);
+  put(`VERSION ${VERSION}`, H - 18);
   sharpBlit(cv, src, innerWidth, innerHeight);
 }
 addEventListener('resize', drawLoading);
@@ -355,12 +346,16 @@ const RING_GLSL = `
 `;
 // PS1식 정점 스내핑: 클립 좌표를 저해상도 격자에 맞춰 떨림을 만든다
 const SNAP = 'gl_Position.xy = floor(gl_Position.xy / gl_Position.w * uSnap + 0.5) / uSnap * gl_Position.w;';
+// PS1_NOSNAP이 켜진 동안 만든 재질은 스내핑하지 않는다 (탱크: AO를 굽느라 잘게 나눈 삼각형이 제각각 끌려가
+// 리벳·얼룩이 일그러져 떨리고 가는 삼각형이 뒤집혀 겹쳐 보였다)
+let PS1_NOSNAP = false;
 function ps1(mat, extra, key) {
+  const snap = !PS1_NOSNAP;
   mat.onBeforeCompile = function (sh) {   // this = 컴파일되는 재질 (복제본도 같은 함수를 쓴다)
     sh.uniforms.uSnap = U.uSnap;
     const lit = sh.fragmentShader.includes('totalEmissiveRadiance');   // 빛을 받는 재질만 원형 빛도 받는다
     sh.vertexShader = 'uniform vec2 uSnap;\n' + (lit ? 'varying vec3 vRingW;\n' : '') +
-      sh.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n' + SNAP +
+      sh.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n' + (snap ? SNAP : '') +
         (lit ? '\n{ vec4 rw = vec4(transformed, 1.0);\n#ifdef USE_INSTANCING\nrw = instanceMatrix * rw;\n#endif\nvRingW = (modelMatrix * rw).xyz; }' : ''));
     if (extra) extra(sh);
     if (lit) {
@@ -380,7 +375,7 @@ function ps1(mat, extra, key) {
       sh.fragmentShader = sh.fragmentShader.replace('#include <emissivemap_fragment>', 'diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.9), uWhite);\n#include <emissivemap_fragment>');
     }
   };
-  if (key) mat.customProgramCacheKey = () => key;
+  if (key || !snap) mat.customProgramCacheKey = () => (key || '') + (snap ? '' : '|nosnap');
   return mat;
 }
 const lambert = (o) => ps1(new THREE.MeshLambertMaterial(o));
@@ -393,6 +388,7 @@ function markOutline(root) {
 }
 
 await loadStep(0.04, 'SHAPING TERRAIN...');
+// ===== src/10_world.js =====
 // ---------------------------------------------------------------- 지형
 const HILLS = [
   { x: -46, z: -45, a: 8, r: 13 }, { x: 50, z: 50, a: 9.5, r: 15 }, { x: 54, z: -42, a: 6, r: 10 },
@@ -987,6 +983,7 @@ let terrainCol;
   { const m = new THREE.Mesh(mergeGeometries(stones), lambert({ color: 0x6e6a60, flatShading: true })); m.userData.noOutline = true; scene.add(m); }
 }
 
+// ===== src/11_props.js =====
 // ---------------------------------------------------------------- 텍스처 헬퍼
 function canvasTex(w, h, draw, repeat) {
   const c = document.createElement('canvas'); c.width = w; c.height = h;
@@ -1987,6 +1984,7 @@ scene.remove(poleGroup);
 }
 
 await loadStep(0.66, 'ASSEMBLING TANKS...');
+// ===== src/20_objects.js =====
 // ---------------------------------------------------------------- 탱크 모델 (SD: 큰 포탑, 큰 구경)
 const TC = { hull: 0x6f7c3c, low: 0x66683a, turret: 0x84924c, wheel: 0x3c3c36, barrel: 0x66723a, plate: 0x5e6a32, top: 0x93a25a, muzzle: 0x55602e };
 const treadTex = canvasTex(8, 8, (g) => {
@@ -2019,10 +2017,15 @@ function rivetMat(o) {
       if (vRiv.z > 0.0) {
         vec2 p = vRiv.xy, s = vRiv.zw, q = min(p, s - p);
         const float IN = 0.1;   // 가장자리에서 안쪽
-        vec2 len = max(s - 2.0 * IN, vec2(0.001)), n = max(floor(len / 0.5 + 0.5), vec2(1.0)), sp = len / n;   // 변마다 간격
+        vec2 len = max(s - 2.0 * IN, vec2(0.001)), n = max(floor(len / 0.5 + 0.49), vec2(1.0)), sp = len / n;   // 변마다 간격 (반올림 경계를 0.5에서 살짝 비킨다: 길이가 딱 x.5칸이면 보간 오차로 픽셀마다 개수가 바뀌어 리벳이 흩어졌다)
         vec2 k = clamp(floor((p - IN) / sp + 0.5), vec2(0.0), n), at = IN + k * sp;   // 가장 가까운 리벳 자리
         float r = min(length(vec2(p.x - at.x, q.y - IN)), length(vec2(q.x - IN, p.y - at.y)));
-        diffuseColor.rgb *= r < 0.022 ? 0.62 : (r < 0.053 ? 0.4 : 1.0);
+        float px = max(length(fwidth(p)), 1e-4);   // 화면 한 픽셀이 면 위에서 몇 m인가
+        // 픽셀이 리벳에 덮인 만큼만 어둡게 (가장자리 1픽셀을 부드럽게): 1~2픽셀짜리 작은 점이 움직일 때 생겼다 사라졌다 깜빡이지 않게.
+        // 픽셀보다 작으면 그만큼 옅게, 가운데 밝은 점은 2픽셀 넘게 클 때만
+        float cov = clamp((0.053 - r) / px + 0.5, 0.0, 1.0) * min(1.0, 0.053 / px);
+        float core = clamp((0.022 - r) / px + 0.5, 0.0, 1.0) * clamp(0.022 / px - 1.0, 0.0, 1.0);
+        diffuseColor.rgb *= mix(mix(1.0, 0.4, cov), 0.62, core);
       }`);
   }, 'rivet');
 }
@@ -2102,9 +2105,11 @@ function deckGeo(hx) {
     const r = [[0, 0], [2 * hx, 0], [2 * hx, len], [0, len]].map(([a, b]) => ok ? [a, b, 2 * hx, len] : [0, 0, 0, 0]);
     tri(v[0], v[1], v[2], u[0], u[1], u[2], r[0], r[1], r[2]); tri(v[0], v[2], v[3], u[0], u[2], u[3], r[0], r[2], r[3]);
   }
-  for (const x of [-hx, hx]) for (let i = 1; i < prof.length - 1; i++) {
-    const ps = [prof[0], prof[i], prof[i + 1]];
-    tri(...ps.map(q => P(x, q)), ...ps.map(([z, y]) => [z / 1.2, y / 1.2]), ...ps.map(([z, y]) => [z + 1.975, y - 1.0, 3.95, DECK_TOP - 1.0]));
+  const zs = [...new Set([...Array.from({ length: 17 }, (_, k) => -1.975 + 3.95 * k / 16), DECK_Z0, DECK_Z1])].sort((a, b) => a - b);
+  const sideV = (x, z, y) => [P(x, [z, y]), [z / 1.2, y / 1.2], [z + 1.975, y - 1.0, 3.95, 0.2]];   // 높이를 0.2로 쳐서 리벳이 아래에서 0.1m 한 줄만
+  for (const x of [-hx, hx]) for (let i = 0; i < zs.length - 1; i++) {
+    const z0 = zs[i], z1 = zs[i + 1], c = [sideV(x, z0, 1.0), sideV(x, z1, 1.0), sideV(x, z1, deckY(z1)), sideV(x, z0, deckY(z0))];
+    for (const [a, b, d] of [[0, 1, 2], [0, 2, 3]]) tri(c[a][0], c[b][0], c[d][0], c[a][1], c[b][1], c[d][1], c[a][2], c[b][2], c[d][2]);
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -2157,6 +2162,7 @@ function updateTankLamps(thr) {
 const STACK_DIR = new THREE.Vector3(0, Math.cos(Math.PI / 3), -Math.sin(Math.PI / 3));   // 굴뚝 끝은 뒤로 60도 꺾였다
 // spg = 자주포: 포탑이 차체 뒤쪽, 포신이 3배 길다 (굴뚝은 포탑에 가리지 않게 앞쪽 옆으로)
 function buildTank(wreck, tc = TC, spg = false) {
+  PS1_NOSNAP = true;   // 탱크 재질은 스내핑 없이 (아래 return 앞에서 되돌린다)
   const root = new THREE.Group(), P = { belts: [] }, cache = new Map();
   const M = (c, map = plateTex, side = THREE.FrontSide) => {
     const k = `${c}|${map && map.uuid}|${side}`;
@@ -2225,11 +2231,12 @@ function buildTank(wreck, tc = TC, spg = false) {
   P.tip = add(new THREE.Object3D(), 0, 0, 2.0 + BL, P.barrel);
   // 뒤 경사면 양쪽의 열 배출구: 차체 가로 방향으로 길쭉한 검은 홈 4줄 (자주포는 굴뚝 자리가 달라 넣지 않는다)
   if (!spg) {
-    const ventMat = M(0x23221d, null), tilt = -Math.atan(DECK_T);
+    const tilt = -Math.atan(DECK_T), vents = [];
     for (const vx of [0.66, -0.66]) for (let i = 0; i < 4; i++) {
       const vz = -1.72 + i * 0.2;
-      add(new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.02, 0.06), ventMat), vx, deckY(vz) + 0.012, vz).rotation.x = tilt;
+      vents.push(new THREE.BoxGeometry(0.62, 0.02, 0.06).rotateX(tilt).translate(vx, deckY(vz) + 0.01, vz));
     }
+    add(new THREE.Mesh(mergeGeometries(vents), lambert({ color: M(0x23221d, null).color.clone(), vertexColors: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 })), 0, 0, 0);
   }
   // 뒤 경사 가운데의 짧은 굴뚝: 위에서 뒤로 60도 꺾인다
   const sz = spg ? 1.0 : -1.65, sx = spg ? 0.75 : 0, sy = deckY(sz), H = 0.45, top = new THREE.Vector3(sx, sy + H, sz);
@@ -2247,6 +2254,7 @@ function buildTank(wreck, tc = TC, spg = false) {
   bakeAO(root);
   root.traverse((o) => { if (o.isMesh && !o.material.isMeshBasicMaterial) o.material.defines = { AO_BAKED: '' }; });
   for (const k of ['pivot', 'barrel', 'turret', 'tip', 'stack', 'shovel']) P[k].name = k;   // 복제본에서 다시 찾을 수 있게
+  PS1_NOSNAP = false;
   return { root, P };
 }
 const { root: tankGroup, P: parts } = buildTank(false);
@@ -2577,24 +2585,15 @@ function updateCrates(dt) {
 }
 
 await loadStep(0.8, 'PLANTING GRASS...');
+// ===== src/21_grass_fx.js =====
 // ---------------------------------------------------------------- 마른 풀
 let grassCount = 0;
-const grassPoly = [], grassCard = [], grassCardMats = [], grassCardNames = [];   // 풀 메시: 폴리곤 풀잎 / 1비트 알파 텍스처 카드 (종류마다 재질만 바꿔 낀다)
+const grassCard = [], grassCardMats = [], grassCardNames = [];   // 풀 메시: 1비트 알파 텍스처 카드 (종류마다 재질만 바꿔 낀다)
 {
-  const pos = [], col = [], nor = [];
-  for (let b = 0; b < 3; b++) {
-    const ang = b / 3 * Math.PI * 2 + rr(-0.4, 0.4), cx = Math.cos(ang), cz = Math.sin(ang);
-    const w = 0.07, lean = 0.28, ox = rr(-0.12, 0.12), oz = rr(-0.12, 0.12), px = -cz * w, pz = cx * w;
-    pos.push(ox - px, 0, oz - pz, ox + px, 0, oz + pz, ox + cx * lean, 1, oz + cz * lean);
-    col.push(0.41, 0.38, 0.33, 0.41, 0.38, 0.33, 0.8, 0.8, 0.8);   // 뿌리는 어둡게, 끝은 밝게 (풀 사이 깊이감)
-    nor.push(0, 1, 0, 0, 1, 0, 0, 1, 0);
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
-
-  const mat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
+  // (예전 폴리곤 풀잎 모양을 만들 때 쓰던 배치 난수 9개: 뒤따르는 마을·상자 배치가 그대로 나오도록 같은 개수만큼 흘려보낸다)
+  for (let k = 0; k < 9; k++) rand();
+  // 풀 셰이더 (텍스처 카드 재질들이 이 onBeforeCompile을 같이 쓴다): 땅 기울기 조명, 불탄·눌린 풀, 폭풍, 바람, 그늘, 빛
+  const mat = { onBeforeCompile: null };
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, U);
     sh.vertexShader = 'uniform float uTime; uniform vec2 uSnap; uniform vec2 uWindDir; uniform float uWind; uniform vec4 uBlast[4];\n' +
@@ -2702,25 +2701,23 @@ const grassPoly = [], grassCard = [], grassCardMats = [], grassCardNames = [];  
   const crand = (seed) => () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   const blade = (g, bx, lean, top, w, v) => { g.fillStyle = `rgb(${v},${v},${v})`; g.beginPath(); g.moveTo(bx - w, 32); g.lineTo(bx + w, 32); g.lineTo(bx + lean, top); g.closePath(); g.fill(); };
   const stalk = (g, x0, x1, top, v) => { g.strokeStyle = `rgb(${v},${v},${v})`; g.lineWidth = 1.6; g.beginPath(); g.moveTo(x0, 32); g.lineTo(x1, top); g.stroke(); };
-  // 이삭 풀 변형: 풀마다 밝기 차이를 크게, 일부는 누렇게 더 마른 색. fruit = 낟알 색을 불그스름하게 구분하고 포기 간격을 조금 넓힌다
-  const seedGrass = (g, r, fruit) => {
+  // 이삭 풀: 풀마다 밝기 차이를 크게, 일부는 누렇게 더 마른 색. 낟알은 불그스름하게, 포기 간격은 조금 넓게
+  const seedGrass = (g, r) => {
     const tint = (v, dry) => dry ? `rgb(${v},${Math.round(v * 0.9)},${Math.round(v * 0.66)})` : `rgb(${v},${v},${Math.round(v * 0.94)})`;
-    const nb = fruit ? 7 : 9, ns = fruit ? 4 : 5;
-    for (let k = 0; k < nb; k++) {
-      const bx = (k + 0.2 + r() * 0.6) / nb * 30 + 1, lean = (r() - 0.5) * 10, top = 7 + r() * 5, w = 1 + r() * 1.2;
+    for (let k = 0; k < 7; k++) {
+      const bx = (k + 0.2 + r() * 0.6) / 7 * 30 + 1, lean = (r() - 0.5) * 10, top = 7 + r() * 5, w = 1 + r() * 1.2;
       g.fillStyle = tint(Math.round(150 + r() * 105), r() < 0.35);
       g.beginPath(); g.moveTo(bx - w, 32); g.lineTo(bx + w, 32); g.lineTo(bx + lean, top); g.closePath(); g.fill();
     }
-    for (let k = 0; k < ns; k++) {
-      const x0 = (k + 0.25 + r() * 0.5) / ns * 28 + 2, lean = (r() - 0.5) * 8, top = 1 + r() * 3, v = Math.round(185 + r() * 70), dry = r() < 0.4;
+    for (let k = 0; k < 4; k++) {
+      const x0 = (k + 0.25 + r() * 0.5) / 4 * 28 + 2, lean = (r() - 0.5) * 8, top = 1 + r() * 3, v = Math.round(185 + r() * 70), dry = r() < 0.4;
       g.strokeStyle = tint(v, dry); g.lineWidth = 1.6; g.beginPath(); g.moveTo(x0, 32); g.lineTo(x0 + lean, top + 3); g.stroke();
-      g.fillStyle = fruit ? `rgb(${Math.round(v * 0.96)},${Math.round(v * 0.8)},${Math.round(v * 0.66)})` : tint(v, true);
+      g.fillStyle = `rgb(${Math.round(v * 0.96)},${Math.round(v * 0.8)},${Math.round(v * 0.66)})`;
       for (let j = 0; j < 4; j++) { g.beginPath(); g.arc(x0 + lean + (j % 2 ? 1.3 : -1.3), top + j * 1.6, 1.2, 0, 6.283); g.fill(); }
     }
   };
   const GRASS_TEX = [
-    { name: '마른 풀', label: '1', draw(g, r) { for (let k = 0; k < 11; k++) blade(g, 2 + r() * 28, (r() - 0.5) * 12, r() * 5, 1.2 + r() * 1.6, Math.round(215 + r() * 40)); } },
-    { name: '갈대', label: '2', draw(g, r) {   // 아래쪽 넓은 잎 + 가는 줄기 끝의 길쭉한 깃털 이삭
+    { name: '갈대', label: '1', seed: 1, draw(g, r) {   // 아래쪽 넓은 잎 + 가는 줄기 끝의 길쭉한 깃털 이삭
       for (let k = 0; k < 6; k++) blade(g, 2 + r() * 28, (r() - 0.5) * 8, 11 + r() * 5, 1 + r(), Math.round(200 + r() * 30));
       for (let k = 0; k < 5; k++) {
         const x0 = 3 + r() * 26, lean = (r() - 0.5) * 6, top = 1 + r() * 2, v = Math.round(225 + r() * 30);
@@ -2729,18 +2726,8 @@ const grassPoly = [], grassCard = [], grassCardMats = [], grassCardNames = [];  
         g.beginPath(); g.ellipse(x0 + lean * 1.1, top + 4, 1.7, 4.2, lean * 0.08, 0, 6.283); g.fill();
       }
     } },
-    { name: '이삭 풀', label: '3', draw(g, r) {   // 짧은 잎 + 줄기 끝에 낟알이 몇 알씩 매달린 이삭
-      for (let k = 0; k < 9; k++) blade(g, 2 + r() * 28, (r() - 0.5) * 10, 7 + r() * 5, 1 + r() * 1.2, Math.round(205 + r() * 40));
-      for (let k = 0; k < 5; k++) {
-        const x0 = 3 + r() * 26, lean = (r() - 0.5) * 8, top = 1 + r() * 3, v = Math.round(230 + r() * 25);
-        stalk(g, x0, x0 + lean, top + 3, v);
-        g.fillStyle = `rgb(${v},${v - 4},${v - 30})`;
-        for (let j = 0; j < 4; j++) { g.beginPath(); g.arc(x0 + lean + (j % 2 ? 1.3 : -1.3), top + j * 1.6, 1.2, 0, 6.283); g.fill(); }
-      }
-    } },
-    { name: '이삭 풀 2', label: '3-2', tall: 1.3, draw(g, r) { seedGrass(g, r, false); } },
-    { name: '이삭 풀 3', label: '3-3', tall: 1.3, draw(g, r) { seedGrass(g, r, true); } },
-    { name: '키 큰 풀', label: '4', tall: 1.5, draw(g, r) { for (let k = 0; k < 14; k++) blade(g, 1 + r() * 30, (r() - 0.5) * 8, r() * 4, 0.9 + r() * 1.2, Math.round(205 + r() * 50)); } },
+    { name: '이삭 풀', label: '2', seed: 4, tall: 1.3, draw(g, r) { seedGrass(g, r); } },
+    { name: '키 큰 풀', label: '3', seed: 5, tall: 1.5, draw(g, r) { for (let k = 0; k < 14; k++) blade(g, 1 + r() * 30, (r() - 0.5) * 8, r() * 4, 0.9 + r() * 1.2, Math.round(205 + r() * 50)); } },
   ];
   const cardGeo = new THREE.BufferGeometry();
   {
@@ -2762,7 +2749,7 @@ const grassPoly = [], grassCard = [], grassCardMats = [], grassCardNames = [];  
   const cardMat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, alphaTest: 0.5 });
   GRASS_TEX.forEach((t, i) => {
     const m = i ? new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, alphaTest: 0.5 }) : cardMat;
-    m.map = canvasTex(32, 32, (g) => t.draw(g, crand(0x51ab3d + i * 7919)));
+    m.map = canvasTex(32, 32, (g) => t.draw(g, crand(0x51ab3d + t.seed * 7919)));   // seed: 예전 순번 (무늬가 바뀌지 않게)
     const k = t.tall || 1;
     // 키 큰 풀: 카드를 위로 늘린다 (흔들림·색은 원래 높이 기준 그대로라 끝이 과하게 휘거나 밝아지지 않는다)
     m.onBeforeCompile = k === 1 ? mat.onBeforeCompile : (sh) => {
@@ -2774,19 +2761,14 @@ const grassPoly = [], grassCard = [], grassCardMats = [], grassCardNames = [];  
   });
   for (const list of chunks) {
     if (!list.length) continue;
-    const n = list.length / 4, g = geo.clone(), gnA = new Float32Array(n * 3), rtA = new Float32Array(n * 3);
-    const mesh = new THREE.InstancedMesh(g, mat, n);
-    for (let i = 0; i < n; i++) { mesh.setMatrixAt(i, list[i * 4]); mesh.setColorAt(i, list[i * 4 + 1]); list[i * 4 + 2].toArray(gnA, i * 3); list[i * 4 + 3].toArray(rtA, i * 3); }
-    g.setAttribute('aGround', new THREE.InstancedBufferAttribute(gnA, 3));
-    g.setAttribute('aRoot', new THREE.InstancedBufferAttribute(rtA, 3));
-    mesh.computeBoundingSphere(); mesh.boundingSphere.radius += 2;
-    mesh.userData.noOutline = true;
-    scene.add(mesh); grassPoly.push(mesh);
-    const cg = cardGeo.clone();
-    cg.setAttribute('aGround', g.attributes.aGround); cg.setAttribute('aRoot', g.attributes.aRoot);
+    const n = list.length / 4, cg = cardGeo.clone(), gnA = new Float32Array(n * 3), rtA = new Float32Array(n * 3);
     const cm = new THREE.InstancedMesh(cg, cardMat, n);
-    cm.instanceMatrix = mesh.instanceMatrix; cm.instanceColor = mesh.instanceColor; cm.count = Math.ceil(n * 0.5);   // 심은 순서가 무작위라 앞의 절반도 고르게 퍼져 있다
-    cm.boundingSphere = mesh.boundingSphere.clone(); cm.visible = false; cm.userData.noOutline = true;
+    for (let i = 0; i < n; i++) { cm.setMatrixAt(i, list[i * 4]); cm.setColorAt(i, list[i * 4 + 1]); list[i * 4 + 2].toArray(gnA, i * 3); list[i * 4 + 3].toArray(rtA, i * 3); }
+    cg.setAttribute('aGround', new THREE.InstancedBufferAttribute(gnA, 3));
+    cg.setAttribute('aRoot', new THREE.InstancedBufferAttribute(rtA, 3));
+    cm.computeBoundingSphere(); cm.boundingSphere.radius += 2;
+    cm.count = Math.ceil(n * 0.5);   // 카드 한 장이 풀잎 여러 개를 그리니 절반만 (심은 순서가 무작위라 앞의 절반도 고르게 퍼져 있다)
+    cm.userData.noOutline = true;
     scene.add(cm); grassCard.push(cm);
   }
 }
@@ -2802,6 +2784,7 @@ for (let j = 0; j < FN; j++) for (let i = 0; i < FN; i++) {
 }
 const burning = [];    // 이번 틱에 타고 있는 칸
 let fireBins = [];     // 화재 광원 배치용 (10x10 구역별 합)
+const fireGlow = new Map();   // 구역 번호 → 지금 비추는 불빛 { x, z, I } (updateLights가 부드럽게 따라간다)
 const NB = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 0.7], [1, -1, 0.7], [-1, 1, 0.7], [-1, -1, 0.7]];
 function fieldTick(dt) {
   burning.length = 0;
@@ -2848,7 +2831,7 @@ function fieldTick(dt) {
     let e = bins.get(b); if (!e) bins.set(b, e = { x: 0, z: 0, s: 0 });
     e.x += (-HALF + (i + 0.5) * FCELL) * w; e.z += (-HALF + (j + 0.5) * FCELL) * w; e.s += w;
   }
-  fireBins = [...bins.values()].map(e => ({ x: e.x / e.s, z: e.z / e.s, s: e.s })).sort((a, b) => b.s - a.s);
+  fireBins = [...bins].map(([b, e]) => ({ b, x: e.x / e.s, z: e.z / e.s, s: e.s })).sort((a, b) => b.s - a.s);
 }
 function scorchField(x, z, r) {
   forCells(x, z, r * 2, (k, d) => { fTr[k] = Math.max(fTr[k], 1 - d / (r * 4)); });   // 폭풍에 풀이 눕는다
@@ -2985,6 +2968,7 @@ const flashes = [];   // {p, t, dur, I, range, color}
 
 const HULL_HX = 1.5, HULL_HZ = 2.0;   // 충돌용 차체 반폭/반길이 (탱크. 지프처럼 크기가 다른 몸체는 hx·hz·ht를 따로 가진다)
 
+// ===== src/30_combat.js =====
 // ---------------------------------------------------------------- 탱크 물리 (강체 + 접촉점 페널티)
 // 질량 1로 정규화. 궤도 접촉점은 벨트 속도만큼 지면을 밀어 추진하고, 마찰 한계를 넘으면 미끄러진다
 const G = 9.8, K = 300, C = 8, KT = 25, MU = 0.75, MU_LAT = 0.6;
@@ -3840,7 +3824,8 @@ function updateBalls(dt) {
     if (hit) {
       const pw = 1 + (b.blast || 0) * 0.1;   // 폭발 범위가 넓을수록 커 보이게
       const wreck = hit.group && hit.group.userData.wreck;
-      if (hit.target) { damageTarget(hit.target, b.dmg); if (hit.target.alive) explode(hit.p, hit.n, false, pw); }
+      if (b.harmless) { if (hit.water) splash(hit.p); else explode(hit.p, hit.n || UP, false, pw); }   // 타이틀 포탄: 터지기만 한다
+      else if (hit.target) { damageTarget(hit.target, b.dmg); if (hit.target.alive) explode(hit.p, hit.n, false, pw); }
       else if (hit.enemy) hitTank(hit.enemy, hit, b);
       else if (hit.crate) { explode(hit.p, UP, false, pw); spawnShards(hit.p, 14, WOOD_COLS, 6, 16, null, 0.15, 0.4); damageCrate(hit.crate, b.dmg); }   // 폭발은 지면과 같고 나무 조각만 더
       else if (hit.water) splash(hit.p);
@@ -3852,7 +3837,7 @@ function updateBalls(dt) {
         if (hit.decal) spawnShards(hit.p, 18, hit.metal ? METAL_COLS : WOOD_COLS, 4, 13, hit.n, 0.15, 0.45);   // 판자 조각 / 쇳조각
       }
       // 폭발 범위: 둘레의 탱크(피아 구분 없음)·상자·잔해에 포탄 대미지 × 비율 (직격당한 것은 빼고)
-      if (!hit.water && b.blast > 0) blastDamage(hit.p, b.blast, b.dmg * b.blastRatio, b.owner, hit.target || hit.enemy || hit.crate || wreck);
+      if (!hit.water && b.blast > 0 && !b.harmless) blastDamage(hit.p, b.blast, b.dmg * b.blastRatio, b.owner, hit.target || hit.enemy || hit.crate || wreck);
     }
     if (hit || b.p.y < BOTTOM - 25) { scene.remove(b.mesh); balls.splice(i, 1); }
   }
@@ -3896,7 +3881,7 @@ function fireCannon(T = tank, spread = 0) {
   const ball = { mesh, p: _tip.clone(), v: dir.clone().multiplyScalar(T.muzzle || MUZZLE).addScaledVector(T.vel, VEL_INHERIT), age: 0, trail: 0, owner: T,
     dmg: T.shellDmg, blast: T.blastR || 0, blastRatio: T.blastRatio || 0 };
   balls.push(ball);
-  if (T === tank) for (const E of ENEMIES) if (E.solid && !E.spg && E.pos.distanceTo(T.pos) < HEAR_SHOT_R) { E.seenX = T.pos.x; E.seenZ = T.pos.z; E.lost = Math.min(E.lost || 0, 1); }   // 포성: 가까운 적이 소리 난 곳으로 온다
+  if (T === tank && titleState === 'play') for (const E of ENEMIES) if (E.solid && !E.spg && E.pos.distanceTo(T.pos) < HEAR_SHOT_R) { E.seenX = T.pos.x; E.seenZ = T.pos.z; E.lost = Math.min(E.lost || 0, 1); }   // 포성: 가까운 적이 소리 난 곳으로 온다
   // 반동: 몸통이 뒤로 밀리고 앞이 들린다
   T.vel.addScaledVector(dir, -RECOIL);
   applyAngularImpulse(_tmp.copy(_tip).sub(T.pos).cross(dir.clone().multiplyScalar(-RECOIL)), T);
@@ -4053,9 +4038,19 @@ function updateLights(dt) {
     src.push({ x: f.p.x, y: f.p.y, z: f.p.z, I: f.I * k * k, range: f.range, color: f.color });
   }
   const t = U.uTime.value;
+  // 불타는 풀의 불빛: 큰 구역 4곳. 구역마다 빛을 기억해 두고 자리·밝기를 천천히 따라가며, 빠진 구역은 서서히 꺼진다
+  for (const g of fireGlow.values()) g.tI = 0;
   for (const b of fireBins.slice(0, 4)) {
-    const flick = 0.8 + 0.2 * Math.sin(t * 17 + b.x) * Math.sin(t * 11 + b.z);
-    src.push({ x: b.x, y: heightAt(b.x, b.z) + 1.6, z: b.z, I: 16 * Math.min(1, b.s / 8) * flick, range: 12, color: 0xff7a30 });
+    let g = fireGlow.get(b.b);
+    if (!g) fireGlow.set(b.b, g = { x: b.x, z: b.z, I: 0 });
+    g.tx = b.x; g.tz = b.z; g.tI = 16 * Math.min(1, b.s / 8);
+  }
+  const kp = 1 - Math.exp(-dt * 2), ki = 1 - Math.exp(-dt * 3);
+  for (const [key, g] of fireGlow) {
+    g.x += (g.tx - g.x) * kp; g.z += (g.tz - g.z) * kp; g.I += (g.tI - g.I) * ki;
+    if (!g.tI && g.I < 0.3) { fireGlow.delete(key); continue; }
+    const flick = 0.8 + 0.2 * Math.sin(t * 17 + g.x) * Math.sin(t * 11 + g.z);
+    src.push({ x: g.x, y: heightAt(g.x, g.z) + 1.6, z: g.z, I: g.I * flick, range: 12, color: 0xff7a30 });
   }
   // 가까운 잔해 두 곳의 불빛 (폭발 섬광보다 약해서 섬광이 있으면 자리를 내준다)
   smokers.filter(s => s.weak).map(s => ({ s, d: (s.x - camera.position.x) ** 2 + (s.z - camera.position.z) ** 2 })).filter(o => o.d < 70 * 70)
@@ -4251,8 +4246,11 @@ function runGuns(T, guns, count, st, pick, dt) {
     flashes.push({ p: _mgW.clone(), t: 0, dur: 0.07, I: 90, range: 10, color: 0xffd08a });   // 총구 섬광 (광원)
     glowP.spawn(_mgW.x, _mgW.y, _mgW.z, 0, 0, 0, 0.05, [1, 0.95, 0.7, 1], [1, 0.6, 0.2, 0], 0.5, 0.2, 0, 0);
     sfx.mg(_mgW);
-    if (G.tgt.E) damageTank(G.tgt.E, st.damage, faceAt(G.tgt.E, _mgW), T, 'mg');
-    else damageTarget(G.tgt.t, st.damage, 'mg');
+    // 맞은 소리: 대미지가 들어가면 쇳소리, 장갑에 막혀 0이면 튕기는 도탄음
+    let hurt;
+    if (G.tgt.E) hurt = damageTank(G.tgt.E, st.damage, faceAt(G.tgt.E, _mgW), T, 'mg') > 0;
+    else { hurt = boxDmg(st.damage) > 0; damageTarget(G.tgt.t, st.damage, 'mg'); }
+    if (hurt) sfx.mgHit(_mgT); else sfx.mgPing(_mgT);
   }
 }
 function updateMG(dt) {
@@ -4297,17 +4295,24 @@ function updateCollisionView() {
   colDirty = false;
 }
 
+// ===== src/40_input_post.js =====
 // ---------------------------------------------------------------- 입력
 const keys = new Set();
 addEventListener('keydown', (e) => {
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
   keys.add(e.code);
-  if (e.code === 'KeyG' && titleState === 'play') {   // G: 미션 클리어면 새로 시작, 파괴됐으면 재출격, 아니면 세우기
-    const restart = document.getElementById('restartBtn'), respawn = document.getElementById('respawnBtn');
-    if (restart.style.display !== 'none') restart.click();
-    else if (respawn.style.display !== 'none') respawn.click();
-    else uprightTank();
+  if (UI.screen === pauseUI && e.code === 'KeyT') uiShow(confirmUI);   // 일시정지: T = 첫 화면으로 (확인 창)
+  else if (UI.screen === pauseUI && (e.code === 'KeyW' || e.code === 'KeyS') && !e.repeat) pauseUI.nudge(e.code === 'KeyW' ? -1 : 1);   // 강화 기록 넘겨 보기 (누르고 있으면 tick이 계속 넘긴다)
+  else if (UI.screen === pauseUI && (e.code === 'KeyA' || e.code === 'KeyD')) pauseUI.toEnd(e.code === 'KeyD');   // 강화 기록 맨 위(A) / 맨 아래(D)
+  else if (UI.screen === pauseUI && (e.code === 'KeyQ' || e.code === 'KeyE')) pauseUI.setTab(pauseUI.tab + (e.code === 'KeyE' ? 1 : -1));   // 탭: Q 왼쪽, E 오른쪽
+  else if (UI.screen === confirmUI) { if (e.code === 'KeyY') restartGame(true); else if (e.code === 'KeyN') uiShow(pauseUI); }
+  if (paused) return;
+  if (e.code === 'KeyG' && titleState === 'play') {   // G: 적군 섬멸이면 새로 시작, 파괴됐으면 재출격, 아니면 세우기
+    if (endState === 'clear') restartGame(false);
+    else if (endState === 'dead') respawn();
+    else if (!winUp()) uprightTank();   // 창이 떠 있으면 세우기도 안 됨
   }
+  if (e.code === 'KeyT' && endState === 'clear') restartGame(true);   // T: 첫 화면으로
 });
 // 뒤집혔을 때 세운다 (G키, 터치 '세우기' 버튼): 포탄 한 발을 쏜 것처럼 장전돼 있을 때만 되고, 하면 한 발 소모 (포탄은 안 나감)
 function uprightTank() {
@@ -4374,14 +4379,20 @@ const olRT = new THREE.WebGLRenderTarget(2, 2, { magFilter: THREE.NearestFilter,
 const olMat = ps1(new THREE.MeshBasicMaterial({ colorWrite: false }), null, 'outlineDepth');
 let outlineOn = false;
 const postScene = new THREE.Scene(), postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+// 가운데 창(전투 불능·적군 섬멸·일시정지·확인) 설정: 배경 회색조 두 색과 전환 시간, 창이 사라지는 시간, 창 색
+const POPC = CFG.popup || {};
+const POP = { dark: POPC.grayDark || '#191d20', light: POPC.grayLight || '#7b919b', grayTime: POPC.grayTime ?? 0.4, fade: POPC.fadeTime ?? 0.4,
+  pause: POPC.pauseColor || '#cc8000', confirm: POPC.confirmColor || '#e0533c', dead: POPC.deadColor || '#e0533c', clear: POPC.clearColor || '#00b37d' };
+const hexV3 = (h) => new THREE.Vector3(...[1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255));   // 색 그대로 (sRGB, 후처리도 sRGB에서 섞는다)
 const postMat = new THREE.ShaderMaterial({
   uniforms: { tDiffuse: { value: rt.texture }, uFlash: { value: 0 }, tDepth: { value: rt.depthTexture }, tOL: { value: olRT.depthTexture },
     uOL: { value: 0 }, uNear: { value: camera.near }, uFar: { value: camera.far }, uTexel: { value: new THREE.Vector2(1, 1) },
     uFogN: FOGN, uFogF: FOGF, uFogC: { value: FOG },
-    uGrad: { value: 0 }, uGradA: { value: 0.6 }, uGradB: { value: 0.9 }, uGradC: { value: new THREE.Color(1, 1, 1) } },
+    uGrad: { value: 0 }, uGradA: { value: 0.6 }, uGradB: { value: 0.9 }, uGradC: { value: new THREE.Color(1, 1, 1) },
+    uGray: { value: 0 }, uGrayA: { value: hexV3(POP.dark) }, uGrayB: { value: hexV3(POP.light) } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
   fragmentShader: `
-    uniform sampler2D tDiffuse, tDepth, tOL; uniform float uFlash, uOL, uNear, uFar, uFogN, uFogF, uGrad, uGradA, uGradB; uniform vec2 uTexel; uniform vec3 uFogC, uGradC; varying vec2 vUv;
+    uniform sampler2D tDiffuse, tDepth, tOL; uniform float uFlash, uOL, uNear, uFar, uFogN, uFogF, uGrad, uGradA, uGradB, uGray; uniform vec2 uTexel; uniform vec3 uFogC, uGradC, uGrayA, uGrayB; varying vec2 vUv;
     float lin(float d) { return uNear * uFar / (uFar - d * (uFar - uNear)); }   // 깊이 버퍼 값 → 카메라에서 거리
     float bayer2(vec2 a) { a = floor(a); return fract(dot(a, vec2(0.5, a.y * 0.75))); }
     float bayer4(vec2 a) { return bayer2(0.5 * a) * 0.25 + bayer2(a); }
@@ -4403,6 +4414,7 @@ const postMat = new THREE.ShaderMaterial({
       lc = mix(lc, uGradC, uGrad * smoothstep(uGradA, uGradB, vUv.y));   // 타이틀: 화면 위쪽으로 갈수록 흰색 (아래 → 위, 0~1)
       vec3 c = toSRGB(lc);
       c = mix(c, vec3(1.0, 0.94, 0.82), uFlash * 0.7);
+      if (uGray > 0.0) c = mix(c, mix(uGrayA, uGrayB, dot(c, vec3(0.299, 0.587, 0.114))), uGray);   // 끝 창·일시정지: 밝기를 두 색 사이로 (그라디언트 맵)
       c = floor(c * 31.0 + 0.5 + (bayer4(gl_FragCoord.xy) - 0.5)) / 31.0;
       gl_FragColor = vec4(c, 1.0);
     }`,
@@ -4434,6 +4446,7 @@ const ENV_TITLE = { fog: new THREE.Color(TT.fogColor ?? '#ffffff'), near: TT.fog
 postMat.uniforms.uGradA.value = TT.gradient?.from ?? 0.64; postMat.uniforms.uGradB.value = TT.gradient?.to ?? 0.9;
 postMat.uniforms.uGradC.value.copy(ENV_TITLE.fog);
 let titleK = TT.enabled === false ? 1 : 0;
+try { if (sessionStorage.getItem('littleIron.skipTitle')) { sessionStorage.removeItem('littleIron.skipTitle'); titleK = 1; } } catch (_) {}   // '새로 시작'으로 다시 읽었으면 타이틀 없이
 function applyEnv() {
   const A = ENV_TITLE, B = ENV_PLAY, k = titleK;
   FOG.lerpColors(A.fog, B.fog, k); scene.fog.color.copy(FOG);
@@ -4461,7 +4474,7 @@ function viewRect() {
     VR.w = rw * k / dpr; VR.h = h;
     VR.x = Math.round((W * dpr - rw * k) / 2) / dpr; VR.y = Math.round((H * dpr - lowH * k) / 2) / dpr;
   }
-  for (const el of [renderer.domElement, document.getElementById('phud'), document.getElementById('phudS'), document.getElementById('title')])
+  for (const el of [renderer.domElement, document.getElementById('phud'), document.getElementById('phudS'), document.getElementById('pui'), document.getElementById('puiS'), document.getElementById('title')])
     if (el) Object.assign(el.style, { left: `${VR.x}px`, top: `${VR.y}px`, width: `${VR.w}px`, height: `${VR.h}px` });
   layoutTitle();
 }
@@ -4485,6 +4498,7 @@ function layoutTitle() {
   if (m + vx + vw + 10 * u + pw + m <= VR.w) put('tVer', 'left', 'bottom', vx, -u);
   else put('tVer', 'left', 'bottom', 0, el('tBadge')._src.height * u + 4 * u - u);
 }
+let paused = false, pausedDrawn = false, pauseScene = false;   // pauseScene: 멈춘 뒤 장면을 한 번 그렸다 (그 뒤로는 HUD·창·회색조만 다시 그린다)   // 일시정지 (창이 비활성이거나 ESC). 멈춘 직후 한 번만 다시 그린다
 function resize() {
   if (!innerWidth || !innerHeight) return;   // 창이 접혀 크기가 0이면 다음 크기 변경 때
   viewRect();
@@ -4498,7 +4512,7 @@ function resize() {
   camera.aspect = w / lowH; camera.updateProjectionMatrix();
   U.uPointScale.value = lowH / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)));
   layoutTitle();   // 해상도가 바뀌면 타이틀 그림도 다시
-  drawPause();
+  pausedDrawn = false; pauseScene = false;   // 멈춰 있어도 바뀐 크기로 한 번 다시 그린다 (장면까지)
 }
 addEventListener('resize', resize);
 document.getElementById('res').onchange = (e) => { resMax = e.target.value === 'max'; if (!resMax) lowH = +e.target.value; resize(); e.target.blur(); };
@@ -4506,15 +4520,14 @@ document.getElementById('olBtn').onclick = (e) => {   // 외곽선 (풀 제외)
   outlineOn = !outlineOn; postMat.uniforms.uOL.value = outlineOn ? 1 : 0;
   e.target.textContent = outlineOn ? '외곽선 켜짐' : '외곽선 꺼짐'; e.target.blur();
 };
-let grassMode = 0;   // 0 = 폴리곤, 1~n = 텍스처 종류
+let grassMode = 0;   // 텍스처 종류 (0부터)
 function setGrass(m) {
   grassMode = m;
-  for (const m of grassPoly) m.visible = !grassMode;
-  for (const m of grassCard) { m.visible = !!grassMode; if (grassMode) m.material = grassCardMats[grassMode - 1]; }
-  document.getElementById('grassBtn').textContent = grassMode ? `풀: 텍스처${grassCardNames[grassMode - 1]}` : '풀: 폴리곤';
+  for (const cm of grassCard) cm.material = grassCardMats[m];
+  document.getElementById('grassBtn').textContent = `풀: 텍스처${grassCardNames[m]}`;
 }
-document.getElementById('grassBtn').onclick = (e) => { setGrass((grassMode + 1) % (grassCardMats.length + 1)); e.target.blur(); };   // 폴리곤 → 텍스처1 → … → 폴리곤
-setGrass(1 + grassCardNames.findIndex(n => n.startsWith('3-3')));   // 처음엔 텍스처3-3 (이삭 풀 3)
+document.getElementById('grassBtn').onclick = (e) => { setGrass((grassMode + 1) % grassCardMats.length); e.target.blur(); };   // 텍스처1 → 2 → 3 → 1
+setGrass(1);   // 처음엔 텍스처2 (이삭 풀)
 document.getElementById('ppBtn').onclick = (e) => {
   pixelPerfect = !pixelPerfect; e.target.textContent = pixelPerfect ? 'Pixel Perfect 켜짐' : 'Pixel Perfect 꺼짐';
   resize(); e.target.blur();
@@ -4566,8 +4579,9 @@ function resetGrowth() {
   growLevel = 0;
 }
 document.getElementById('gReset').onclick = (e) => { resetGrowth(); e.target.blur(); };
-// 성장 선택지: 골드가 100(설정)개 모이면 3개 중 하나 (게임은 멈추지 않는다). 우상단에 뜨고 숫자키 1·2·3으로 고른다.
-// 고르면 골드 100을 내고, 고른 것만 밑줄 친 채 잠깐 보이다 사라진다. 그래도 100개 이상 남았으면 이어서 다음 선택지.
+// 성장 선택지: 골드가 100(설정)개 모이면 3개 중 하나 (게임은 멈추지 않는다). 우상단에 픽셀 UI로 세로로 뜨고 (offerUI),
+// 숫자키 1·2·3, 게임패드 방향키 ←·↑·→, 또는 항목을 눌러 고른다.
+// 고르면 골드 100을 내고, 나머지는 곧바로 어두운 회색이 됐다가 잠시 뒤 모두 4x4 디더링으로 사라진다. 그래도 100개 이상 남았으면 이어서 다음 선택지.
 // 선택지는 레어도 가중치(일반 100 / 고급 70 / 희귀 30 / 전설 10, 설정)로 겹치지 않게 뽑는다
 // 성장 한 번에 드는 골드: 0~9단계는 100, 10~19단계는 200, … (설정)
 const GC = CFG.growth, offerCost = () => GC.goldPerOffer + Math.floor(growLevel / GC.goldStepEvery) * GC.goldStepAdd;
@@ -4621,26 +4635,16 @@ function rollChoices() {
   }
   return out.map(u => ({ u, label: upText(u.name, u), desc: upText(u.desc, u) + (upLast(u) ? ' (최대)' : '') }));
 }
-const upEl = document.getElementById('upOffer');
-let testOffers = 0, curOffer = null, growLevel = 0;
-const offerRow = (c, i, cls = '') => {
-  const r = GC.rarity[c.u.rarity];
-  return `<div class="${cls}"><b>${i + 1}</b> <span style="color:${r.color}; opacity:1">${c.label}</span> <span>${c.desc}</span></div>`;   // 레어도는 이름 색으로만
-};
-function drawOffer() {
-  const c = curOffer;
-  upEl.innerHTML = (c.picked < 0 ? '<div class="t">성장! 숫자키로 고르기</div>' : '<div class="t">성장!</div>') +
-    c.choices.map((ch, k) => offerRow(ch, k, c.picked < 0 ? '' : k === c.picked ? 'picked' : 'dim')).join('');
-  upEl.style.display = '';
-}
+let testOffers = 0, curOffer = null, growLevel = 0, heldOffer = null;   // heldOffer: 고르기 전에 터져서 접어 둔 선택지 (다시 착지하면 띄운다)
+function drawOffer() { if (UI.screen !== offerUI) uiShow(offerUI); else uiDirty(); }
 // 다음 선택지: 테스트 버튼으로 예약한 것 먼저, 아니면 골드가 100 이상일 때
 function nextOffer() {
-  if (curOffer) return;
+  if (curOffer || heldOffer || !tank.solid) return;   // 터져 있거나 떨어지는 중이면 착지한 뒤에
   if (testOffers > 0) testOffers--;
   else if (gold < offerCost()) return;
   const choices = rollChoices();
   if (!choices.length) return;
-  curOffer = { choices, picked: -1 };
+  curOffer = { choices, picked: -1, showT: 0 };
   drawOffer();
   sfx.kit();
 }
@@ -4652,20 +4656,45 @@ function pickOffer(i) {
   UP_FX[u.id].apply(u.value);
   tank.picks[u.id] = (tank.picks[u.id] || 0) + 1;
   tank.pickLog.push(curOffer.choices[i]); drawPickLog();
-  gold = Math.max(0, gold - offerCost());   // 성장 값으로 골드를 낸다 (고르기 전 단계 기준. 0 아래로는 안 내려감)
+  if (!curOffer.paid) gold = Math.max(0, gold - offerCost());   // 성장 값으로 골드를 낸다 (고르기 전 단계 기준. 0 아래로는 안 내려감. 터질 때 미리 낸 선택지는 빼고)
   growLevel++;   // 테스트 버튼으로 띄운 선택지도 똑같이 한 단계
-  drawOffer();   // 고른 것만 밑줄, 나머지는 어둡게 남겨 둔다
+  curOffer.pickT = 0;   // 고른 뒤 흐른 시간 (offerUI.tick: 게임이 멈추면 같이 멈춘다)
+  drawOffer();   // 나머지는 곧바로 어두운 회색
   sfx.coin();
-  const shown = curOffer;
-  setTimeout(() => { if (curOffer !== shown) return; upEl.style.display = 'none'; curOffer = null; nextOffer(); }, 1600);
 }
-// 고르기 전의 선택지를 거둔다 (내 탱크가 터져 골드를 잃었을 때)
+// 고르기 전의 선택지를 거둔다 (처음부터 다시 할 때)
 function cancelOffer() {
+  heldOffer = null;
   if (!curOffer || curOffer.picked >= 0) return;
-  curOffer = null; upEl.style.display = 'none';
+  curOffer = null; if (UI.screen === offerUI) uiShow(null);
 }
-addEventListener('keydown', (e) => { const k = ['Digit1', 'Digit2', 'Digit3'].indexOf(e.code); if (k >= 0) pickOffer(k); });
+// 내 탱크가 고르기 전에 터졌을 때: 선택지를 접어 둔다. 골드를 흩뿌릴 거라면 성장 값은 지금 미리 낸다 (흩뿌린 골드를 다시 주워 또 쓰지 않게)
+function holdOffer(spill) {
+  if (!curOffer || curOffer.picked >= 0) return;
+  heldOffer = curOffer; curOffer = null;
+  if (spill && !heldOffer.paid) { heldOffer.paid = true; gold = Math.max(0, gold - offerCost()); }
+  if (UI.screen === offerUI) uiShow(null);
+}
+// 다시 떨어져 착지했을 때: 접어 둔 선택지를 처음처럼 띄우고, 없으면 골드가 모였는지 본다
+function landOffer() {
+  if (heldOffer) { curOffer = heldOffer; heldOffer = null; curOffer.showT = 0; drawOffer(); sfx.kit(); }
+  else nextOffer();
+}
+addEventListener('keydown', (e) => { const k = ['Digit1', 'Digit2', 'Digit3'].indexOf(e.code); if (k >= 0 && UI.screen === offerUI) pickOffer(k); });   // 선택지가 보일 때만 (일시정지 창 아래에 있으면 안 됨)
 document.getElementById('gOffer').onclick = (e) => { testOffers++; nextOffer(); e.target.blur(); };   // 테스트: 골드 없이 바로 선택지
+// 테스트: 성장 10단계를 한 번에. 단계마다 평소처럼 선택지 3개를 뽑아 그중 하나를 무작위로 고른다 (골드는 쓰지 않음. 떠 있는 선택지는 그대로)
+document.getElementById('gRand10').onclick = (e) => {
+  for (let k = 0; k < 10; k++) {
+    const ch = rollChoices();
+    if (!ch.length) break;   // 더 고를 것이 없다
+    const c = ch[Math.floor(Math.random() * ch.length)];
+    UP_FX[c.u.id].apply(c.u.value);
+    tank.picks[c.u.id] = (tank.picks[c.u.id] || 0) + 1;
+    tank.pickLog.push(c);
+    growLevel++;
+  }
+  drawPickLog(); sfx.coin(); e.target.blur();
+};
 document.getElementById('gReroll').onclick = (e) => {   // 테스트: 떠 있는 선택지 3개를 확률대로 다시 뽑는다
   if (curOffer && curOffer.picked < 0) { curOffer.choices = rollChoices(); drawOffer(); }
   e.target.blur();
@@ -4738,11 +4767,13 @@ function followYaw(dt) {
   camera.position.copy(controls.target).add(_tmp);
 }
 
+// ===== src/50_title.js =====
 // ---------------------------------------------------------------- 타이틀 화면
 // 처음엔 타이틀: 밝은 낮에 흰 안개, 탱크를 옆에서 낮게 잡은 카메라, 네 귀퉁이에 로고·브랜드·배지·안내 (images/의 SVG).
 // 아무 키나 누르거나 클릭하면 시작: 카메라·안개·조명이 EaseInOutCubic으로 플레이용으로 넘어간다 (title.transition 초).
 // 타이틀 동안 적은 움직이지 않고, HUD·조준선은 숨긴다
-let titleState = titleK >= 1 ? 'play' : 'title', titleT = 0;
+let titleState = titleK >= 1 ? 'play' : 'title', titleT = 0, titleWait = 0;   // titleWait: 타이틀이 보인 뒤 흐른 시간 (로딩 화면이 걷힌 뒤부터)
+const TITLE_DELAY = TT.inputDelay ?? 2;   // 이 시간이 지나야 아무 키나 눌러 시작할 수 있다
 const titleEl = document.getElementById('title');
 const easeInOutCubic = (t) => t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
 function showPlayHud(v) { for (const id of ['phud', 'phudS', 'touchUI']) document.getElementById(id).style.visibility = v ? '' : 'hidden'; }
@@ -4758,13 +4789,14 @@ function resetPlayer() {
   Object.assign(tank, { hp: tank.maxHp, cool: 0, elev: INIT_ELEV, tyaw: 0, tvel: 0, tsnap: false, recoil: 0, hop: null, falling: false, solid: true, vy: 0, sL: 0, sR: 0, yawCmd: 0, dL: 0, dR: 0 });
   tank.group.visible = true; tank.vel.set(0, 0, 0); tank.w.set(0, 0, 0);
   spawnTank(); syncBody(tank);
-  deadMsg.style.display = respawnBtn.style.display = 'none';
+  if (endState) { endState = null; uiShow(null); }
+  hudWaitLand = false;
   resetCamera();
 }
 function goTitle() {
   clearTimeout(titleHideT);
   resetPlayer();
-  titleState = 'title'; titleT = 0; titleK = 0; applyEnv();
+  titleState = 'title'; titleT = 0; titleK = 0; titleWait = 0; applyEnv();
   titleEl.style.display = ''; titleFadeTh = 0;
   showPlayHud(false); hudRevealT = -1; controls.enabled = false;
   layoutTitle();
@@ -4774,9 +4806,65 @@ document.getElementById('toTitle').onclick = (e) => { goTitle(); e.target.blur()
 // 설정 메뉴 '적 AI 정지': 모든 적이 그 자리에 멈춘다 (움직임·사격·증원 모두. 떨어지던 것은 마저 떨어진다)
 let aiFrozen = false;
 document.getElementById('aiStopBtn').onclick = (e) => { aiFrozen = !aiFrozen; e.target.textContent = aiFrozen ? '적 AI 정지 켜짐' : '적 AI 정지 꺼짐'; e.target.blur(); };
-function updateHudReveal(dt) { if (hudRevealT >= 0 && (hudRevealT -= dt) < 0) { showPlayHud(true); hudHit(30); } }
+function updateHudReveal(dt) { if (hudRevealT >= 0 && (hudRevealT -= dt) < 0) hudRevealT = -1; }
+// HUD를 켤지: 시작 뒤 showDelay초가 지났고, 가운데 창이 떠 있지 않을 때. 켜질 때마다 피해 입을 때처럼 치지직하며 나타난다
+let hudOn = false, hudOffAt = 0, hudWaitLand = false;   // hudWaitLand: 재출격해서 떨어지는 중 (착지하면 HUD)   // hudOffAt: 이 시각(ms)에 HUD를 끈다 (끄기 전에 치지직)
+function syncHud() {
+  const want = titleState !== 'title' && hudRevealT < 0 && !winUp() && !endState && !hudWaitLand, now = performance.now();
+  if (want !== hudOn) {
+    hudOn = want;
+    if (want) { hudOffAt = 0; showPlayHud(true); hudHit(30); }   // 켤 때: 치지직하며 나타남
+    else if (titleState === 'title') { hudOffAt = 0; showPlayHud(false); }   // 타이틀로 갈 때는 바로
+    else { hudHit(30); hudOffAt = now + POP.fade * 1000; }   // 끌 때: 치지직하면서 popup.fadeTime초 동안 4x4 디더링으로 사라짐 (창이 사라질 때와 같게)
+  }
+  if (hudOffAt && now >= hudOffAt) { hudOffAt = 0; showPlayHud(false); }
+}
 // ---- 타이틀 꾸밈: 탱크가 지나온 궤도 자국 (낙엽은 updateLeaves, 포즈는 titlePose)
-function buildTitleDeco() { if (TDET.trail > 0) stampTrail(TDET.trail); }
+function buildTitleDeco() { if (TENT.enabled && TENT.distance > 0) startEntrance(); else { entr = null; if (TDET.trail > 0) stampTrail(TDET.trail); } }
+// ---- 타이틀 등장: 탱크가 distance m 뒤(안개 속)에서 처음 자리까지 달려와 선다. 오는 동안 포탑을 좌우로 돌리고,
+// 서면 포탑·포신을 포즈로 돌린 뒤 firstShot초 뒤 첫 발, 그 뒤 shotEvery초마다 쏜다 (타이틀 포탄은 아무것도 부수지 않는다)
+const TENT = Object.assign({ enabled: true, distance: 30, speed: 0.6, sweep: 50, sweepTime: 5, firstShot: 1, shotEvery: 5 }, CFG.title?.entrance);
+let entr = null;   // { phase: 'drive' | 'arrived', home: 처음 자리(무게중심), yaw, t, arrT, shot, ty0, el0 }
+function startEntrance() {
+  spawnTank(); syncBody(tank);
+  const y = SPAWN.yaw * DEG, d = TENT.distance;
+  entr = { phase: 'drive', home: tank.pos.clone(), yaw: y, t: 0, arrT: 0, shot: TENT.firstShot, ty0: 0, el0: INIT_ELEV };
+  tank.tyaw = 0; tank.tvel = 0; tank.elev = INIT_ELEV;
+  resetTank(SPAWN_X - Math.sin(y) * d, SPAWN_Z - Math.cos(y) * d, y); syncBody(tank);
+}
+const wrapA = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+const stepTo = (v, to, r) => v + Math.max(-r, Math.min(r, to - v));
+// 타이틀·전환 동안 매 프레임: 달려오는 중이면 [thr, turn]을 돌려준다 (null이면 손대지 않음)
+function entranceDrive(dt) {
+  if (!entr || titleState === 'play') return null;
+  const poseT = TDET.pose ? TDET.turret * DEG : 0, poseE = TDET.pose ? TDET.elev * DEG : INIT_ELEV;
+  if (entr.phase === 'drive') {
+    entr.t += dt;
+    const hx = Math.sin(entr.yaw), hz = Math.cos(entr.yaw), dx = entr.home.x - tank.pos.x, dz = entr.home.z - tank.pos.z;
+    const d = dx * hx + dz * hz, side = dx * hz - dz * hx, v = tank.vel.x * hx + tank.vel.z * hz;   // 남은 거리, 옆으로 벗어난 정도(+ = 왼쪽), 앞 방향 속도
+    if (d < 0.3 && Math.abs(v) < 0.3) { entr.phase = 'arrived'; entr.arrT = 0; return null; }
+    _fwd.set(0, 0, 1).applyQuaternion(tank.q);
+    const err = wrapA(entr.yaw + Math.max(-0.3, Math.min(0.3, side * 0.25)) - Math.atan2(_fwd.x, _fwd.z));
+    const thr = d > 0 ? Math.min(TENT.speed * VMAX, Math.sqrt(2 * 1.6 * d)) / VMAX : 0;   // 서서히 줄여 제자리에 선다
+    if (titleState === 'title') {   // 포탑을 좌우로 훑는다 (가까워질수록 폭이 줄어 포즈 각도로 모인다)
+      const want = poseT + TENT.sweep * DEG * Math.sin(entr.t * 6.283 / Math.max(0.5, TENT.sweepTime)) * Math.min(1, d / 8);
+      tank.tyaw = stepTo(tank.tyaw, want, (tank.turretRate || TURRET_RATE) * dt); tank.tvel = 0;
+    }
+    return [thr, Math.max(-1, Math.min(1, err * 3))];
+  }
+  if (titleState !== 'title') return null;
+  entr.arrT += dt;
+  const back = (entr.home.x - tank.pos.x) * Math.sin(entr.yaw) + (entr.home.z - tank.pos.z) * Math.cos(entr.yaw);   // 쏠 때 반동으로 밀려난 거리
+  if (back > 0.25) entr.creep = true; else if (back < 0.05) entr.creep = false;
+  const creep = entr.creep ? [Math.min(0.12, back * 0.3), 0] : null;
+  tank.tyaw = stepTo(tank.tyaw, poseT, (tank.turretRate || TURRET_RATE) * dt); tank.tvel = 0;
+  tank.elev = stepTo(tank.elev, poseE, 0.55 * dt);
+  if (TENT.shotEvery > 0 && (entr.shot -= dt) <= 0) {
+    entr.shot += TENT.shotEvery;
+    const b = fireCannon(); b.harmless = true; tank.cool = 0;
+  }
+  return creep;
+}
 // 내 탱크 뒤로 len m 곧게 지나온 궤도 자국을 한 번에 찍는다 (평소 주행 자국과 같은 무늬)
 function stampTrail(len) {
   syncBody(tank); tankGroup.updateMatrixWorld(true);
@@ -4795,7 +4883,9 @@ function stampTrail(len) {
 // 타이틀 동안 포탑·포신 포즈. 시작하면 전환(title.transition초) 동안 처음 값으로 되돌린다. 타이틀·전환 동안 조작은 막힌다 (true = 막힘)
 function titlePose() {
   if (titleState === 'play') return false;
-  if (TDET.pose) {
+  if (entr) {   // 등장 연출 중: 타이틀 동안은 entranceDrive가 돌리고, 전환 동안 시작할 때 각도에서 처음 값으로
+    if (titleState === 'trans') { tank.tyaw = lerp(entr.ty0, 0, titleK); tank.elev = lerp(entr.el0, INIT_ELEV, titleK); tank.tvel = 0; }
+  } else if (TDET.pose) {
     const k = titleState === 'title' ? 0 : titleK;   // titleK: 전환 진행 (EaseInOutCubic)
     tank.tyaw = lerp(TDET.turret * DEG, 0, k); tank.elev = lerp(TDET.elev * DEG, INIT_ELEV, k); tank.tvel = 0;
   }
@@ -4805,12 +4895,17 @@ if (titleState === 'title') buildTitleDeco();
 function startGame() {
   if (titleState !== 'title') return;
   titleState = 'trans'; titleT = 0;
+  if (entr) { entr.ty0 = wrapA(tank.tyaw); entr.el0 = tank.elev; }
   clearTimeout(titleHideT);
   hudRevealT = CFG.hud?.showDelay ?? 3;
 }
 const tPressEl = document.getElementById('tPress');
 function updateTitle(dt) {
-  if (titleState === 'title') tPressEl.style.visibility = performance.now() % 1100 < 720 ? '' : 'hidden';   // PRESS ANY KEY 깜빡임
+  if (titleState === 'title') {   // PRESS ANY KEY: 입력을 받기 시작할 때 나타나 깜빡인다
+    if (!document.getElementById('loading')) titleWait += dt;
+    const t = titleWait - TITLE_DELAY;
+    tPressEl.style.visibility = t >= 0 && t % 1.1 < 0.72 ? '' : 'hidden';
+  }
   if (titleState !== 'trans') return;
   titleT = Math.min(1, titleT + dt / (TT.transition ?? 2.2));
   // 타이틀 그림: 4x4 디더링 무늬로 점점 비워 가며 사라진다
@@ -4829,13 +4924,15 @@ function updateTitle(dt) {
 addEventListener('keydown', (e) => {
   if (titleState !== 'title' || e.code === 'Backquote') return;
   e.preventDefault(); e.stopImmediatePropagation();
-  if (paused) setPaused(false);
+  if (titleWait < TITLE_DELAY) return;   // 그 전에는 눌러도 무시 (로딩 중에 눌러도 여기서 끝)
+  if (paused) pauseSet(false);
   startGame();
 }, true);
 addEventListener('pointerdown', (e) => {
   if (titleState !== 'title' || e.target.closest('#hud')) return;
   e.stopImmediatePropagation();
-  if (paused) setPaused(false);
+  if (titleWait < TITLE_DELAY) return;
+  if (paused) pauseSet(false);
   startGame();
 }, true);
 // 카메라: 플레이 카메라는 늘 하던 대로 따라가게 두고(값은 따로 보관), 화면에는 타이틀 카메라와 섞은 자리를 쓴다.
@@ -4851,8 +4948,8 @@ function titleCamEnd() {
   playCamPos.copy(camera.position); playCamTgt.copy(controls.target); camSaved = true;
   const tc = TT.camera || {}, k = titleK;
   _fwd.set(0, 0, 1).applyQuaternion(tank.q);
-  const tYaw = Math.atan2(_fwd.x, _fwd.z) + (tc.yaw ?? 65) * DEG, tPitch = (tc.pitch ?? 8) * DEG, tDist = tc.distance ?? 16;
-  _ttg.copy(tank.pos); _ttg.y += tc.height ?? 2;
+  const tYaw = (entr ? entr.yaw : Math.atan2(_fwd.x, _fwd.z)) + (tc.yaw ?? 65) * DEG, tPitch = (tc.pitch ?? 8) * DEG, tDist = tc.distance ?? 16;
+  _ttg.copy(entr ? entr.home : tank.pos); _ttg.y += tc.height ?? 2;
   _tmp.copy(playCamPos).sub(playCamTgt);
   const pDist = _tmp.length(), pPitch = Math.asin(_tmp.y / pDist), pYaw = Math.atan2(-_tmp.x, -_tmp.z);
   let dy = pYaw - tYaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
@@ -4867,10 +4964,11 @@ function titleCamEnd() {
 // ---------------------------------------------------------------- 루프
 const statsEl = document.getElementById('stats');
 const clock = new THREE.Clock();
-let frames = 0, acc = 0, physAcc = 0, fieldAcc = 0;
+let frames = 0, acc = 0, physAcc = 0, fieldAcc = 0, lastDt = 0, uiDt = 0, grayK = 0;
 const _shake = new THREE.Vector3();
 // 한 프레임 분량의 게임 갱신 (렌더 제외)
 await loadStep(0.94, 'ALMOST THERE...');
+// ===== src/60_audio.js =====
 // ---------------------------------------------------------------- 소리 (WebAudio로 즉석 합성: 파일 없음)
 // 밀리터리 느낌: 걸러낸 잡음 + 낮은 사인파 쿵 + 긴 잔향(합성한 공간 울림). 전자음 같은 사각파는 줍기 소리에만.
 // 브라우저는 사용자가 한 번 누르거나 클릭해야 소리를 낼 수 있어서 첫 입력 때 켠다.
@@ -5015,9 +5113,22 @@ const sfx = (() => {
       sub(p, 110, 60, 0.35, 0.6);
       bell(p, [880, 1990, 3310, 4870], 1.1, 0.28);
     },
-    mg(p) {   // 기관총 한 발: 짧고 날카로운 탕
-      noise(p, 0.05, 5000, 1500, 0.16, { type: 'highpass', q: 0.6, rv: 0.25 });
-      noise(p, 0.12, 900, 120, 0.25, { q: 1, rv: 0.3 });
+    mg(p) {   // 기관총 한 발 '탕!': 귀를 때리는 아주 짧은 파열음 + 짧게 꺾이는 금속성 울림 + 가슴을 치는 몸통 + 짧은 메아리
+      noise(p, 0.025, 7000, 3000, 0.42, { type: 'highpass', q: 0.7, rv: 0.35, atk: 0.001 });
+      tone(p, 'square', 1400, 260, 0.045, 0.07);
+      noise(p, 0.1, 1600, 200, 0.38, { q: 1.2, rv: 0.45, atk: 0.002 });
+      tone(p, 'sine', 170, 55, 0.11, 0.32);
+      noise(p, 0.35, 700, 90, 0.08, { delay: 0.08, rv: 0.6 });
+    },
+    mgHit(p) {   // 기관총이 쇠를 뚫고 들어감 (대미지 있음): 딱딱한 '땅' + 짧고 높은 쇳소리 (포탄 맞는 소리보다 훨씬 가볍게)
+      noise(p, 0.03, 5000, 2000, 0.2, { type: 'highpass', q: 0.8, rv: 0.12, atk: 0.001 });
+      noise(p, 0.07, 1100, 250, 0.16, { q: 1.4, rv: 0.15 });
+      for (const [f, d, g] of [[1350, 0.12, 0.07], [2240, 0.09, 0.05], [3480, 0.06, 0.04]])
+        noise(p, d * srr(0.8, 1.2), f * srr(0.93, 1.07), f * 0.96, g, { type: 'bandpass', q: 24, rv: 0.15, atk: 0.001 });
+    },
+    mgPing(p) {   // 장갑에 튕김 (대미지 0): 가벼운 '틱' + 높게 미끄러지며 사라지는 도탄음 '피융'
+      noise(p, 0.02, 6000, 3000, 0.12, { type: 'highpass', q: 0.8, atk: 0.001 });
+      tone(p, 'sine', srr(2600, 3200), srr(1100, 1500), srr(0.22, 0.32), 0.07, 0.01, 0.2);
     },
     coin() { tone(null, 'square', 1320, 1320, 0.07, 0.06); tone(null, 'square', 1760, 1760, 0.12, 0.06, 0.06); },
     kit() { tone(null, 'triangle', 660, 660, 0.1, 0.12); tone(null, 'triangle', 990, 990, 0.18, 0.12, 0.09); },
@@ -5037,6 +5148,7 @@ const sfx = (() => {
     pause(p) { if (!ctx) return; if (p) ctx.suspend(); else ctx.resume(); },
   };
 })();
+// ===== src/70_enemies.js =====
 // ---------------------------------------------------------------- 적 탱크 / 전투
 // 체력·방어력·성능은 config.js. 방어력은 맞은 면(정면/측면/후면)만큼 대미지를 줄인다 (쏜 탱크의 '관통탄'만큼 깎임)
 const EC = CFG.enemy, AI = EC.ai, SC = CFG.spg;
@@ -5096,9 +5208,9 @@ const tankCount = () => ENEMIES.reduce((n, E) => n + (E.spg || E.jeep ? 0 : 1), 
 const spgCount = () => ENEMIES.reduce((n, E) => n + (E.spg ? 1 : 0), 0), jeepCount = () => ENEMIES.reduce((n, E) => n + (E.jeep ? 1 : 0), 0);
 const maxEnemies = () => Math.min(EC.concurrentMax, EC.concurrentStart + Math.floor(growLevel / EC.concurrentEvery));
 const spgWanted = () => growLevel < SC.startLevel ? 0 : Math.min(4, 1 + Math.floor((growLevel - SC.startLevel) / SC.everyLevels));
-let enemyDrops = 0, enemyKills = 0, missionClear = false;
+let enemyDrops = 0, enemyKills = 0, jeepKills = 0, missionClear = false;
 const dropTimers = [], spgTimers = [], jeepTimers = [];
-const respawnBtn = document.getElementById('respawnBtn'), deadMsg = document.getElementById('deadMsg');
+let endState = null;   // 'dead' 내 탱크 파괴 / 'clear' 적군 섬멸 / null. 이때는 HUD를 끄고 가운데 창 + 배경 회색조
 // 처음: 강 건너 본도로 위에서 나를 바라보며
 {
   const E = newEnemy(false, 1), z = Math.min(HALF - 10, XB_Z + 26), x = mainRoadX(z);
@@ -5162,6 +5274,7 @@ function updateFall(T, dt) {
     const hop = T.hop; T.hop = null;
     if (hop) { T.q.copy(hop.q1); T.pos.x = hop.p1.x; T.pos.z = hop.p1.z; }
     T.pos.y = T.landY; T.falling = false; T.solid = true; T.vel.set(0, 0.6, 0);
+    if (T === tank) { hudWaitLand = false; landOffer(); }   // 착지: 접어 둔 선택지 (자세 리셋 점프 중에 모인 골드도 여기서)
     _tmp.set(rand() < 0.5 ? 1 : 0, 0, 0); if (!_tmp.x) _tmp.z = 1;
     T.w.copy(_tmp.multiplyScalar((rand() < 0.5 ? -1 : 1) * rr(0.8, 1.1))).applyQuaternion(T.q);
     const gy = groundAt(T.pos.x, T.pos.z);
@@ -5220,6 +5333,7 @@ function destroyTankBody(T) {
   T.solid = false; T.group.visible = false;
   const c = T.pos.clone();
   if (T.jeep) {   // 지프: 작게 터지고 잔해 없이 사라진다. 골드 1 (설정), 20대에는 안 센다. 빈자리는 updateEnemies가 10초 뒤 채운다
+    jeepKills++;
     explode(c, UP, true, 1.6);
     spawnShards(c, 18, METAL_COLS, 4, 14, null, 0.2, 0.5, 1);
     if (JC.goldDrop) spawnCoins(c, JC.goldDrop);
@@ -5238,17 +5352,18 @@ function destroyTankBody(T) {
   // 적 탱크: 먹은 골드 (최소 10, 최대 30. 설정). 자주포: 정해진 만큼
   let n = 0, vals = null;
   if (T === tank) {
+    holdOffer(!tank.goldKeep);
     if (!tank.goldKeep && gold > 0) {
       n = Math.min(40, gold);
       const base = Math.floor(gold / n), extra = gold - base * n;
       vals = Array.from({ length: n }, (_, k) => base + (k < extra ? 1 : 0));
-      gold = 0; cancelOffer();
+      gold = 0;
     }
   } else if (T.spg) n = SC.goldDrop;
   else { n = Math.min(EC.goldDropMax, Math.max(EC.goldDropMin ?? 10, T.gold)); T.gold = 0; }
   if (n) spawnCoins(c, n, false, 1, vals);
   T.vel.set(0, 0, 0); T.w.set(0, 0, 0); T.sL = T.sR = T.yawCmd = 0; T.contacts = 0;
-  if (T === tank) { deadMsg.style.display = respawnBtn.style.display = ''; return; }
+  if (T === tank) { showEnd('dead'); return; }
   removeEnemy(T);
   enemyKills++;   // 자주포도 20대에 들어간다
   if (T.spg && spgWanted() && enemyDrops < MAX_DROPS) { enemyDrops++; spgTimers.push(SC.respawnDelay); }   // 남은 자리가 있으면 10초 뒤 다시 (한 대로 센다)
@@ -5275,18 +5390,28 @@ const fmtTime = (t) => `${Math.floor(t / 60)}분 ${(t % 60).toFixed(1).padStart(
 function checkMissionClear() {
   if (missionClear || enemyDrops < MAX_DROPS || dropTimers.length || spgTimers.length || ENEMIES.length > jeepCount()) return;
   missionClear = true;
-  const msg = document.getElementById('clearMsg');
-  msg.innerHTML = `미션 클리어! 적 탱크 ${EC.clearKills}대 격파<br>걸린 시간 ${fmtTime(playTime)}`;
-  msg.style.display = document.getElementById('restartBtn').style.display = '';
+  showEnd('clear');
 }
-respawnBtn.onclick = (e) => {   // 재출격: 처음부터가 아니라 내 탱크만 새로 떨어뜨린다
-  e.target.blur();
-  if (tank.solid || tank.falling) return;
-  deadMsg.style.display = respawnBtn.style.display = 'none';
+// 끝 창 띄우기: HUD를 끄고 (떠 있던 성장 선택지는 접고) 가운데에 창, 배경은 회색조로 (루프의 grayK)
+function showEnd(kind) {
+  if (endState === 'clear') return;   // 섬멸 창이 떠 있으면 그대로
+  endState = kind;
+  if (kind === 'clear') cancelOffer();
+  if (kind === 'clear') Object.assign(clearUI.info, { kills: EC.clearKills, jeeps: jeepKills, time: playTime, lv: growLevel });
+  uiShow(kind === 'dead' ? deadUI : clearUI);   // HUD는 syncHud가 끈다
+}
+// 재출격: 처음부터가 아니라 내 탱크만 새로 떨어뜨린다 (착지하면 접어 둔 성장 선택지가 다시 뜬다)
+function respawn() {
+  if (endState !== 'dead' || tank.solid || tank.falling) return;
+  endState = null; uiShow(null); hudWaitLand = true;   // 창은 사라지고, HUD는 착지한 뒤 치지직하며 다시 켜진다
   startDrop(tank);
   resetCamera();
-};
-document.getElementById('restartBtn').onclick = () => location.reload();
+}
+// 새로 시작: 다시 읽되 타이틀은 건너뛴다 / 첫 화면으로: 그냥 다시 읽는다 (타이틀부터)
+function restartGame(toTitle) {
+  try { if (!toTitle) sessionStorage.setItem('littleIron.skipTitle', '1'); } catch (_) {}
+  location.reload();
+}
 // 적 AI
 const _eAim = { thr: 0, turn: 0 }, _eT = new THREE.Vector3();
 // 시야: 두 점 사이가 키 큰 건물(3.5m 이상)에 가리는가. 금고·잔해·상자는 낮아서 가리지 않는다
@@ -5837,6 +5962,7 @@ function updateAiView() {
   aiLines.geometry = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
 }
 
+// ===== src/80_hud.js =====
 // ---------------------------------------------------------------- 픽셀 HUD
 // 게임 화면과 같은 저해상도에, 노란주황색 한 가지와 5x7 고정폭 글자로. 줄 높이 7칸, 줄 간격 4칸.
 // HUD 칸 = 1픽셀인 작은 캔버스 두 장(색, 검은 그림자)에 값이 바뀔 때만 다시 그려 두고, 화면 캔버스로 늘려 옮긴다.
@@ -5848,8 +5974,8 @@ phud.style.mixBlendMode = HC.blend;
 const hudC = document.createElement('canvas'), hc = hudC.getContext('2d');   // 색
 const hudK = document.createElement('canvas'), kc = hudK.getContext('2d');   // 그림자
 hudC.width = hudK.width = 240; hudC.height = hudK.height = 140;
-let hudKey = '', hk = 1, glitchUntil = 0, glitchPow = 0, hudGlitched = false;
-const px = (x, y, w = 1, h = 1) => { hc.fillRect(x, y, w, h); kc.fillRect(x, y, w, h); };
+let hudKey = '', hk = 1, glitchUntil = 0, glitchPow = 0, hudGlitched = false, hudRight = 0;   // hudRight: HUD가 그린 가장 오른쪽 칸 (성장 선택지가 닿지 않게)
+const px = (x, y, w = 1, h = 1) => { hc.fillRect(x, y, w, h); kc.fillRect(x, y, w, h); if (x + w > hudRight) hudRight = x + w; };
 function htext(s, x, y) { return fontDraw(s, x, y, 1, (a, b) => px(a, b)); }
 // 게이지: 1칸 테두리 + 채운 만큼 꽉 칠한 막대 (높이 7칸). dots면 채운 부분을 격자 도트로
 function hbar(x, y, w, f, dots) {
@@ -5875,13 +6001,15 @@ const fontText = (g, t, x, y, k = 1) => fontDraw(t, x, y, k, (a, b, kk) => g.fil
 const loadImg = (src) => new Promise((ok) => { const im = new Image(); im.onload = () => ok(im); im.onerror = () => ok(null); im.src = src; });
 const TGREEN = '#2e6a40', TINK = '#1b1b19', TCREAM = '#f6f1e3';
 async function drawTitleArt() {
-  const [logo, brand] = await Promise.all([loadImg('images/title_logo.png'), loadImg('images/title_brand.png')]);
+  const [logo, brand, deco] = await Promise.all(['title_logo', 'title_brand', 'title_deco'].map((n) => loadImg(`images/${n}.png`)));
   // 로고 + 6칸 아래 설명 (먹색 HUD 글꼴)
   // 설명 줄은 HUD 글꼴을 세로로 2배 늘리고 글자 간격을 1칸 더 벌린다 (세로로 길쭉한 도트 글씨)
   const sub = 'MINI TANK IN DIORAMA: BATTLE, UPGRADE, CONQUER', lw = logo ? logo.width : 0, lh = logo ? logo.height : 0;
   const subW = fontWidth(sub) + sub.length - 1;
-  let g = titleSrc('tLogo', Math.max(lw, subW), lh + 6 + 14);
+  const dy = lh + 6 + 14 + 6;   // title_deco.png: 설명 줄 6칸 아래 (왼쪽 위 기준이라 그림 크기가 바뀌어도 그대로)
+  let g = titleSrc('tLogo', Math.max(lw, subW, deco ? deco.width : 0), deco ? dy + deco.height : lh + 6 + 14);
   if (logo) g.drawImage(logo, 0, 0);
+  if (deco) g.drawImage(deco, 0, dy);
   g.fillStyle = TINK;
   let sx = 0;
   for (const ch of sub) { fontDraw(ch, sx, lh + 6, 1, (a, b) => g.fillRect(a, b * 2 - (lh + 6), 1, 2)); sx += fontSpan(ch).adv + 1; }
@@ -5908,7 +6036,7 @@ if (document.getElementById('tPress')) {
 // 타이틀 부품 설명: 부품 한 점에서 비스듬한 지시선 → 글자 밑줄. 글자는 짙은 먹색에 흰 테두리 (게임 해상도 그대로 그려 늘린다)
 const CALLOUTS = [
   { at: () => tank.P.stack.getWorldPosition(_cw), dx: -50, dy: 40, lines: ['EXHAUST STACK', 'PUFFS ENGINE SMOKE'] },
-  { at: () => tank.P.barrel.localToWorld(_cw.set(0, 0.5, 1.1)), dx: 50, dy: -14, lines: ['108MM SHORT CANNON', 'AT 1:16 SCALE, TRUST US'] },
+  { at: () => tank.P.barrel.localToWorld(_cw.set(0, 0.5, 1.1)), dx: 50, dy: -14, lines: ['108MM SHORT CANNON', 'AT 1/35 SCALE, TRUST US'] },
   { at: () => tank.P.shovel.getWorldPosition(_cw), dx: -90, dy: -8, lines: ['SHOVEL BOLTED ON', 'JUST IN CASE'] },
 ];
 const _cw = new THREE.Vector3(), INK = '#1b1b19';
@@ -5919,6 +6047,10 @@ function drawCallouts() {
   if (cv.width !== rt.width || cv.height !== rt.height) { cv.width = rt.width; cv.height = rt.height; }
   const g = cv.getContext('2d'), W = cv.width, H = cv.height, s = Math.max(1, Math.floor(H / 360));
   g.clearRect(0, 0, W, H);
+  const inTh = entr ? (entr.phase === 'arrived' ? Math.max(0, 16 - Math.floor(entr.arrT / 0.4 * 16)) : 16) : 0;   // 등장 연출: 선 뒤 0.4초에 걸쳐 나타난다
+  const th = Math.max(titleFadeTh, inTh);
+  if (th >= 16) { if (out._shown) { sharpBlit(out, cv, VR.w, VR.h); out._shown = false; } return; }
+  out._shown = true;
   camera.updateMatrixWorld();
   const dot = (x, y, w, h, c) => { g.fillStyle = c; g.fillRect(Math.round(x), Math.round(y), w, h); };
   const line = (x0, y0, x1, y1, c) => { const n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0), 1); for (let i = 0; i <= n; i++) dot(x0 + (x1 - x0) * i / n, y0 + (y1 - y0) * i / n, s, s, c); };
@@ -5935,7 +6067,7 @@ function drawCallouts() {
     C.lines.forEach((t, i) => text(t, tx + (left ? tw - fontWidth(t) * s : 0), ty + i * 9 * s, INK));
     dot(ax - s, ay - s, 3 * s, 3 * s, INK);   // 부품 쪽 끝점
   }
-  sharpBlit(out, titleFadeTh > 0 ? ditherMask(cv, titleFadeTh) : cv, VR.w, VR.h);
+  sharpBlit(out, th > 0 ? ditherMask(cv, th) : cv, VR.w, VR.h);
 }
 function hline(x0, y0, x1, y1) {   // 1칸 굵기 직선
   const n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0), 1);
@@ -5962,9 +6094,9 @@ function drawHud() {
   const glitch = now < glitchUntil;
   if (key !== hudKey) {
     hudKey = key;
-    hc.clearRect(0, 0, hudC.width, hudC.height); kc.clearRect(0, 0, hudK.width, hudK.height);
+    hc.clearRect(0, 0, hudC.width, hudC.height); kc.clearRect(0, 0, hudK.width, hudK.height); hudRight = 0;
     hc.fillStyle = HC.color; kc.fillStyle = '#000';
-    const x0 = 7, L = 11, vx = 41, bw = 60, tx = vx + bw + 4;   // 이름 칸, 줄 간격(7 + 4), 값·게이지 칸
+    const x0 = 6, L = 11, vx = 40, bw = 60, tx = vx + bw + 4;   // 이름 칸(화면 가장자리에서 6칸), 줄 간격(7 + 4), 값·게이지 칸
     let y = 6;
     htext('HP', x0, y); hbar(vx, y, bw, hp / tank.maxHp); htext(alive ? hp : 'KO', tx, y); y += L;
     htext('GOLD', x0, y); hbar(vx, y, bw, gold / offerCost()); htext(`${gold}/${offerCost()}${tank.goldMul > 1 ? ' X' + tank.goldMul : ''}`, tx, y); y += L;
@@ -5991,8 +6123,11 @@ function drawHud() {
     htext('LV', x0, y); htext(growLevel, vx, y); y += L;
     htext('ENEMY', x0, y); htext(enemyLeft(), vx, y); y += L;
     if (tank.mg) { htext('MG', x0, y); htext(`${tank.mg.count > 1 ? 'X2 ' : ''}${tank.mg.rate}/S DMG ${tank.mg.damage} ${tank.mg.range}M`, vx, y); }
-  } else if (!glitch && !hudGlitched) return;
+  } else if (!glitch && !hudGlitched && !hudOffAt) return;
   hudGlitched = glitch;
+  // 꺼지는 중이면 (syncHud의 hudOffAt) 4x4 디더링으로 점점 비운다
+  const fth = hudOffAt ? Math.max(0, Math.min(16, Math.floor((1 - (hudOffAt - now) / (POP.fade * 1000)) * 16))) : 0;
+  const srcC = fth ? ditherMask(hudC, fth) : hudC, srcK = fth ? ditherMask(hudK, fth) : hudK;
   // 화면으로 옮기기: 평소엔 통째로, 치지직일 땐 1~4칸 높이 띠마다 좌우로 몇 칸씩 어긋나게
   pg.clearRect(0, 0, DW, DH); sg.clearRect(0, 0, DW, DH);
   const u = hk * DH / H;   // HUD 한 칸의 화면 픽셀 수 (정수 배는 또렷하게, 나머지만 부드럽게: sharpDraw)
@@ -6001,14 +6136,497 @@ function drawHud() {
   for (let sy = 0; sy < CH;) {
     const sh = glitch ? Math.min(CH - sy, 1 + (Math.random() * 4 | 0)) : CH;
     const dx = glitch && Math.random() < 0.2 + 0.5 * k ? Math.round((Math.random() * 2 - 1) * HC.glitchPx * k) : 0;
-    sharpDraw(pg, hudC, dx * u, sy * u, CW * u, sh * u, 0, sy, CW, sh);
+    sharpDraw(pg, srcC, dx * u, sy * u, CW * u, sh * u, 0, sy, CW, sh);
     if (HC.shadow > 0) {
-      sg.globalAlpha = HC.shadow * 0.5; sharpDraw(sg, hudK, dx * u, sy * u, CW * u, sh * u, 0, sy, CW, sh);
-      sg.globalAlpha = HC.shadow; sharpDraw(sg, hudK, (dx + 1) * u, (sy + 1) * u, CW * u, sh * u, 0, sy, CW, sh);
+      sg.globalAlpha = HC.shadow * 0.5; sharpDraw(sg, srcK, dx * u, sy * u, CW * u, sh * u, 0, sy, CW, sh);
+      sg.globalAlpha = HC.shadow; sharpDraw(sg, srcK, (dx + 1) * u, (sy + 1) * u, CW * u, sh * u, 0, sy, CW, sh);
     }
     sy += sh;
   }
 }
+
+// ===== src/81_ui.js =====
+// ---------------------------------------------------------------- 픽셀 UI (한글)
+// 글꼴: 갈무리11 장체 (fonts/galmuri11c.js, OFL). 한글은 7x11칸 글자에 8칸 간격, 줄 높이 15칸(글자 11 + 간격 4)
+// 표현은 HUD와 같다: 색 한 가지(기본 HC.color)를 블렌딩(HC.blend)으로 얹고, 밑에 검은 그림자(HC.shadow)를 오른쪽 아래 1칸 깐다.
+// 패널 바탕은 그림자 캔버스에 반투명 검정으로 깔아 뒤 장면을 어둡게 한다 (더하기 블렌딩은 어둡게 할 수 없어서)
+// UI 칸 = 게임 화면 1픽셀 × hk (HUD와 같은 배율). 1칸 = 1픽셀 캔버스 세 장(색·그림자·바탕)에 그려 두고 화면 캔버스로 늘려 옮긴다.
+// 화면 하나 = { draw(ui), click(id), key(e) }. uiShow(화면)으로 띄우고, 내용이 바뀌면 uiDirty() → 다음 프레임에 다시 그린다
+const GF = { map: null, u8: null };
+const GF_BASE = 11, GF_LINE = 15;   // 줄 맨 위에서 글자 바닥선까지, 줄 높이
+function gfInit() {
+  if (GF.map) return;
+  GF.map = new Map();
+  const F = window.GALMURI11C;
+  if (!F) return;   // 폰트 파일이 없으면 글자 없이 (상자는 그려진다)
+  const bin = atob(F.data), u = GF.u8 = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+  for (let o = 0, cp = 0; o < u.length;) {
+    let d = 0, sh = 0, b;
+    do { b = u[o++]; d |= (b & 127) << sh; sh += 7; } while (b & 128);
+    cp += d;
+    const g = { dw: u[o], w: u[o + 1], h: u[o + 2], xo: u[o + 3] - 8, yo: u[o + 4] - 8, off: o + 5 };
+    GF.map.set(cp, g); o = g.off + ((g.w * g.h + 7) >> 3);
+  }
+}
+const gfGlyph = (ch) => { gfInit(); return GF.map.get(ch.codePointAt(0)) || GF.map.get(63) || null; };   // 없는 글자는 '?'
+const gfWidth = (t) => { let w = 0; for (const ch of String(t)) w += gfGlyph(ch)?.dw ?? 0; return Math.max(0, w - 1); };   // 마지막 글자 뒤 1칸 간격은 뺀다
+// 글자를 칸마다 plot(x, y)로 찍는다 (y = 줄 맨 위). 다음 글자 자리를 돌려준다
+function gfDraw(t, x, y, plot) {
+  for (const ch of String(t)) {
+    const g = gfGlyph(ch);
+    if (!g) continue;
+    const top = y + GF_BASE - (g.yo + g.h);
+    for (let j = 0, k = 0; j < g.h; j++) for (let i = 0; i < g.w; i++, k++) if (GF.u8[g.off + (k >> 3)] & (128 >> (k & 7))) plot(x + g.xo + i, top + j);
+    x += g.dw;
+  }
+  return x;
+}
+// 글자 하나를 칠한 칸의 왼쪽 위가 (x, y)에 오게 찍는다 (상자 안 가운데 맞춤용)
+function gfGlyphDraw(g, x, y, plot) {
+  for (let j = 0, k = 0; j < g.h; j++) for (let i = 0; i < g.w; i++, k++) if (GF.u8[g.off + (k >> 3)] & (128 >> (k & 7))) plot(x + i, y + j);
+}
+// 폭 maxW칸 안으로 줄바꿈: 띄어쓰기에서 나누고, 한 어절이 너무 길면 글자 단위로. '\n'은 그대로 줄바꿈
+function gfWrap(t, maxW) {
+  const out = [];
+  for (const para of String(t).split('\n')) {
+    let line = '';
+    for (const word of para.split(' ')) {
+      const cand = line ? line + ' ' + word : word;
+      if (gfWidth(cand) <= maxW) { line = cand; continue; }
+      if (line) out.push(line);
+      line = '';
+      for (const ch of word) { if (line && gfWidth(line + ch) > maxW) { out.push(line); line = ''; } line += ch; }
+    }
+    out.push(line);
+  }
+  return out;
+}
+
+const pui = document.getElementById('pui'), ug = pui.getContext('2d');
+const puiS = document.getElementById('puiS'), usg = puiS.getContext('2d');
+pui.style.mixBlendMode = HC.blend;
+const uiC = document.createElement('canvas'), ucx = uiC.getContext('2d');   // 색
+const uiK = document.createElement('canvas'), ukx = uiK.getContext('2d');   // 글자·선 그림자
+const uiB = document.createElement('canvas'), ubx = uiB.getContext('2d');   // 패널 바탕 (반투명 검정)
+const UI = { screen: null, dirty: false, hits: [], hover: null, w: 0, h: 0, u: 1, shown: false, closing: null, glitchT: 0, noHit: false };
+function uiSet(screen) {
+  UI.screen = screen; UI.hover = null; UI.dirty = true; pausedDrawn = false;   // 멈춰 있어도 바뀐 화면을 그리러 루프를 깨운다
+  if (screen && screen.win) UI.glitchT = HC.glitchTime;   // 창: 치지직하며 나타난다
+  document.body.style.cursor = '';   // 모든 화면은 passive: 화면을 덮지 않고 항목을 누를 때만 가로챈다
+}
+// 화면 바꾸기. 지금 화면이 창이면 바로 바꾸지 않고 치지직 + 디더링으로 사라진 뒤에 (UI.closing)
+function uiShow(screen) {
+  pausedDrawn = false;
+  if (UI.closing) {
+    if (screen === UI.screen) { UI.closing = null; UI.dirty = true; return; }   // 닫히던 창을 다시 띄움
+    UI.closing.next = screen; return;
+  }
+  if (UI.screen && UI.screen.win && screen !== UI.screen) {
+    UI.closing = { next: screen, t: 0 }; UI.glitchT = HC.glitchTime; UI.dirty = true;
+    document.body.style.cursor = '';
+    return;
+  }
+  uiSet(screen);
+}
+// 가운데 창이 떠 있는가 (사라지는 중이어도 다음이 창이면 그대로 떠 있는 것으로)
+const keyButtonW = (key, label) => 5 + gfWidth(key) + 4 + 4 + gfWidth(label) + 6;   // 키 칸 버튼 폭
+const winUp = () => !!(UI.closing ? UI.closing.next && UI.closing.next.win : UI.screen && UI.screen.win);
+const uiDirty = () => { UI.dirty = true; pausedDrawn = false; };
+// 그리기 도구 (모두 UI 칸 단위, 정수로 맞춘다). col을 주면 그 색으로, 아니면 HUD 색
+const ui = {
+  get w() { return UI.w; }, get h() { return UI.h; },
+  // 색 + 그림자
+  fill(x, y, w, h, col) { if (col) ucx.fillStyle = col; ucx.fillRect(x | 0, y | 0, w | 0, h | 0); ukx.fillRect(x | 0, y | 0, w | 0, h | 0); if (col) ucx.fillStyle = HC.color; },
+  // 1칸 테두리
+  box(x, y, w, h, col) { this.fill(x, y, w, 1, col); this.fill(x, y + h - 1, w, 1, col); this.fill(x, y, 1, h, col); this.fill(x + w - 1, y, 1, h, col); },
+  // 뒤 장면을 어둡게 (a = 0~1)
+  dim(x, y, w, h, a = 0.6) { ubx.fillStyle = `rgba(0,0,0,${a})`; ubx.fillRect(x | 0, y | 0, w | 0, h | 0); },
+  // 글자 한 줄. align: 'left' | 'center' | 'right' (x 기준). 오른쪽 끝 x를 돌려준다
+  text(t, x, y, col, align = 'left') {
+    const w = gfWidth(t), sx = Math.round(align === 'center' ? x - w / 2 : align === 'right' ? x - w : x);
+    if (col) ucx.fillStyle = col;
+    gfDraw(t, sx, y | 0, (a, b) => { ucx.fillRect(a, b, 1, 1); ukx.fillRect(a, b, 1, 1); });
+    if (col) ucx.fillStyle = HC.color;
+    return sx + w;
+  },
+  // k배 크게 쓴 글자 한 줄 (제목용. 글자 칸 하나를 k×k로). 오른쪽 끝 x를 돌려준다
+  textK(t, x, y, k, col, align = 'left') {
+    const w = gfWidth(t) * k, sx = Math.round(align === 'center' ? x - w / 2 : align === 'right' ? x - w : x);
+    if (col) ucx.fillStyle = col;
+    gfDraw(t, 0, 0, (a, b) => { ucx.fillRect(sx + a * k, (y | 0) + b * k, k, k); ukx.fillRect(sx + a * k, (y | 0) + b * k, k, k); });
+    if (col) ucx.fillStyle = HC.color;
+    return sx + w;
+  },
+  // 각진 패널: 어두운 바탕 + 1칸 테두리 (모서리까지 꽉)
+  panelSq(x, y, w, h, col, a = 0.6) { this.dim(x, y, w, h, a); this.box(x, y, w, h, col); },
+  // 글자 키 칸 (SPACE·ESC처럼 여러 글자도): 칠한 칸 안에 검은 글자, 위아래 1칸·좌우 2칸 여유. y = 글자 줄 맨 위. 폭을 돌려준다
+  keyText(x, y, label, col) {
+    const w = gfWidth(label) + 4;
+    this.fill(x, y - 1, w, 12, col);
+    this.knock(() => this.text(label, x + 2, y));
+    return w;
+  },
+  // 키 칸이 붙은 버튼: [G] 재출격. 마우스를 올리면 색으로 꽉 채우고 글자를 비워 뒤집는다
+  keyButton(id, x, y, key, label, col) {   // 키 칸: 글자 줄 위아래 1칸, 좌우 2칸 여유 (ESC처럼 여러 글자도)
+    const kw = gfWidth(key), w = keyButtonW(key, label), h = 21, hot = this.hit(id, x, y, w, h), lx = x + 5 + kw + 4 + 4;
+    this.dim(x, y, w, h, 0.6);
+    if (hot) {
+      this.fill(x, y, w, h, col);
+      this.knock(() => { ucx.fillRect(x + 5, y + 4, kw + 4, 12); this.text(label, lx, y + 5); });   // 키 칸은 통째로 비워 검게, 이름은 뒤집어
+      this.text(key, x + 7, y + 5, col);   // 검은 키 칸 안에 창 색 글자
+    } else {
+      this.box(x, y, w, h, col);
+      this.fill(x + 5, y + 4, kw + 4, 12, col);
+      this.knock(() => this.text(key, x + 7, y + 5));
+      this.text(label, lx, y + 5, col);
+    }
+    return w;
+  },
+  // 사각형 안에만 그리기 (색·그림자 모두. 그림자는 오른쪽 아래 1칸까지)
+  clip(x, y, w, h, fn) {
+    for (const g of [ucx, ukx]) { g.save(); g.beginPath(); g.rect(x, y, w, h); g.clip(); }
+    fn();
+    for (const g of [ucx, ukx]) g.restore();
+  },
+  // 색만 지우며 그리기 (꽉 칠한 칸 안에 '검은 글자': 바탕과 그림자가 비쳐 보인다)
+  knock(fn) { ucx.globalCompositeOperation = 'destination-out'; fn(); ucx.globalCompositeOperation = 'source-over'; },
+  // 클릭 영역 등록 (마우스를 올리면 UI.hover = id)
+  hit(id, x, y, w, h) { if (UI.noHit) return false; UI.hits.push({ id, x, y, w, h }); return UI.hover === id; },   // 사라지는 중에는 누를 수 없다
+};
+// 화면 좌표(CSS 픽셀) → UI 칸
+const uiAt = (e) => ({ x: (e.clientX - VR.x) / UI.u, y: (e.clientY - VR.y) / UI.u });
+const uiPick = (p) => { for (let i = UI.hits.length - 1; i >= 0; i--) { const r = UI.hits[i]; if (p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h) return r.id; } return null; };
+// passive 화면 (게임을 계속하는 동안 뜨는 것): 화면을 덮지 않고, 누른 곳이 항목일 때만 가로챈다 (마우스·터치)
+addEventListener('pointerdown', (e) => {
+  if (!UI.screen || !UI.screen.passive || !UI.screen.click || e.target.closest?.('#hud')) return;
+  const id = uiPick(uiAt(e));
+  if (id) { e.stopImmediatePropagation(); e.preventDefault(); UI.screen.click(id); }
+}, true);
+// passive 화면의 마우스 올림 (버튼이 뒤집혀 보이게): 화면을 덮지 않으니 창 전체에서 본다
+addEventListener('pointermove', (e) => {
+  if (!UI.screen || !UI.screen.passive || !UI.hits.length) return;
+  const id = uiPick(uiAt(e));
+  if (id !== UI.hover) { UI.hover = id; uiDirty(); document.body.style.cursor = id ? 'pointer' : ''; }
+});
+// 매 프레임: 화면 크기가 바뀌었거나 내용이 바뀌었을 때만 다시 그린다
+function uiUpdate() {
+  const H = rt.height, dpr = devicePixelRatio || 1, DW = Math.max(1, Math.round(VR.w * dpr)), DH = Math.max(1, Math.round(VR.h * dpr));
+  const k = Math.max(1, Math.floor(H / 360)), w = Math.floor(rt.width / k), h = Math.floor(H / k);
+  if (!UI.screen) {
+    if (UI.shown) { ug.clearRect(0, 0, pui.width, pui.height); usg.clearRect(0, 0, puiS.width, puiS.height); UI.shown = false; }
+    return;
+  }
+  if (pui.width !== DW || pui.height !== DH || UI.w !== w || UI.h !== h) {
+    pui.width = puiS.width = DW; pui.height = puiS.height = DH;
+    uiC.width = uiK.width = uiB.width = UI.w = w; uiC.height = uiK.height = uiB.height = UI.h = h;
+    UI.dirty = true;
+  }
+  UI.u = k * VR.h / H;   // UI 한 칸의 CSS 픽셀 수
+  if (UI.closing) {   // 사라지는 중
+    UI.closing.t += uiDt; UI.dirty = true;
+    if (UI.closing.t >= POP.fade) { const nx = UI.closing.next; UI.closing = null; uiSet(nx); if (!UI.screen) return uiUpdate(); }
+  } else if (UI.screen.tick) { UI.screen.tick(); if (!UI.screen) return uiUpdate(); }   // 시간에 따라 바뀌는 화면 (닫혔으면 지우러 한 번 더)
+  if (UI.glitchT > 0) { UI.glitchT = Math.max(0, UI.glitchT - uiDt); UI.dirty = true; }
+  if (!UI.dirty) return;
+  UI.dirty = false; UI.shown = true; UI.hits.length = 0; UI.noHit = !!UI.closing;
+  ucx.clearRect(0, 0, w, h); ukx.clearRect(0, 0, w, h); ubx.clearRect(0, 0, w, h);
+  ucx.fillStyle = HC.color; ukx.fillStyle = '#000';
+  UI.screen.draw(ui);
+  // 화면으로: 바탕 → 그림자(제자리에 옅게 + 오른쪽 아래 1칸) → 색(블렌딩은 CSS mix-blend-mode)
+  // 사라지는 중이면 (UI.screen.th 1~16) 세 장 모두 같은 4x4 디더링 무늬로 비운다
+  const cth = UI.closing ? Math.min(16, Math.floor(UI.closing.t / Math.max(0.01, POP.fade) * 16)) : 0;
+  const u = k * DH / H, th = Math.max(UI.screen.th || 0, cth), dm = (c) => th > 0 ? ditherMask(c, th) : c;
+  // 치지직 (HUD와 같은 방식): 1~4칸 높이 띠마다 좌우로 몇 칸씩 어긋나게. 세 장 모두 같은 띠로
+  const gk = UI.glitchT > 0 ? 0.8 * Math.min(1, UI.glitchT / HC.glitchTime * 1.5) : 0, bands = [];
+  if (gk > 0) for (let sy = 0; sy < h;) {
+    const sh = Math.min(h - sy, 1 + (Math.random() * 4 | 0));
+    bands.push([sy, sh, Math.random() < 0.2 + 0.5 * gk ? Math.round((Math.random() * 2 - 1) * HC.glitchPx * gk) : 0]); sy += sh;
+  } else bands.push([0, h, 0]);
+  const put = (g, src, o) => { for (const [sy, sh, dx] of bands) sharpDraw(g, src, (dx + o) * u, (sy + o) * u, w * u, sh * u, 0, sy, w, sh); };
+  ug.clearRect(0, 0, DW, DH); usg.clearRect(0, 0, DW, DH);
+  put(usg, dm(uiB), 0);
+  if (HC.shadow > 0) {
+    const sk = dm(uiK);
+    usg.globalAlpha = HC.shadow * 0.5; put(usg, sk, 0);
+    usg.globalAlpha = HC.shadow; put(usg, sk, 1);
+    usg.globalAlpha = 1;
+  }
+  put(ug, dm(uiC), 0);
+}
+
+// ---- 성장 선택지 (우상단, 세로 3칸 + 안내 한 줄). 게임은 계속되고, 화면을 덮지 않는다 (항목을 누를 때만 가로챔)
+// 항목: 테두리 상자 안에 [레어도 색 키 칸 + 검은 키 글자] 이름(레어도 색) / 설명(밝은 회색, 줄바꿈).
+// 키 글자는 키보드면 1·2·3, 게임패드를 쓰고 있으면 ←·↑·→. 키 칸은 세 글자를 모두 담는 같은 크기 (위아래 1칸, 좌우 2칸 여유)이고 글자마다 정가운데.
+// 화면 가장자리에서 6칸 안쪽, 폭은 HUD 오른쪽 끝에 닿지 않을 만큼 (최대 200칸).
+// 나타날 때: 위에서부터 0.1초 간격으로 화면 오른쪽 밖에서 제자리로 0.3초 (EaseOutExpo). 안내 줄은 네 번째로.
+// 고르면 나머지(안내 줄 포함)는 곧바로 어두운 회색, OFFER_HOLD초 뒤 OFFER_FADE초에 걸쳐 디더링으로 사라진다
+const OFFER_TXT = '#9c9c9c', OFFER_OFF = '#464646', OFFER_HOLD = 1.0, OFFER_FADE = 0.4, OFFER_IN = 0.3, OFFER_STEP = 0.1, OFFER_W = 200;
+// 숫자 뒤 '으로/로': 끝자리를 읽은 소리에 받침이 있으면(0 영·3 삼·6 육, 10 십·100 백…) '으로', 없거나 ㄹ이면 '로'
+// 숫자 뒤 '을/를': 끝자리를 읽은 소리에 받침이 있으면(0 영·1 일·3 삼·6 육·7 칠·8 팔, 10 십…) '을'
+const josaUl = (n) => [0, 1, 3, 6, 7, 8].includes(n % 10) ? '을' : '를';
+const josaRo = (n) => [0, 3, 6].includes(n % 10) ? '으로' : '로';
+const easeOutExpo = (t) => t >= 1 ? 1 : 1 - Math.pow(2, -10 * t);
+let inputPad = false;   // 마지막으로 쓴 입력이 게임패드인가 (선택지 키 표시를 바꾼다)
+addEventListener('keydown', () => { if (inputPad) { inputPad = false; if (curOffer) uiDirty(); } });
+const offerUI = {
+  passive: true, th: 0, freezeT: null,
+  draw(ui) {
+    const c = curOffer;
+    if (!c) return;
+    const m = 6, gap = 8, w = Math.max(110, Math.min(OFFER_W, ui.w - m - (hudRight || 170) - gap)), x = ui.w - m - w;
+    // 키 칸 크기: 세 글자의 칠한 폭·높이를 모두 담고, 글자마다 정가운데에 오도록 (폭 차이가 홀수면 1칸 더)
+    const keys = (inputPad ? ['←', '↑', '→'] : ['1', '2', '3']).map(gfGlyph);
+    const kw = Math.max(...keys.map((g) => g.w)), kh = Math.max(...keys.map((g) => g.h));
+    const KW = kw + 4 + (keys.some((g) => (kw - g.w) % 2) ? 1 : 0), KH = kh + 2 + (keys.some((g) => (kh - g.h) % 2) ? 1 : 0);
+    const slide = (k) => { const t = Math.max(0, Math.min(1, (c.showT - OFFER_STEP * k) / OFFER_IN)); return Math.round((1 - easeOutExpo(t)) * (ui.w - x + 2)); };
+    let y = m;
+    c.choices.forEach((ch, i) => {
+      const off = c.picked >= 0 && c.picked !== i, rc = (GC.rarity[ch.u.rarity] || {}).color || HC.color;
+      const nameC = off ? OFFER_OFF : rc, txtC = off ? OFFER_OFF : OFFER_TXT, X = x + slide(i);
+      const lines = gfWrap(ch.desc, w - 10), h = 21 + lines.length * GF_LINE;   // 위아래 안쪽 여백 5칸 + 이름 줄 + 설명 줄들
+      ui.dim(X, y, w, h, 0.5);
+      ui.box(X, y, w, h, txtC);
+      // 키 칸: 이름 줄(글자 11칸) 가운데에 세로로 맞춘다
+      const kx = X + 5, ky = y + 5 + Math.floor((11 - KH) / 2), g = keys[i];
+      ui.fill(kx, ky, KW, KH, nameC);
+      ui.knock(() => gfGlyphDraw(g, kx + (KW - g.w) / 2, ky + (KH - g.h) / 2, (a, b) => ucx.fillRect(a, b, 1, 1)));
+      ui.text(ch.label, kx + KW + 4, y + 5, nameC);
+      lines.forEach((l, k) => ui.text(l, X + 5, y + 5 + GF_LINE * (k + 1), txtC));
+      if (c.picked < 0) ui.hit('o' + i, X, y, w, h);
+      y += h + 4;
+    });
+    const lv = growLevel + (c.picked >= 0 ? 0 : 1);   // 고르면 이미 한 단계 올라 있다
+    ui.text(`LV. ${lv}${josaRo(lv)} 성장! ${inputPad ? '방향키' : '숫자키'}로 고르기`, x + w + slide(3), y, c.picked >= 0 ? OFFER_OFF : HC.color, 'right');
+  },
+  click(id) { pickOffer(+id.slice(1)); },
+  // 나타나는 중: 매 프레임 다시 그림. 고른 뒤: 잠시 그대로 → 디더링으로 사라짐 → 닫고 다음 선택지
+  tick() {
+    const c = curOffer;
+    if (!c) { this.th = 0; return; }
+    const dt = clock.running ? lastDt : 0, inEnd = OFFER_IN + OFFER_STEP * 3;
+    if (this.freezeT != null) c.showT = this.freezeT;
+    else if (c.showT < inEnd) { c.showT = Math.min(inEnd, c.showT + dt); uiDirty(); }
+    if (c.picked < 0) { this.th = 0; return; }
+    c.pickT += dt;
+    const t = c.pickT - OFFER_HOLD, th = t <= 0 ? 0 : Math.min(16, Math.floor(t / OFFER_FADE * 16));
+    if (th >= 16) { this.th = 0; curOffer = null; uiShow(null); nextOffer(); return; }
+    if (th !== this.th) { this.th = th; uiDirty(); }
+  },
+};
+
+// ---- 끝 창 (전투 불능 / 적군 섬멸)과 일시정지 창: 화면 정가운데, 각진 패널. 큰 제목(갈무리 2배) / 회색 내용 / [키] 버튼.
+// 끝 창은 0.3초에 걸쳐 4x4 디더링으로 나타난다. 버튼은 마우스·터치로도 누를 수 있다 (화면을 덮지는 않음)
+const ENDC = { txt: OFFER_TXT, warn: POP.dead, clear: POP.clear, pause: POP.pause, confirm: POP.confirm, idle: '#7c7c7c' };   // idle: 지금 동작하지 않는 키 칸   // 창마다 색 (popup.*Color)
+const centerBox = (ui, pw, ph) => ({ x: Math.round((ui.w - pw) / 2), y: Math.round((ui.h - ph) / 2) });
+const deadUI = {
+  win: true, passive: true,
+  draw(ui) {
+    const title = '전투 불능', body = '전차가 너무 많은 손상을 입어 더 이상 임무를 수행할 수 없습니다.\n이어서 다시 작전을 수행할 수 있습니다.';
+    const lines = gfWrap(body, Math.min(ui.w - 48, 340)), bw = keyButtonW('G', '재출격');
+    const pw = Math.max(gfWidth(title) * 2, ...lines.map(gfWidth)) + 28, ph = 12 + 22 + 8 + lines.length * GF_LINE + 6 + 21 + 12;
+    const { x, y } = centerBox(ui, pw, ph);
+    ui.panelSq(x, y, pw, ph, ENDC.warn);
+    ui.textK(title, x + pw / 2, y + 12, 2, ENDC.warn, 'center');
+    lines.forEach((l, i) => ui.text(l, x + pw / 2, y + 42 + i * GF_LINE, ENDC.txt, 'center'));
+    ui.keyButton('respawn', x + Math.round((pw - bw) / 2), y + ph - 12 - 21, 'G', '재출격', ENDC.warn);
+  },
+  click(id) { if (id === 'respawn') respawn(); },
+};
+const clearUI = {
+  win: true, passive: true, info: { kills: 20, jeeps: 0, time: 0, lv: 0 },
+  draw(ui) {
+    const I = this.info, rows = [['격파한 적 탱크', `${I.kills}대`], ['격파한 적 지프', `${I.jeeps}대`], ['걸린 시간', fmtTime(I.time)], ['성장', `LV. ${I.lv}`]];
+    const title = '적군 섬멸', b1 = keyButtonW('G', '새로 시작'), b2 = keyButtonW('T', '첫 화면으로'), bgap = 8;
+    const rw = Math.max(150, b1 + bgap + b2, ...rows.map(([a, b]) => gfWidth(a) + 16 + gfWidth(b)));
+    const pw = Math.max(gfWidth(title) * 2, rw) + 28, ph = 12 + 22 + 8 + rows.length * GF_LINE + 6 + 21 + 12;
+    const { x, y } = centerBox(ui, pw, ph), rx = x + Math.round((pw - rw) / 2);
+    ui.panelSq(x, y, pw, ph, ENDC.clear);
+    ui.textK(title, x + pw / 2, y + 12, 2, ENDC.clear, 'center');
+    rows.forEach(([a, b], i) => { const ry = y + 42 + i * GF_LINE; ui.text(a, rx, ry, ENDC.txt); ui.text(b, rx + rw, ry, ENDC.clear, 'right'); });
+    const by = y + ph - 12 - 21, bx = x + Math.round((pw - (b1 + bgap + b2)) / 2);
+    ui.keyButton('restart', bx, by, 'G', '새로 시작', ENDC.clear);
+    ui.keyButton('title', bx + b1 + bgap, by, 'T', '첫 화면으로', ENDC.clear);
+  },
+  click(id) { if (id === 'restart') restartGame(false); else if (id === 'title') restartGame(true); },
+};
+// 조종법 탭에 보이는 키와 설명 (일시정지 중에는 동작하지 않는 키라 회색 칸으로)
+const PAUSE_HELP = [[['W', 'S'], '전진 · 후진'], [['A', 'D'], '차체 회전'], [['Q', 'E'], '포탑 회전'], [['R', 'F'], '포신 올리기 · 내리기'],
+  [['SPACE'], '발사'], [['G'], '뒤집힌 전차 세우기'], [['1', '2', '3'], '성장 고르기'], [['ESC'], '일시정지'],
+  [['마우스 끌기'], '카메라 돌리기'], [['휠'], '카메라 당기기 · 밀기']];
+// 일시정지 창 = 게임 정보 창: 탭 세 개 (탱크 성능 · 강화 기록 · 조종법). 넘치면 W/S로 위아래로 넘겨 보고, 강화 기록은 맨 아래(최근)부터.
+// 넘기기는 픽셀 단위: 한 번 누르면 한 줄만큼 부드럽게, 누르고 있으면 계속 미끄러진다 (위아래 끝의 줄은 칸에 잘려 보인다)
+const LOG_PL = 11, LOG_SB = 7, LOG_PR = 15;   // 스크롤 영역: 왼쪽 글자 시작, 스크롤 막대(창 오른쪽에서), 오른쪽 글자 끝 (막대와 8칸 띄움)
+const LOG_SPEED = POPC.logScrollSpeed ?? 300;   // 누르고 있을 때 1초에 넘어가는 칸 수 (popup.logScrollSpeed. 1칸 = 게임 화면 1픽셀, HUD와 같은 배율)
+const pauseUI = {
+  win: true, passive: true, under: null, scroll: 0, target: 0, maxS: 0, holdT: 0,   // scroll: 지금 위치(칸), target: 가려는 위치
+  tab: 0,   // 0 = 탱크 성능 (처음), 1 = 강화 기록, 2 = 조종법 (Q·E로 바꾼다)
+  open() { this.tab = 0; this.home(); },   // 일시정지를 열 때마다 탱크 성능부터
+  home() { this.scroll = this.target = this.tab === 1 ? 1e9 : 0; this.holdT = 0; },   // 탱크 성능은 맨 위부터, 강화 기록은 맨 아래(최근)부터
+  setTab(t) { t = Math.max(0, Math.min(2, t)); if (t === this.tab) return; this.tab = t; this.home(); uiDirty(); },
+  busy() { return keys.has('KeyW') || keys.has('KeyS') || this.target !== this.scroll; },   // 움직이는 중이면 멈춘 화면에서도 루프를 계속 돌린다
+  toEnd(bottom) { this.target = bottom ? this.maxS : 0; uiDirty(); },   // 맨 위 / 맨 아래로 (부드럽게)
+  nudge(d) { this.target = Math.max(0, Math.min(this.maxS, this.target + d * GF_LINE)); uiDirty(); },   // 한 줄만큼
+  tick() {   // 멈춘 동안에도 돈다 (uiDt)
+    const up = keys.has('KeyW'), dn = keys.has('KeyS');
+    if (up !== dn) {
+      this.holdT += uiDt;
+      if (this.holdT > 0.25) this.target = Math.max(0, Math.min(this.maxS, this.target + (dn ? 1 : -1) * LOG_SPEED * uiDt));   // 누르고 있으면 계속
+      uiDirty();   // 누르고 있는 동안은 계속 깨어 있는다
+    } else this.holdT = 0;
+    const d = this.target - this.scroll;
+    if (Math.abs(d) > 0.25) { this.scroll += d * Math.min(1, uiDt * 16); uiDirty(); }   // 부드럽게 따라간다
+    else if (d) { this.scroll = this.target; uiDirty(); }
+  },
+  click(id) { if (id === 'title') uiShow(confirmUI); else if (id === 'resume') pauseSet(false); else if (id.startsWith('tab')) this.setTab(+id.slice(3)); },
+  // 강화 기록 줄들: [n. + 이름(레어도 색)] 다음 줄부터 설명(회색, 줄바꿈). dw = 설명 줄 폭
+  logLines(dw) {
+    const out = [];
+    (tank.pickLog || []).forEach((c, i) => {
+      out.push({ lv: `${i + 1}.`, name: c.label, col: (GC.rarity[c.u.rarity] || {}).color || HC.color });
+      for (const l of gfWrap(c.desc, dw)) out.push({ desc: l });
+    });
+    return out;
+  },
+  // 탱크 성능 줄들: 이름(회색) · 값(창 색, 오른쪽 맞춤). 특수 능력은 가진 것만
+  statLines(w) {
+    const T = tank, f1 = (v) => (Math.round(v * 10) / 10).toString(), mg = T.mg;
+    const out = [
+      ['최대 HP', `${T.maxHp}`], ['최대 속도', `${Math.round(VMAX * (T.spdM || 1) * 3.6)}km/h`], ['가속도', `${f1(ACC * (T.accM || 1))}m/s²`],
+      ['차체 회전', `${Math.round(PC.turnRate * (T.turnM || 1))}°/s`], ['포탑 회전', `${Math.round((T.turretRate || TURRET_RATE) / DEG)}°/s`],
+      ['재장전', `${f1(T.reload ?? PC.reload)}초`], ['포탄 속도', `${f1(T.muzzle ?? PC.muzzle)}m/s`], ['포탄 대미지', `${Math.round(T.shellDmg ?? PC.shellDamage)}`],
+      ['폭발 범위', T.blastR > 0 ? `${f1(T.blastR)}m` : '없음'], ['범위 대미지', T.blastR > 0 ? `${Math.round((T.blastRatio || 0) * 100)}%` : '-'],
+      ['받는 피해', ''],   // 맞은 면마다: (1 - 그 면의 방어력) × 장갑 강화 배율
+      ...[['front', '앞'], ['side', '옆'], ['rear', '뒤'], ['top', '위'], ['bottom', '아래']].map(([f, k]) => [k, `${Math.round((1 - ((T.armor || {})[f] ?? 0)) * (T.armorM ?? 1) * 100)}%`, 1]),
+      ['장갑 관통', `${Math.round((T.pierce || 0) * 100)}%p`],
+      ['골드 끌어오기', `${f1(T.magnetR ?? MAGNET_R)}m`], ['골드 배수', `x${T.goldMul || 1}`],
+      ['기관총', mg ? `${mg.count}정` : '없음'],
+    ];
+    if (mg) out.push(['연사', `${mg.rate}발/초`, 1], ['대미지', `${mg.damage}`, 1], ['사거리', `${mg.range}m`, 1]);
+    const sp = [T.ram && '충돌 공격', T.waterSpeed === 1 && '수륙양용', T.goldKeep && '골드 보존', T.autoRepair && '자동 수리'].filter(Boolean);
+    out.push(['특수 능력', sp.length ? sp.join(' · ') : '없음']);
+    // sub: 위 항목에 딸린 줄 (글머리표 + 들여쓰기). 값이 이름과 겹치면 이름만 두고 값은 다음 줄부터 오른쪽 맞춤으로 줄바꿈
+    const res = [];
+    for (const [label, value, sub] of out) {
+      const lw = (sub ? 14 : 0) + gfWidth(label), room = w - LOG_PL - LOG_PR - lw - 8;
+      if (gfWidth(value) <= room) { res.push({ label, value, sub }); continue; }
+      res.push({ label, value: '', sub });
+      for (const l of gfWrap(value, w - LOG_PL - LOG_PR - 14)) res.push({ label: '', value: l, cont: true });
+    }
+    return res;
+  },
+  tabNames() { return ['탱크 성능', `LV. ${growLevel} 강화 기록`, '조종법']; },
+  // 조종법 줄들: [키 칸(회색)들] 설명. 설명은 가장 넓은 키 묶음 오른쪽에 한 줄로 맞춘다
+  controlLines() {
+    const kw = (ks) => ks.reduce((n, k) => n + gfWidth(k) + 4, 0) + (ks.length - 1) * 2, KW = Math.max(...PAUSE_HELP.map(([ks]) => kw(ks)));
+    return PAUSE_HELP.map(([keys, desc]) => ({ keys, desc, kx: KW }));
+  },
+  // 창 하나: 탭 머리 / 내용(넘치면 W·S로 넘김) / 아래 [ESC] 계속하기 [T] 첫 화면으로. '일시정지'는 기능만 남고 창은 게임 정보를 보는 곳
+  draw(ui) {
+    const tabs = this.tabNames(), tabW = tabs.reduce((n, t) => n + gfWidth(t) + 12, 0) - 2;
+    const b1 = keyButtonW('ESC', '계속하기'), b2 = keyButtonW('T', '첫 화면으로'), bgap = 8;
+    const pw = Math.min(ui.w - 16, Math.max(260, 8 + gfWidth('Q') + 4 + 6 + tabW + 8 + gfWidth('E') + 4 + 8, b1 + bgap + b2 + 28));
+    const ph = Math.min(ui.h - 16, 250);
+    const { x, y } = centerBox(ui, pw, ph), by = y + ph - 12 - 21;
+    ui.panelSq(x, y, pw, ph, ENDC.pause);
+    this.drawLog(ui, x, y, pw, by - 4 - y);   // 탭 머리 + 내용 (버튼 위까지)
+    const bx = x + Math.round((pw - (b1 + bgap + b2)) / 2);
+    ui.keyButton('resume', bx, by, 'ESC', '계속하기', ENDC.pause);
+    ui.keyButton('title', bx + b1 + bgap, by, 'T', '첫 화면으로', ENDC.pause);
+  },
+  drawLog(ui, x, y, w, h) {
+    // 탭 머리: [Q] 탱크 성능 | 강화 기록 | 조종법 [E]. 고른 탭은 위·좌우 테두리로 감싸고 밑은 열어 둔다 (나머지 아래는 가로줄)
+    const ty = y + 12, lineY = ty + 13, tabs = this.tabNames();
+    const qw = ui.keyText(x + 8, ty, 'Q', ENDC.pause), ew = gfWidth('E') + 4, ex0 = x + w - 8 - ew;
+    ui.keyText(ex0, ty, 'E', ENDC.pause);
+    let tx = x + 8 + qw + 6, gap0 = 0, gap1 = 0;
+    tabs.forEach((label, i) => {
+      const tw = gfWidth(label) + 10, on = i === this.tab, hot = ui.hit('tab' + i, tx, ty - 5, tw, 18), col = on || hot ? ENDC.pause : ENDC.txt;
+      if (on) { ui.fill(tx, ty - 5, tw, 1, ENDC.pause); ui.fill(tx, ty - 5, 1, 18, ENDC.pause); ui.fill(tx + tw - 1, ty - 5, 1, 18, ENDC.pause); gap0 = tx + 1; gap1 = tx + tw - 1; }   // 글자 위 5칸에 위 테두리
+      ui.text(label, tx + 5, ty, col);
+      tx += tw + 2;
+    });
+    ui.fill(x + 8 + qw + 2, lineY, gap0 - (x + 8 + qw + 2), 1, ENDC.pause);   // 고른 탭 왼쪽 가로줄
+    ui.fill(gap1, lineY, ex0 - 2 - gap1, 1, ENDC.pause);   // 오른쪽 가로줄
+    const top = y + 12 + GF_LINE + 6 + 4, bottom = y + h - 12;   // 내용은 탭 머리 아래 4칸 더 띄운다
+    const lines = this.tab === 1 ? this.logLines(w - LOG_PL - 10 - LOG_PR) : this.tab === 2 ? this.controlLines() : this.statLines(w);   // 설명은 10칸 더 들여 쓰고, 오른쪽은 스크롤 막대까지 6칸 이상 띄운다
+    if (!lines.length) { ui.text('아직 강화하지 않았어요', x + LOG_PL, top, ENDC.txt); return; }
+    // 넘치면 맨 아래에 조작 안내: [W S] 위·아래로  [A D] 위·아래 끝으로 (한 줄에 안 들어가면 두 줄)
+    const keyW = (a, b) => gfWidth(a) + 4 + 2 + gfWidth(b) + 4, H1 = ['W', 'S', '위·아래로'], H2 = ['A', 'D', '위·아래 끝으로'];
+    const hw = (h) => keyW(h[0], h[1]) + 6 + gfWidth(h[2]), oneLine = hw(H1) + 12 + hw(H2) <= w - 16;
+    const hintN = oneLine ? 1 : 2;
+    const totalH = lines.length * GF_LINE - 4, more = totalH > bottom - top;
+    const viewH = more ? bottom - hintN * GF_LINE - 4 - top : bottom - top;
+    this.maxS = Math.max(0, totalH - viewH);
+    this.target = Math.max(0, Math.min(this.maxS, this.target)); this.scroll = Math.max(0, Math.min(this.maxS, this.scroll));
+    const sy = Math.round(this.scroll), first = Math.floor(sy / GF_LINE);
+    ui.clip(x, top - 1, w, viewH + 2, () => {   // 칸 밖으로 나간 줄은 잘라낸다 (키 칸은 글자보다 위아래 1칸 커서 그만큼 넉넉히)
+      for (let i = first; i < lines.length; i++) {
+        const L = lines[i], ly = top + i * GF_LINE - sy;
+        if (ly >= top + viewH) break;
+        if (L.keys) {   // 조종법: 키 칸(회색)들 + 설명
+          let kx = x + LOG_PL;
+          for (const k of L.keys) kx += ui.keyText(kx, ly, k, ENDC.idle) + 2;
+          ui.text(L.desc, x + LOG_PL + L.kx + 8, ly, ENDC.txt);
+        } else if (L.label !== undefined) {   // 탱크 성능: 이름(회색) · 값(창 색, 오른쪽). 딸린 줄은 글머리표
+          if (L.sub) ui.text('·', x + LOG_PL + 4, ly, ENDC.txt);   // 딸린 줄: 가운뎃점 (글머리표보다 덜 튀게)
+          if (L.label) ui.text(L.label, x + LOG_PL + (L.sub ? 14 : 0), ly, ENDC.txt);
+          if (L.value) ui.text(L.value, x + w - LOG_PR, ly, ENDC.pause, 'right');
+        }
+        else if (L.lv) { const ex = ui.text(L.lv, x + LOG_PL, ly, ENDC.txt); ui.text(L.name, ex + 5, ly, L.col); }
+        else ui.text(L.desc, x + LOG_PL + 10, ly, ENDC.txt);
+      }
+    });
+    if (more) {
+      // 오른쪽 끝 스크롤 막대 (1칸 폭): 어두운 길 + 보이는 만큼의 밝은 손잡이
+      const th = viewH, bx = x + w - LOG_SB, hh = Math.max(6, Math.round(th * viewH / totalH)), hy = top + Math.round((th - hh) * this.scroll / this.maxS);
+      ui.fill(bx, top, 1, th, OFFER_OFF); ui.fill(bx, hy, 1, hh, ENDC.pause);
+      const hint = (h, hx, hy) => { let ex = hx; ex += ui.keyText(ex, hy, h[0], ENDC.pause) + 2; ex += ui.keyText(ex, hy, h[1], ENDC.pause); ui.text(h[2], ex + 6, hy, ENDC.txt); };
+      const ky = bottom - hintN * GF_LINE + 8;   // 안내는 맨 아래로 조금 더
+      hint(H1, x + 8, ky);
+      if (oneLine) hint(H2, x + 8 + hw(H1) + 12, ky); else hint(H2, x + 8, ky + GF_LINE);
+    }
+  },
+};
+// 확인 창: 일시정지에서 [T] 첫 화면으로 → 정말 돌아갈지 묻는다 ([Y] 예 = 처음부터, [N] 아니오 = 일시정지로)
+const confirmUI = {
+  win: true, passive: true,
+  click(id) { if (id === 'yes') restartGame(true); else if (id === 'no') uiShow(pauseUI); },
+  draw(ui) {
+    const title = '첫 화면으로 돌아갈까요?', body = '작전 진행 상황이 모두 수포로 돌아갑니다!';
+    const b1 = keyButtonW('Y', '예'), b2 = keyButtonW('N', '아니오'), bgap = 8;
+    const pw = Math.max(gfWidth(title) * 2, gfWidth(body), b1 + bgap + b2) + 28, ph = 12 + 22 + 8 + GF_LINE + 6 + 21 + 12;
+    const { x, y } = centerBox(ui, pw, ph);
+    ui.panelSq(x, y, pw, ph, ENDC.confirm);
+    ui.textK(title, x + pw / 2, y + 12, 2, ENDC.confirm, 'center');
+    ui.text(body, x + pw / 2, y + 42, ENDC.txt, 'center');
+    const by = y + ph - 12 - 21, bx = x + Math.round((pw - (b1 + bgap + b2)) / 2);
+    ui.keyButton('yes', bx, by, 'Y', '예', ENDC.confirm);
+    ui.keyButton('no', bx + b1 + bgap, by, 'N', '아니오', ENDC.confirm);
+  },
+};
+// 게임패드 방향키 ←·↑·→ = 1·2·3 (표준 배치 패드. 누르는 순간만)
+const padPrev = {};
+function padOffer() {
+  if (!navigator.getGamepads) return;
+  for (const gp of navigator.getGamepads()) {
+    if (!gp || gp.mapping !== 'standard') continue;
+    if (!inputPad && (gp.buttons.some((b) => b.pressed) || gp.axes.some((v) => Math.abs(v) > 0.5))) { inputPad = true; if (curOffer) uiDirty(); }
+    [14, 12, 15].forEach((b, i) => {
+      const k = gp.index * 100 + b, p = !!gp.buttons[b]?.pressed;
+      if (p && !padPrev[k] && UI.screen === offerUI) pickOffer(i);
+      padPrev[k] = p;
+    });
+  }
+}
+
+// 설정 메뉴: 내 탱크를 바로 파괴 / 적군을 바로 섬멸 (남은 증원도 없앤다. 지프는 섬멸 조건이 아님)
+document.getElementById('dbgDie').onclick = (e) => { if (tank.solid) damageTank(tank, 1e6, null, null, 'test'); e.target.blur(); };
+document.getElementById('dbgWipe').onclick = (e) => {
+  enemyDrops = Math.max(enemyDrops, MAX_DROPS); dropTimers.length = 0; spgTimers.length = 0;
+  for (const E of ENEMIES.slice()) if (!E.jeep && E.solid) destroyTankBody(E);
+  checkMissionClear(); e.target.blur();
+};
 
 // 바람에 날리는 마른 풀 부스러기와 흙먼지: 카메라가 보는 곳 둘레에서 바람 방향으로 흘러간다.
 // windDebris 0이면 없음, 1이면 빽빽하게 (HUD 슬라이더). 바람 세기만큼 빠르고 많이
@@ -6091,6 +6709,7 @@ function perfFrame(frameMs, renderMs, progs) {
   perfLog.push(e); if (perfLog.length > 30) perfLog.shift();
   console.warn(`[끊김] ${e.frame}ms · 그리기 ${e.render}ms${progs ? ` · 새 셰이더 ${progs}개 컴파일` : ''} · 오래 걸린 단계: ${top || '없음'}`);
 }
+// ===== src/90_loop.js =====
 function tick(dt) {
   perfT.length = 0; perfLast = performance.now();
   U.uTime.value += dt;
@@ -6100,10 +6719,11 @@ function tick(dt) {
 
   // 입력 → 물리
   // 키보드가 우선, 키가 없으면 터치 패드 값 (아날로그)
-  const lockIn = titlePose();   // 타이틀·전환 동안은 조작 막힘 (포탑·포신은 처음 값으로 돌아가는 중)
-  const thr = lockIn ? 0 : (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0) || touch.thr;
+  const lockIn = titlePose() || winUp();   // 타이틀·전환 동안, 그리고 가운데 창(정보·전투 불능·적군 섬멸·확인)이 떠 있으면 조작 막힘
+  const auto = entranceDrive(dt);   // 타이틀 등장: 저절로 달려온다
+  const thr = auto ? auto[0] : lockIn ? 0 : (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0) || touch.thr;
   const steer = lockIn ? 0 : (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0) - (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) || touch.steer;
-  const turn = thr < 0 ? -steer : steer;   // 후진할 땐 자동차처럼 좌우가 반대
+  const turn = auto ? auto[1] : thr < 0 ? -steer : steer;   // 후진할 땐 자동차처럼 좌우가 반대
   const de = lockIn ? 0 : (keys.has('ArrowUp') || keys.has('KeyR') || touch.up ? 1 : 0) - (keys.has('ArrowDown') || keys.has('KeyF') || touch.down ? 1 : 0);   // 포각: R·↑ 올림, F·↓ 내림
   tank.elev = Math.max(-0.1, Math.min(0.96, tank.elev + de * 0.55 * dt));
   const tq = (keys.has('KeyQ') || touch.tl ? 1 : 0) - (keys.has('KeyE') || touch.tr ? 1 : 0);   // 포탑 회전: Q(◀) 왼쪽, E(▶) 오른쪽
@@ -6177,6 +6797,34 @@ function tick(dt) {
 window.dbg.tick = tick;
 Object.assign(window.dbg, { ENEMIES, newEnemy, TANKS, startDrop, destroyTankBody, hitTank, spawnCoins, coins, battle: () => ({ enemyDrops, enemyKills, dropTimers, missionClear, gold, playTime, growLevel }), targets });
 Object.assign(window.dbg, { spawnSpg, spgWarns, damageTank, blastDamage, rollChoices, pickOffer, goldGain, crates, setAi: (v) => { aiShow = v; }, drawHud, gold: () => gold });
+// 디버그: 원하는 항목으로 성장 선택지 띄우기 (id 3개), HUD + 픽셀 UI를 게임 해상도 그림 한 장으로 (배경은 단색)
+Object.assign(window.dbg, {
+  setOffer(ids) {
+    const ch = ids.map((id) => GC.upgrades.find((u) => u.id === id)).filter(Boolean).map((u) => ({ u, label: upText(u.name, u), desc: upText(u.desc, u) + (upLast(u) ? ' (최대)' : '') }));
+    curOffer = { choices: ch, picked: -1, showT: 9 }; drawOffer();
+  },
+  setOfferRaw(list) {   // [{ name, rarity, desc }] 그대로 (설정에 없는 긴 설명 시험용)
+    curOffer = { choices: list.map((o) => ({ u: { id: 'test', rarity: o.rarity }, label: o.name, desc: o.desc })), picked: -1, showT: 9 }; drawOffer();
+  },
+  offerPad(v) { inputPad = v; uiDirty(); },
+  showClear(info) { Object.assign(clearUI.info, info); uiShow(clearUI); },   // 시안용 (게임 상태는 그대로)
+  showPause() { pauseUI.under = UI.screen; pauseUI.open(); uiShow(pauseUI); },
+  fillPickLog(n) { tank.pickLog.length = 0; for (let i = 0; i < n; i++) { const c = rollChoices()[0]; if (c) tank.pickLog.push(c); } },   // 시안용: 강화 기록을 아무거나 n개로
+  hideUI() { uiShow(null); },
+  offerFreeze(t) { offerUI.freezeT = t; if (curOffer && t != null) curOffer.showT = t; uiDirty(); },
+  holdPick(i) { if (curOffer) { curOffer.picked = i; curOffer.pickT = -1e9; drawOffer(); } },   // 고른 모습만 (사라지지 않게)
+  uiShot(bg = '#3a3a3a') {
+    drawHud(); UI.dirty = true; uiUpdate();
+    const w = UI.w, h = UI.h, c = document.createElement('canvas'); c.width = w; c.height = h;
+    const g = c.getContext('2d');
+    g.fillStyle = bg; g.fillRect(0, 0, w, h);
+    g.drawImage(uiB, 0, 0);
+    for (const k of [hudK, uiK]) { g.globalAlpha = HC.shadow * 0.5; g.drawImage(k, 0, 0); g.globalAlpha = HC.shadow; g.drawImage(k, 1, 1); }
+    g.globalAlpha = 1; g.globalCompositeOperation = HC.blend === 'normal' ? 'source-over' : HC.blend === 'screen' ? 'screen' : 'lighter';
+    g.drawImage(hudC, 0, 0); g.drawImage(uiC, 0, 0);
+    return c.toDataURL('image/png');
+  },
+});
 Object.defineProperty(window.dbg, 'enemy', { get: () => ENEMIES[0] });
 window.dbg.perfLog = perfLog; window.dbg.perfT = perfT;
 Object.assign(window.dbg, { addTarget, dropSafe, removeWreck, sparks });
@@ -6187,7 +6835,7 @@ renderer.compile(scene, camera);   // 처음 보는 재질 때문에 게임 중�
 fadeLoading();
 // 로딩 화면은 바로 끄지 않고 1초 동안 4x4 디더링 무늬로 점점 비워 가며 사라진다 (게임 해상도 픽셀 단위)
 function fadeLoading() {
-  const LOAD_FADE = 1000;   // 사라지는 시간 (ms)
+  const LOAD_FADE = 2000;   // 사라지는 시간 (ms)
   const el = document.getElementById('loading'), cv = document.getElementById('loadCv');
   removeEventListener('resize', drawLoading);
   if (!cv || !cv._src) { el.remove(); return; }
@@ -6203,46 +6851,78 @@ function fadeLoading() {
   };
   requestAnimationFrame(step);
 }
-// 브라우저 창이 활성 상태가 아니면 일시정지 (다른 창을 보는 동안 적에게 당하지 않게). 마지막 화면은 그대로 남는다
-const pauseEl = document.getElementById('pauseCv');
-// 일시정지 화면: 게임 해상도 캔버스에 HUD 글꼴로 PAUSED, 계속하는 법, 조작 도움말 (화면은 반쯤 어둡게)
-const PAUSE_HELP = [['W S', 'MOVE'], ['A D', 'TURN'], ['Q E', 'TURRET'], ['R F', 'GUN UP / DOWN'], ['SPACE', 'FIRE'], ['G', 'RIGHT THE TANK'], ['1 2 3', 'PICK UPGRADE'], ['ESC', 'PAUSE']];
-function drawPause() {
-  const pauseEl = document.getElementById('pauseCv');   // 화면 크기 바뀔 때(로딩 중 포함)도 불리므로 그때그때 찾는다
-  if (!pauseEl || pauseEl.style.display === 'none') return;
-  const W = rt.width, H = rt.height, k = Math.max(1, Math.floor(H / 360)), src = pauseEl._src || (pauseEl._src = document.createElement('canvas'));
-  src.width = W; src.height = H;
-  const g = src.getContext('2d');
-  g.fillStyle = 'rgba(0,0,0,.45)'; g.fillRect(0, 0, W, H);
-  const put = (t, x, y, kk, col) => {   // 오른쪽 아래 1칸 검은 그림자
-    for (const [c, d] of [['rgba(0,0,0,.75)', kk], [col, 0]]) { g.fillStyle = c; fontDraw(t, x + d, y + d, kk, (a, b, sz) => g.fillRect(a, b, sz, sz)); }
-  };
-  const cx = Math.round(W / 2);
-  let y = Math.round(H / 2) - 46 * k;
-  put('PAUSED', cx - Math.round(fontWidth('PAUSED') * k), y, 2 * k, '#ffd25a'); y += 22 * k;
-  put('CLICK OR PRESS ESC TO RESUME', cx - Math.round(fontWidth('CLICK OR PRESS ESC TO RESUME') * k / 2), y, k, '#e8dcc0'); y += 20 * k;
-  for (const [key, what] of PAUSE_HELP) {   // 키는 가운데 왼쪽에 오른쪽 맞춤, 설명은 가운데 오른쪽에
-    put(key, cx - 5 * k - fontWidth(key) * k, y, k, '#ffd25a'); put(what, cx + 5 * k, y, k, '#e8dcc0'); y += 11 * k;
+// 일시정지 (ESC): 정보 창을 띄우고 게임 진행을 멈춘다. 창·회색조 연출은 계속 그린다
+const setPaused = (v) => {
+  if (paused === v) return;
+  paused = v; pausedDrawn = false; pauseScene = false;
+  // 일시정지 창은 떠 있던 화면(성장 선택지·끝 창) 위에 잠깐 올렸다가, 계속하면 되돌린다
+  // 다른 창(전투 불능·적군 섬멸)이 떠 있으면 일시정지 창은 띄우지 않는다. 확인 창에서 계속해도 일시정지 아래 화면으로
+  const inPause = UI.closing ? UI.closing.next === pauseUI || UI.closing.next === confirmUI : UI.screen === pauseUI || UI.screen === confirmUI;   // 다른 창으로 넘어가는 중이면 그대로 둔다
+  if (v && titleState !== 'title' && !winUp()) {
+    // 아래에 둘 화면: 사라지는 중이면 그다음 화면. 일시정지·확인 창 자신은 아래 화면이 될 수 없다 (ESC를 연타하면 닫히던 창을 다시 여는 경우)
+    const under = UI.closing ? UI.closing.next : UI.screen;
+    pauseUI.under = under === pauseUI || under === confirmUI ? null : under;
+    pauseUI.open(); uiShow(pauseUI);   // 탱크 성능부터
   }
-  Object.assign(pauseEl.style, { left: `${VR.x}px`, top: `${VR.y}px` });
-  sharpBlit(pauseEl, src, VR.w, VR.h);
+  else if (!v && inPause) { uiShow(pauseUI.under || null); pauseUI.under = null; }
+  sfx.pause(v); if (!v) clock.getDelta();
+};
+function pauseSet(u) { setPaused(u); }
+addEventListener('keydown', (e) => {   // ESC: 정보 창 열기(일시정지) / 닫기(계속). 확인 창에서는 정보 창으로 되돌아감. 다른 창이 떠 있으면 무시
+  if (e.code !== 'Escape' || suspended) return;
+  if (UI.screen === confirmUI) uiShow(pauseUI);
+  else if (paused) pauseSet(false);
+  else if (!winUp()) pauseSet(true);
+});
+// 정지 (브라우저 창이 포커스를 잃음 · 탭이 가려짐): 루프 자체를 멈춰 아무것도 계산하거나 그리지 않는다 (마지막 화면 그대로).
+// 정보 창과는 상관없다: 정보 창이 뜬 채로 정지했다가 돌아오면 그대로. 진행 중이던 연출(치지직 등)도 멈췄던 자리에서 이어진다
+let suspended = false, suspendT = 0, suspendAfterFrame = false;
+function suspend() {
+  if (suspended) return;
+  suspended = true; suspendT = performance.now();
+  keys.clear(); sfx.pause(true);
+  renderer.setAnimationLoop(null);
 }
-let paused = false, pausedDrawn = false;
-const setPaused = (v) => { paused = v; pausedDrawn = false; pauseEl.style.display = v && titleState !== 'title' ? '' : 'none'; drawPause(); sfx.pause(v); if (!v) clock.getDelta(); };
-addEventListener('keydown', (e) => { if (e.code === 'Escape') setPaused(!paused); });   // ESC: 일시정지 / 계속
-addEventListener('pointerdown', () => { if (paused && document.hasFocus()) setPaused(false); });   // 창이 이미 활성이어도 클릭하면 계속
-addEventListener('blur', () => setPaused(true));
-addEventListener('focus', () => setPaused(false));
-document.addEventListener('visibilitychange', () => { if (document.hidden) setPaused(true); else if (document.hasFocus()) setPaused(false); });
-if (!document.hasFocus()) setPaused(true);
-renderer.setAnimationLoop(() => {
-  // 멈춘 동안은 시간도 흐르지 않게 (재개 때 한꺼번에 몰아 계산하지 않음). 화면은 멈춘 직후 한 번만 그린다
-  // (비활성 창에서 처음 열려도 빈 화면이 아니게)
-  if (paused && pausedDrawn) { clock.getDelta(); return; }
-  const rawDt = paused ? 0 : clock.getDelta(), dt = Math.min(rawDt, 0.05);
+function resume() {
+  if (!suspended) return;
+  suspended = false;
+  const away = performance.now() - suspendT;   // 실제 시각으로 재던 연출은 멈춰 있던 만큼 미룬다
+  if (glitchUntil) glitchUntil += away;
+  if (hudOffAt) hudOffAt += away;
+  clock.getDelta();   // 멈춰 있던 시간은 게임에 넣지 않는다
+  sfx.pause(paused);
+  renderer.setAnimationLoop(frame);
+}
+addEventListener('blur', suspend);
+addEventListener('focus', resume);
+document.addEventListener('visibilitychange', () => { if (document.hidden) suspend(); else if (document.hasFocus()) resume(); });
+// 포커스를 되찾는 클릭은 '되돌리기'로만: 그 클릭이 버튼·탭을 누르거나 게임을 시작하지 않게 (정지 중에 들어온 pointerdown은 버린다)
+addEventListener('pointerdown', (e) => { if (suspended) { e.stopImmediatePropagation(); e.preventDefault(); } }, true);
+// 회색조 · HUD 켜고 끄기 · 픽셀 UI (멈춘 동안에도 돈다). 연출이 다 끝나면 멈춘 화면으로 고정 (pausedDrawn)
+function overlayFrame() {
+  // 회색조: 가운데 창이 떠 있으면 popup.grayTime초에 걸쳐 회색조로, 닫히면 같은 시간에 걸쳐 원래대로
+  const gT = winUp() ? 1 : 0;
+  grayK += Math.sign(gT - grayK) * Math.min(Math.abs(gT - grayK), uiDt / Math.max(0.01, POP.grayTime));
+  postMat.uniforms.uGray.value = grayK;
+  syncHud();
+  uiUpdate();
+  if (paused) pausedDrawn = !(UI.closing || UI.glitchT > 0 || UI.dirty || grayK !== gT || hudOffAt || performance.now() < glitchUntil || (UI.screen && UI.screen.busy && UI.screen.busy()));   // busy: 화면이 움직이는 중 (강화 기록 넘기기)
+}
+function frame() {
+  // 일시정지(정보 창) 동안 게임 시간은 흐르지 않고 (재개 때 한꺼번에 몰아 계산하지 않음), 창·회색조 연출만 그린다
+  const raw = clock.getDelta();
+  uiDt = Math.min(raw, 0.05);   // 창·회색조 연출 시간: 멈춘 동안에도 흐른다
+  if (paused && pausedDrawn) return;
+  if (paused && pauseScene) {   // 멈춘 뒤에는 장면을 다시 그리지 않는다 (카메라·흔들림이 다시 계산돼 배경이 움찔이지 않게): HUD·창·회색조만
+    drawHud(); overlayFrame();
+    renderer.setRenderTarget(postRT); renderer.render(postScene, postCam);   // 회색조는 후처리라 마지막 장면(rt)에서 다시
+    renderer.setRenderTarget(null); renderer.render(upScene, postCam);
+    return;
+  }
+  const rawDt = paused ? 0 : raw, dt = Math.min(rawDt, 0.05);
+  lastDt = dt;
   if (!missionClear) playTime += Math.min(rawDt, 2);   // 혹시 모를 아주 큰 간격(창이 멈췄다 돌아옴)만 빼고
   const progs0 = renderer.info.programs.length;
-  if (paused) pausedDrawn = true;
   tick(dt);   // 멈춰 있을 때는 dt = 0: 모델 위치만 맞추고 시간은 그대로
 
   // 카메라 추적 + 흔들림 (타이틀·전환 중에는 타이틀 카메라와 섞는다)
@@ -6264,6 +6944,8 @@ renderer.setAnimationLoop(() => {
   updateFloaters(dt);
   updateTankPos(dt);
   drawHud();
+  padOffer();
+  overlayFrame();
 
   renderer.setRenderTarget(rt);
   const tr0 = performance.now();
@@ -6279,6 +6961,7 @@ renderer.setAnimationLoop(() => {
   renderer.setRenderTarget(null);
   renderer.render(upScene, postCam);   // 게임 해상도 → 화면 (샤프 바이리니어)
   camera.position.sub(_shake);
+  if (paused) pauseScene = true;   // 멈춘 장면을 한 번 그렸다
   if (!paused) perfFrame(rawDt * 1000, performance.now() - tr0, renderer.info.programs.length - progs0);
 
   frames++; acc += dt;
@@ -6288,7 +6971,11 @@ renderer.setAnimationLoop(() => {
       `포각 ${Math.round(THREE.MathUtils.radToDeg(tank.elev))}° · ${spd.toFixed(0)} km/h`;
     frames = 0; acc = 0;
   }
-});
+  if (suspendAfterFrame) { suspendAfterFrame = false; suspend(); }
+}
+renderer.setAnimationLoop(frame);
+if (!document.hasFocus()) suspendAfterFrame = true;   // 포커스 없이 열렸으면: 로딩·첫 화면까지는 그리고 정지
+
 </script>
 </body>
 </html>
