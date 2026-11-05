@@ -24,13 +24,14 @@ window.CONFIG = {
     shellDamage: 100,           // 포탄 직격 대미지
     blastRadius: 2,             // 폭발 범위 (m). 0이면 직격한 대상만 대미지
     blastRatio: 0.1,            // 폭발 범위 안의 대상이 받는 대미지 = 포탄 대미지 × 이 비율 (방어력 적용)
-    magnetRange: 16,            // 땅에 떨어진 골드·수리 도구를 끌어오는 거리 (m)
+    magnetRange: 12,            // 땅에 떨어진 골드·수리 도구를 끌어오는 거리 (m)
     waterSpeed: 0.5,            // 물(시냇물) 안에서 최고 속도 배율 ('수륙양용'을 고르면 1)
     initElev: 18,               // 처음 포각 (°)
     ramSpeed: 10,               // '충돌 공격'이 발동하는 속도 (km/h)
     ramDamage: 10,              // '충돌 공격' 대미지
     resetLift: 2,               // 자세 리셋(G): 이만큼(m) 붕 떠올랐다가 떨어지며 자세를 잡는다. 장전된 포탄 한 발을 쓴다
     autoRepairEvery: 4,         // '자동 수리': 이 시간(초)마다 HP 1 회복
+    continues: 3,               // 전투 불능 뒤 재출격할 수 있는 횟수 (첫 화면으로 돌아가면 다시 채워진다)
     mg: {                       // 기관총 ('기관총' 성장을 고르면 생긴다)
       range: 20,                //   자동 공격 거리 (m, 처음)
       rate: 1,                  //   초당 발사 수 (처음)
@@ -99,7 +100,7 @@ window.CONFIG = {
       prowlRange: 45,           // 이 거리 안에 내가 있으면 (안 보여도) 그쪽으로 어슬렁 다가온다
       searchTime: 20,           // 나를 놓친 뒤 마지막 본 곳을 찾아다니는 시간 (초)
       goldRange: 25,            // 이 거리 안의 골드는 주우러 간다
-      safeHuntRange: 70,        // 이 거리 안의 금고는 쏴서 골드를 노린다
+      safeHuntRange: 70,        // 이 거리 안의 보급품은 쏴서 골드를 노린다
       // 공격 성향
       flankTime: 6,             // 내 정면에 있으면 옆으로 돌아 들어가는 시간 (초). 0이면 돌지 않고 바로 쏜다
       flankDist: 14,            // 돌아 들어갈 때 나와의 거리 (m)
@@ -143,33 +144,68 @@ window.CONFIG = {
     maxSpeed: 8,                // 최고 속도 (m/s. 11 = 약 40km/h)
     accel: 1.6,                 // 가속 배율 (내 탱크 처음 값 기준)
     turnMul: 1.5,               // 선회 배율
-    mg: { range: 15, rate: 1, damage: 1 },   // 기관총: 사거리 (m), 초당 발사 수, 한 발 대미지 (내 방어력 적용 후 소수점 버림)
+    mg: { range: 15, rate: 0.5, damage: 2 },   // 기관총: 사거리 (m), 초당 발사 수, 한 발 대미지 (내 방어력 적용 후 소수점 버림)
     sightRange: 32,             // 사방 이 거리 안에서 건물에 가리지 않으면 나를 발견 (m)
     memory: 5,                  // 놓친 뒤 마지막 본 자리를 찾아가는 시간 (초)
     orbit: 12,                  // 나를 발견하면 이 거리(m)로 내 둘레를 돌며 뒤쪽으로 파고든다
-    goldDrop: 1,                // 부수면 나오는 골드
+    goldDrop: 5,                // 부수면 나오는 골드
   },
 
   // --------------------------------------------------------------------------
-  // 상자 (보물 상자 = 빨간 금고, 회복 상자 = 회색 금고, 나무 상자) · 잔해
+  // 상자 (골드 보급품 = 붉은 금고, 수리 보급품 = 초록 띠 상자, 나무 상자) · 잔해
   // --------------------------------------------------------------------------
   box: {
-    hp: 10,                     // 보물·회복 상자, 부서진 탱크 잔해의 체력
+    hp: 10,                     // 골드·수리 보급품, 부서진 탱크 잔해의 체력
     crateHp: 1,                 // 나무 상자의 체력
     armor: 0,                   // 방어력
-    goldCoins: 10,              // 보물 상자에서 나오는 골드
-    goldSpread: 13.5,           // 보물 상자가 터질 때 금화가 퍼지는 범위 (m. 가장 멀리 날아가는 거리, 대략)
-    repairKits: 10,             // 회복 상자에서 나오는 수리 도구
+    goldCoins: 10,              // 골드 보급품에서 나오는 골드
+    goldSpread: 13.5,           // 골드 보급품이 터질 때 금화가 퍼지는 범위 (m. 가장 멀리 날아가는 거리, 대략)
+    repairKits: 10,             // 수리 보급품에서 나오는 수리 도구
     kitHeal: 10,                // 수리 도구 하나에 회복하는 HP
-    explodeDamage: 20,          // 보물·회복 상자가 터질 때 둘레의 탱크·상자가 받는 대미지 (방어력 적용)
+    explodeDamage: 20,          // 골드·수리 보급품가 터질 때 둘레의 탱크·상자가 받는 대미지 (방어력 적용)
     explodeRadius: 2.0,         // 그 범위 (m)
-    goldRespawn: [3, 6],        // 부서지고 다시 떨어지기까지 (초): 보물 상자
-    repairRespawn: [6, 10],     //                                  회복 상자
+    goldRespawn: [3, 6],        // 부서지고 다시 떨어지기까지 (초): 골드 보급품
+    repairRespawn: [6, 10],     //                                  수리 보급품
+    repairCount: 2,             // 지도에 동시에 있는 수리 보급품 수 (부서지면 하나씩 다시 떨어진다)
     coinLife: 30,               // 땅에 떨어진 골드가 사라지기까지 (초, ±5)
   },
 
   // --------------------------------------------------------------------------
-  // 타이틀 화면 (아무 키나 누르면 아래 값들이 title.transition 초에 걸쳐 플레이용으로 부드럽게 넘어간다)
+  // 벙커 (map.js로 놓는다. 맵 편집 모드에서 추가·이동)
+  // --------------------------------------------------------------------------
+  bunker: {
+    hp: 1000,                   // 체력
+    armor: 0.8,                 // 방어력 (관통탄만큼 깎인다)
+    gold: 30,                   // 부서지면 나오는 골드
+    sight: 32,                  // 시야 거리 (m)
+    angle: 80,                  // 시야각: 정면에서 좌우로 이만큼 (°)
+    turn: 70,                   // 기관총이 도는 빠르기 (°/초)
+    alarm: 15,                  // 내가 벙커를 공격하면 적 탱크·지프가 이 시간(초) 동안 그 벙커로 달려온다 (수리보다 먼저. 이미 나를 공격 중이면 그대로)
+    mg: { rate: 4, damage: 4 }, // 기관총: 초당 발사 수, 한 발 대미지 (내 탱크 방어력 적용 후 소수점 버림: 정면 1 · 옆 2 · 뒤 4)
+  },
+
+  // --------------------------------------------------------------------------
+  // 위장색 (내 탱크). 타이틀 화면에서 Q/E로 바꾼다 (고른 것은 브라우저에 이름으로 기억. 처음엔 맨 위)
+  // --------------------------------------------------------------------------
+  camo: {
+    density: 1.35,              // 무늬 밀도 (클수록 얼룩이 잘고 많다)
+    // name: 타이틀에 보이는 이름 (영문)
+    // color: 단색 (부품끼리 밝기 차이는 그대로). 없으면 처음 색 (올리브)
+    // pattern: 무늬 [바탕색, 얼룩1, 얼룩2(없어도 됨)]   t1·t2: 얼룩1·얼룩2가 덮는 정도 (작을수록 넓게, 0.3~0.8)   stripe: true면 비스듬한 줄무늬
+    list: [
+      { name: 'OLIVE CAMO', pattern: ['#6f7c3c', '#56612e', '#3c4422'], t1: 0.52, t2: 0.66 },
+      { name: 'GRAY CAMO', pattern: ['#56606c', '#434b56', '#323840'], t1: 0.52, t2: 0.66 },
+      { name: 'WOODLAND', pattern: ['#6f7c3c', '#5a4228', '#24241e'], t1: 0.55, t2: 0.64 },
+      { name: 'WINTER', pattern: ['#c8ccc4', '#8e9494', '#5a6060'], t1: 0.56, t2: 0.7 },
+      { name: 'DESERT', pattern: ['#c4ac78', '#8a6a40', '#5e4a30'], t1: 0.5, t2: 0.75, stripe: true },
+      { name: 'OLIVE' },
+      { name: 'DARK GREEN', color: '#45603a' },
+      { name: 'PANZER GRAY', color: '#56606c' },
+    ],
+  },
+
+  // --------------------------------------------------------------------------
+  // 타이틀 화면 (SPACE를 누르면 아래 값들이 title.transition 초에 걸쳐 플레이용으로 부드럽게 넘어간다)
   // --------------------------------------------------------------------------
   title: {
     enabled: true,              // false면 타이틀 없이 바로 플레이
@@ -215,22 +251,44 @@ window.CONFIG = {
   // --------------------------------------------------------------------------
   screen: {
     aspectMin: 1.33,            // 가로:세로 비율 최소 (1 = 1:1). 이보다 세로로 길면 위아래를 잘라 검은 레터박스
-    aspectMax: 2.2,             // 가로:세로 비율 최대 (2 = 2:1). 이보다 가로로 길면 좌우를 잘라 검은 레터박스
+    aspectMax: 2.0,             // 가로:세로 비율 최대 (2 = 2:1). 이보다 가로로 길면 좌우를 잘라 검은 레터박스
+    dropFade: 1.2,              // 하늘에서 떨어지는 탱크·보급품이 땅에 닿기까지 걸리는 시간 (초). 떨어지는 빠르기(가속도)는 그대로라 길수록 높은 곳에서 떨어진다 (2.0 ≈ 45m)
+    dropFadeIn: 0.3,            // 하늘에 나타난 직후 4x4 디더링으로 스르륵 나타나는 시간 (초. 0 = 바로 보임)
   },
 
   // --------------------------------------------------------------------------
   // 맵 (설정 메뉴의 처음 값)
   // --------------------------------------------------------------------------
   map: {
-    wind: 1,                    // 바람 세기 (0~2)
-    windDir: 215,               // 바람이 불어 가는 쪽 (°, 0~360). 0 = +x쪽, 90 = +z쪽(북쪽). 이 둘레 ±23도로 천천히 흔들린다
-    debris: 0.3,                // 바람에 날리는 풀 부스러기·먼지 양 (0~1)
-    fog: 0.0105,                // 안개 농도 (0~0.025)
-    fogColor: '#414a5e',        // 안개 색
-    moon: 1.5,                  // 주광(달빛) 세기 (0~4)
-    moonColor: '#9aaad0',       // 주광 색
-    ao: 1.8,                    // 구운 그늘(AO) 세기 (0~4)
-    grassTrampleTime: 30,       // 밟혀 눌린 풀이 다시 일어서기까지 (초)
+    ao: 1.8,                    // 구운 그늘(AO) 세기 (0~4). 모든 맵 셋팅 공통
+    grassTrampleTime: 20,       // 밟혀 눌린 풀이 다시 일어서기까지 (초). 모든 맵 셋팅 공통
+    rainCount: 1600,            // 비 양 1일 때 빗줄기 수 (최대 6000을 넘지 않게 나눠 쓴다). 모든 맵 셋팅 공통
+    rainAlpha: 0.2,             // 빗줄기 진하기 (0~1). 모든 맵 셋팅 공통
+    rainBright: 0.7,            // 빗줄기 색 밝기 배율 (각 맵 셋팅의 rainColor에 곱한다). 모든 맵 셋팅 공통
+    preset: 0,                  // 처음 쓸 맵 셋팅 (아래 presets의 순번, 0부터). 설정 메뉴 '맵 셋팅' 버튼을 누를 때마다 다음 것으로 바뀐다
+    // 맵 셋팅 목록. 빠진 값은 첫 번째(달밤) 값을 쓴다
+    //   wind: 바람 세기 (0~5)          windDir: 바람이 불어 가는 쪽 (°, 0~360. 0 = +x쪽, 90 = +z쪽(북쪽)). 이 둘레 ±23도로 천천히 흔들린다
+    //   debris: 바람에 날리는 풀 부스러기·먼지 양 (0~4)
+    //   fog: 안개 농도 (0~0.05)         fogColor: 안개 색
+    //   moon: 주광 세기 (0~20)          moonColor: 주광 색
+    //   sky: 하늘빛(위에서 고르게 오는 빛) 세기    skyColor: 하늘빛 색    groundColor: 땅에서 되비치는 빛 색
+    //   rain: 비 양 (0 = 안 옴, 1 = 보통, 2 = 폭우)   rainColor: 빗줄기 색
+    //   sand: 모래바람 양 (0~2. 바닥 가까이 바람 따라 흘러가는 모래 연기)   sandColor: 모래 색
+    //   lightning: 번개 (0 = 없음, 1 = 10초에 한 번쯤)
+    presets: [
+      { name: '달밤',
+        wind: 1, windDir: 215, debris: 0.3, fog: 0.0105, fogColor: '#414a5e', moon: 1.5, moonColor: '#9aaad0',
+        sky: 1.5, skyColor: '#7d8aac', groundColor: '#4a3a2a', rain: 0, rainColor: '#a8b8d0', sand: 0, sandColor: '#c8a070', lightning: 0 },
+      { name: '비 오는 날',
+        wind: 1.2, windDir: 200, debris: 0.05, fog: 0.016, fogColor: '#6c7680', moon: 2.2, moonColor: '#c4ccd4',
+        sky: 2.4, skyColor: '#a4b0bc', groundColor: '#3e3a34', rain: 1, rainColor: '#c8d4e0', lightning: 0 },
+      { name: '폭풍우 밤',
+        wind: 1.9, windDir: 240, debris: 0.15, fog: 0.0145, fogColor: '#2c3440', moon: 1.1, moonColor: '#8a9ac0',
+        sky: 1.2, skyColor: '#5c6884', groundColor: '#2e2a26', rain: 2, rainColor: '#9aacc8', lightning: 1 },
+      { name: '모래폭풍',
+        wind: 2, windDir: 180, debris: 1, fog: 0.022, fogColor: '#b08a5c', moon: 6, moonColor: '#ffd8a0',
+        sky: 2.6, skyColor: '#d8b080', groundColor: '#6a4a2a', sand: 0.4, sandColor: '#d0a468' },
+    ],
   },
 
   // --------------------------------------------------------------------------
@@ -244,6 +302,9 @@ window.CONFIG = {
     lead: 9,                    // 화면 가운데를 탱크가 바라보는 쪽으로 이만큼 앞에 둔다 (m)
     follow: 1.8,                // 탱크가 돌 때 카메라가 따라 도는 빠르기 (클수록 바로 따라옴)
     byTurret: true,             // true = 포탑 방향 기준, false = 차체 방향 기준
+    maxDistance: 70,            // 마우스 휠로 멀어질 수 있는 최대 거리 (m)
+    seeThrough: 0,              // 내 탱크를 가리는 건물·물체를 탱크 둘레 이 반지름(m)만큼 디더링으로 비춰 본다 (0 = 끔)
+    minHeight: 2,               // 카메라가 땅보다 이만큼은 위에 있다 (m). 마우스로 낮게 돌려도 땅 속으로 들어가지 않게
   },
 
   // --------------------------------------------------------------------------
@@ -256,6 +317,29 @@ window.CONFIG = {
     glitchTime: 0.50,           // 피해를 입었을 때 치지직 흔들리는 시간 (초)
     glitchPx: 10,               // 치지직 좌우 최대 폭 (HUD 칸)
     showDelay: 3,               // 게임이 시작되고 이 시간(초) 뒤에 HUD가 치지직하며 나타난다
+  },
+
+  // --------------------------------------------------------------------------
+  // 작전 정보: 게임이 시작되면 화면 가운데에 한 글자씩 나타났다가, 잠시 뒤 치지직 + 디더링으로 사라진다. 그 뒤에 HUD
+  // --------------------------------------------------------------------------
+  mission: {
+    enabled: true,              // false면 작전 정보 없이 hud.showDelay초 뒤 바로 HUD
+    top: 34,                    // 화면 맨 위에서 작전명 줄까지 (게임 화면 픽셀)
+    titleColor: '#ffffff',      // 작전명 색
+    lineColor: '#ff4000',       // 작전명 아래 가로줄 색 (작전명이 다 나온 직후 나타난다)
+    textColor: '#c8c8c8',       // 아래 설명 줄 색
+    blend: 'normal',            // 블렌딩 (작전 정보 전체): 'normal'(보통) · 'screen'(스크린) · 'plus-lighter'(더하기)
+    shadow: 0.3,                // 밑에 까는 검은 그림자 진하기 (작전 정보 전체. 0 = 없음)
+    title: '작전명: 혼자서도 잘해요',   // 위쪽 한 줄
+    lines: [                    // 아래쪽 1~5줄
+      '작전 시간: 22:00 ~ 익일 02:00 (야간 작전)',
+      '주 임무: 단독 야간 경계 및 적 기갑 부대 접적 즉시 섬멸',
+      '부 임무: 섹터 내 적 콘크리트 벙커 완전 파괴 및 무력화',
+      '특이사항: 보병 엄호 및 후방 화력 지원 없음',
+    ],
+    typeSpeed: 40,              // 한 글자씩 나타나는 빠르기 (글자/초)
+    hold: 2,                    // 다 나타난 뒤 보이는 시간 (초)
+    fade: 0.6,                    // 치지직 + 디더링으로 사라지는 시간 (초)
   },
 
   // --------------------------------------------------------------------------
@@ -277,19 +361,22 @@ window.CONFIG = {
   // 성장
   // --------------------------------------------------------------------------
   growth: {
-    goldPerOffer: 50,           // 골드가 이만큼 모이면 선택지 3개가 뜬다. 고르면 이만큼 낸다 (처음)
-    goldStepEvery: 5,           // 성장 이 단계마다
-    goldStepAdd: 50,            // 필요한 골드가 이만큼 늘어난다 (0~4단계 50, 5~9단계 100, …)
+    goldPerOffer: 20,           // 골드가 이만큼 모이면 선택지 3개가 뜬다. 고르면 이만큼 낸다 (처음)
+    goldStepEvery: 4,           // 성장 이 단계마다
+    goldStepAdd: 20,            // 필요한 골드가 이만큼 늘어난다 (0~4단계 50, 5~9단계 100, …)
     // 레어도별 등장 가중치 (상대 비율)와 표시 색
     rarity: {
       common:    { name: '일반', weight: 100, color: '#b4b4b4' },
       uncommon:  { name: '고급', weight: 70,  color: '#5ed05e' },
       rare:      { name: '희귀', weight: 30,  color: '#56a0ff' },
       legendary: { name: '전설', weight: 10,  color: '#ff9a2e' },
+      risky:     { name: '위험', weight: 15,  color: '#e0533c', minLevel: 5, perOffer: 1 },   // 장점과 단점이 함께. LV. minLevel부터, 한 번에 perOffer개까지
+      combo:     { name: '조합', weight: 0,   color: '#ffd25a' },   // 조합 보너스 (선택지로는 안 나온다. 강화 기록·카드 색)
     },
     // 선택지 목록
     //   id: 바꾸지 말 것 (게임 코드가 이 이름으로 효과를 찾는다)
     //   name·desc: 화면에 보이는 이름과 설명. desc 안의 {v}는 value로 바뀐다
+    //   bad: 단점 (빨간 글씨로 따로). 안의 {w}는 value2로 바뀐다
     //   rarity: common / uncommon / rare / legendary
     //   weight: 같은 레어도 안에서 더 자주(>1) 또는 덜(<1) 나오게. 생략하면 1
     //   value: 한 번 고를 때 바뀌는 양
@@ -307,7 +394,7 @@ window.CONFIG = {
       { id: 'blast',      name: '폭발 범위',        desc: '폭발 범위 +{v}m',                 rarity: 'uncommon',  value: 2 },
       { id: 'blastDmg',   name: '범위 대미지 증가', desc: '폭발 범위 대미지 +{v}%p',         rarity: 'uncommon',  value: 10 },
       { id: 'armor',      name: '장갑 강화',        desc: '받는 피해 -{v}%',                 rarity: 'uncommon',  value: 10 },
-      { id: 'ram',        name: '충돌 공격',        desc: '빠르게 들이받으면 적 탱크·금고에 피해를 입힘', rarity: 'legendary', max: 1 },
+      { id: 'ram',        name: '충돌 공격',        desc: '빠르게 들이받으면 적 탱크·보급품에 피해를 입힘', rarity: 'legendary', max: 1 },
       { id: 'water',      name: '수륙양용',         desc: '물에서도 느려지지 않음',          rarity: 'uncommon',  max: 1 },
       { id: 'mgRate',     name: '기관총 연사',      desc: '기관총 초당 발사 +{v}',           rarity: 'rare',  value: 1 },
       { id: 'mgDmg',      name: '기관총 대미지',    desc: '기관총 대미지 +{v}',              rarity: 'uncommon',  value: 1 },
@@ -315,10 +402,27 @@ window.CONFIG = {
       { id: 'damage',     name: '대포 파괴력',      desc: '포탄 대미지 +{v}%',               rarity: 'rare',      value: 20 },
       { id: 'gold',       name: '골드 x{n}',        desc: '골드 하나를 주우면 {n}개로',      rarity: 'rare' },
       { id: 'goldKeep',   name: '골드 보존',        desc: '내 탱크가 터져도 골드를 잃지 않음', rarity: 'rare',    max: 1 },
-      { id: 'mg',         name: '기관총',           desc: '가까운 적·금고를 자동 공격', rarity: 'rare', max: 2 },
+      { id: 'mg',         name: '기관총',           desc: '가까운 적·보급품을 자동 공격', rarity: 'rare', max: 2 },
       { id: 'pierce',     name: '관통탄',           desc: '내 포탄이 적 방어력을 {v}%p 무시함', rarity: 'rare',      value: 10, max: 3 },
       { id: 'superPierce',name: '슈퍼 관통탄',      desc: '내 포탄이 적 방어력을 {v}%p 무시함', rarity: 'legendary', value: 50, max: 1 },
       { id: 'autoRepair', name: '자동 수리',        desc: '4초마다 HP 1 회복',              rarity: 'legendary', max: 1 },
+      // 위험: 장점과 단점이 함께
+      { id: 'glass',      name: '유리 대포',        desc: '포탄 대미지 +{v}%',               bad: '최대 HP -{w}%',                  rarity: 'risky', value: 60, value2: 30, max: 1 },
+      { id: 'light',      name: '경량화',           desc: '최대 속도·가속도 +{v}%',          bad: '받는 피해 +{w}%',                rarity: 'risky', value: 30, value2: 20, max: 1 },
+      { id: 'heavy',      name: '두꺼운 장갑',      desc: '받는 피해 -{v}%',                 bad: '최대 속도·차체 회전 -{w}%',      rarity: 'risky', value: 35, value2: 20, max: 1 },
+      { id: 'rapid',      name: '속사포',           desc: '재장전 시간 -{v}%',               bad: '포탄 대미지 -{w}%',              rarity: 'risky', value: 40, value2: 25, max: 1 },
+      { id: 'berserk',    name: '광전사',           desc: 'HP가 낮을수록 포탄 대미지 증가 (최대 +{v}%)', bad: '수리 도구로 회복하는 HP 절반 (최소 1)', rarity: 'risky', value: 100, max: 1 },
+      { id: 'greed',      name: '탐욕',             desc: '보급품에서 나오는 금화 x2',       bad: '골드 끌어오기 거리 -{w}%',       rarity: 'risky', value2: 50, max: 1 },
+    ],
+    // 조합 보너스: need의 성장을 모두 갖추면 저절로 열린다 (선택지가 사라진 뒤 카드로 알림, 강화 기록에 남음)
+    //   need: { 성장 id: 고른 횟수 }. 'a|b'는 둘 중 아무거나. 골드 xN은 gold를 N-1번
+    //   desc 안의 {v}는 value로 바뀐다
+    combos: [
+      { id: 'apMg',        name: '철갑 기관총', desc: '기관총도 관통탄만큼 적 방어력을 무시함',        need: { mg: 1, 'pierce|superPierce': 1 } },
+      { id: 'dozer',       name: '불도저',      desc: '충돌 대미지 x{v}, 절반 속도로도 들이받기',      value: 2, need: { ram: 1, armor: 3 } },
+      { id: 'fieldRepair', name: '야전 정비',   desc: '자동 수리 주기 절반',                           need: { autoRepair: 1, maxHp: 5 } },
+      { id: 'scrap',       name: '고물상',      desc: '금화를 하나 주울 때마다 HP {v} 회복',           value: 1, need: { magnet: 3, gold: 2 } },
+      { id: 'sniper',      name: '저격수',      desc: '멀리 맞힐수록 포탄 대미지 증가 (최대 +{v}%)',   value: 80, need: { reload: 3, muzzle: 3 } },
     ],
   },
 };

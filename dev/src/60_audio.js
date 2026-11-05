@@ -3,16 +3,21 @@
 // 브라우저는 사용자가 한 번 누르거나 클릭해야 소리를 낼 수 있어서 첫 입력 때 켠다.
 // 멀리서 난 소리는 작고 먹먹하게 (듣는 위치 = 카메라가 바라보는 곳, 보통 내 탱크)
 const sfx = (() => {
-  let ctx = null, master = null, verb = null, noiseBuf = null, eng = null, vol = 0.5;
+  // out = 전체 음량 → 압축기. master = 게임 소리 묶음 (가운데 창이 뜨면 끈다). UI 소리는 out으로 바로
+  let paused0 = false;   // 창이 포커스를 잃어 멈췄는가 (sfx.pause)
+  let ctx = null, out = null, master = null, verb = null, noiseBuf = null, eng = null, vol = 0.5, amb = null, gameOn = true, siren = null, sirenWant = 0;
+  const SIREN_VOL = 0.07 * 0.8 * 0.5;   // 경보 크기 (사각파가 삼각파보다 커서 반으로 맞춘 뒤 80%)
+  const ambWant = [0, 0, 0];   // 빗소리 · 바람 · 모래바람 (소리가 켜지기 전에 정해진 값도 기억)
   const srr = (a, b) => a + (b - a) * Math.random();   // 소리용 난수 (게임 배치 난수와 섞이지 않게)
   const init = () => {
-    if (ctx) { if (ctx.state === 'suspended' && document.hasFocus()) ctx.resume(); return; }
+    if (ctx) { if (ctx.state !== 'running' && ctx.state !== 'closed' && !paused0) ctx.resume(); return; }
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     ctx = new AC();
     // 큰 소리끼리 겹쳐도 찢어지지 않게 압축기 → 출력
     const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 4; comp.attack.value = 0.003; comp.release.value = 0.25;
-    master = ctx.createGain(); master.gain.value = vol; master.connect(comp); comp.connect(ctx.destination);
+    out = ctx.createGain(); out.gain.value = vol; out.connect(comp); comp.connect(ctx.destination);
+    master = ctx.createGain(); master.gain.value = gameOn ? 1 : 0; master.connect(out);
     noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
     const d = noiseBuf.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
@@ -38,8 +43,41 @@ const sfx = (() => {
     tn.connect(tb); tb.connect(tg); tg.connect(master);
     for (const o of [o1, o2, lfo, tlfo]) o.start(); tn.start();
     eng = { o1, o2, lfo, g, lp, tg, tlfo, tlfoG };
+    // 날씨 소리: 같은 잡음을 서로 다른 자리에서 틀어 걸러 낸다. 빗소리 = 높은 쏴아 + 낮은 웅웅, 바람 = 가운데 대역이 돌풍처럼 오르내림
+    const loop = (type, f, q) => {
+      const s = ctx.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
+      const b = ctx.createBiquadFilter(); b.type = type; b.frequency.value = f; b.Q.value = q;
+      const g = ctx.createGain(); g.gain.value = 0;
+      s.connect(b); b.connect(g); g.connect(master); s.start(0, srr(0, 1.9));
+      return { b, g };
+    };
+    amb = { hi: loop('highpass', 2200, 0.5), lo: loop('lowpass', 420, 0.6), wind: loop('bandpass', 360, 0.9) };
+    setAmb();
+    // 벙커 경보: 같은 높이의 '삐~ 삐~' (사각파를 조금 깎은 소리를 1초에 한 번, 반은 울리고 반은 쉰다). 평소엔 소리 0
+    {
+      const g = ctx.createGain(); g.gain.value = 0;
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2200; lp.Q.value = 0.7;
+      const a = ctx.createOscillator(), b = ctx.createOscillator(); a.type = b.type = 'square';
+      a.frequency.value = 920; b.frequency.value = 924;   // 살짝 어긋나 조금 굵게
+      const gate = ctx.createGain(); gate.gain.value = 0.5;   // 0.5 ± 0.5 → 울림·쉼
+      const lfo = ctx.createOscillator(), lg = ctx.createGain(); lfo.type = 'square'; lfo.frequency.value = 1.1; lg.gain.value = 0.5;
+      lfo.connect(lg); lg.connect(gate.gain);
+      a.connect(gate); b.connect(gate); gate.connect(lp); lp.connect(g); g.connect(master);
+      const s = ctx.createGain(); s.gain.value = 0.4; g.connect(s); s.connect(verb);   // 멀리 울려 퍼지게 잔향 조금
+      for (const o of [a, b, lfo]) o.start();
+      siren = { g, lp }; g.gain.value = sirenWant * SIREN_VOL;   // 소리가 켜지기 전에 정해진 크기
+    }
   };
+  function setAmb() {
+    if (!amb) return;
+    const t = ctx.currentTime, [rain, wind, sand] = ambWant, gust = 0.75 + 0.25 * Math.sin(t * 0.7) * Math.sin(t * 0.23);
+    amb.hi.g.gain.setTargetAtTime(rain * 0.05, t, 0.5);
+    amb.lo.g.gain.setTargetAtTime(rain * 0.05, t, 0.5);
+    amb.wind.g.gain.setTargetAtTime((Math.max(0, wind - 0.6) * 0.03 + sand * 0.05) * gust, t, 0.4);
+    amb.wind.b.frequency.setTargetAtTime(260 + 260 * gust * (0.5 + wind * 0.3) + sand * 120, t, 0.4);
+  }
   addEventListener('keydown', init); addEventListener('pointerdown', init);
+  setTimeout(init, 0);   // 열자마자 켜 본다: 이 사이트에서 소리를 자주 들었으면 브라우저가 바로 허락한다 (안 되면 멈춘 채로 있다가 첫 입력 때 다시 켠다)
   const dist = (p) => p ? Math.max(0, p.distanceTo(controls.target) - 4) : 0;
   const att = (p) => 1 / (1 + dist(p) / 14);
   // 걸러낸 잡음 한 방: 주파수가 f0 → f1로 내려가며 dur초 동안 사그라든다. rv = 잔향으로 보내는 양. 멀수록 높은 소리를 깎는다
@@ -68,6 +106,19 @@ const sfx = (() => {
     o.connect(g); g.connect(master);
     if (rv) { const s = ctx.createGain(); s.gain.value = rv; g.connect(s); s.connect(verb); }
     o.start(t); o.stop(t + dur + 0.05);
+  }
+  // UI 소리: 짧은 사각파 삑 (게임 소리를 꺼도 들리게 out으로). 치지직 창 연출에 맞춰 잡음을 살짝
+  function blip(f0, f1, dur, gain, delay = 0, type = 'square') {
+    const t = ctx.currentTime + delay, o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain, t + 0.004); g.gain.exponentialRampToValueAtTime(0.0005, t + dur);
+    o.connect(g); g.connect(out); o.start(t); o.stop(t + dur + 0.05);
+  }
+  function crackle(dur, gain, f = 3000) {
+    const t = ctx.currentTime, s = ctx.createBufferSource(), b = ctx.createBiquadFilter(), g = ctx.createGain();
+    s.buffer = noiseBuf; b.type = 'bandpass'; b.frequency.value = f; b.Q.value = 0.7;
+    g.gain.setValueAtTime(gain, t); g.gain.exponentialRampToValueAtTime(0.0005, t + dur);
+    s.connect(b); b.connect(g); g.connect(out); s.start(t, srr(0, 1.5)); s.stop(t + dur + 0.05);
   }
   // 초저음: 사인파를 살짝 일그러뜨려(배음을 더해) 작은 스피커에서도 묵직하게 들리게
   let shaper = null;
@@ -173,7 +224,51 @@ const sfx = (() => {
       const clank = on ? Math.min(1, speed / 6) * 0.05 : 0;
       eng.tg.gain.setTargetAtTime(clank, t, 0.1); eng.tlfoG.gain.setTargetAtTime(clank, t, 0.1);
     },
-    setVolume(v) { vol = v; if (master) master.gain.setTargetAtTime(v, ctx.currentTime, 0.02); },
-    pause(p) { if (!ctx) return; if (p) ctx.suspend(); else ctx.resume(); },
+    // 날씨 소리 양 (0이면 안 들림): 비 양, 바람 세기, 모래바람 양
+    weather(rain, wind, sand) { ambWant[0] = rain; ambWant[1] = wind; ambWant[2] = sand; setAmb(); },
+    // 사이렌 크기 (0 = 끔). k = 가까운 경보 벙커의 거리로 정한 크기, far = 멀수록 먹먹하게 (0~1)
+    siren(k, far = 1) {
+      if (Math.abs(k - sirenWant) < 0.003 || !siren) { if (!siren) sirenWant = k; return; }
+      sirenWant = k;
+      const t = ctx.currentTime;
+      siren.g.gain.setTargetAtTime(k * SIREN_VOL, t, 0.15);
+      siren.lp.frequency.setTargetAtTime(800 + 1800 * far, t, 0.2);
+    },
+    // 천둥: 번개 delay초 뒤 낮게 우르릉 (멀리서 굴러오는 소리)
+    thunder(delay) {
+      if (!ctx) return;
+      noise(null, 0.6, 2500, 300, 0.25, { delay, rv: 0.8, atk: 0.01 });
+      noise(null, 3.6, 260, 30, 0.9, { q: 1.1, delay: delay + 0.05, rv: 1.2, atk: 0.15 });
+      noise(null, 2.2, 150, 40, 0.5, { delay: delay + srr(0.5, 1.2), rv: 1.0, atk: 0.3 });
+    },
+    setVolume(v) { vol = v; if (out) out.gain.setTargetAtTime(v, ctx.currentTime, 0.02); },
+    unlock: init,   // 첫 입력 때 소리 켜기 (타이틀처럼 입력을 가로채는 곳에서 직접 부른다)
+    // 게임 소리 켜고 끄기 (가운데 창이 떠 있으면 끈다. UI 소리는 그대로)
+    game(on) { if (on === gameOn) return; gameOn = on; if (master) master.gain.setTargetAtTime(on ? 1 : 0, ctx.currentTime, 0.04); },
+    // UI 소리: open 창 열림, close 창 닫힘, tab 탭 이동, button 버튼 누름
+    ui(kind) {
+      if (!ctx || ctx.state !== 'running') return;
+      if (kind === 'open') { crackle(0.12, 0.05); blip(520, 520, 0.05, 0.05); blip(780, 780, 0.07, 0.05, 0.05); }
+      else if (kind === 'close') { crackle(0.14, 0.04, 2200); blip(700, 700, 0.05, 0.045); blip(440, 440, 0.08, 0.045, 0.05); }
+      else if (kind === 'tab') blip(1250, 1250, 0.03, 0.04);
+      else if (kind === 'type') blip(1900, 1700, 0.018, 0.018);   // 작전 정보 타자
+      else if (kind === 'combo') [660, 880, 1100, 1320].forEach((f, i) => blip(f, f, 0.09, 0.05, i * 0.07));   // 조합 완성: 올라가는 아르페지오
+      else if (kind === 'button') { blip(980, 980, 0.03, 0.05); blip(1470, 1470, 0.05, 0.04, 0.035); }
+    },
+    pause(p) { paused0 = p; if (!ctx) return; if (p) ctx.suspend(); else ctx.resume(); },
+    // 소리가 켜져 있어야 하는데 브라우저가 멈춰 두었으면 다시 켠다 (한 번이라도 입력한 뒤라면 입력 없이도 된다). 매 프레임 불러도 가볍다
+    keepAlive() {
+      if (!ctx || paused0 || ctx.state === 'running' || ctx.state === 'closed') return;
+      const t = performance.now();
+      if (t - (this._kt || 0) < 500) return;
+      this._kt = t;
+      if (!navigator.userActivation || navigator.userActivation.hasBeenActive) ctx.resume();
+    },
+    // 물에 떨어진 포탄: 낮게 퐁 + 물 튀는 쏴아
+    splash(p) {
+      noise(p, 0.5, 900, 120, 0.6, { q: 1.2, rv: 0.5, atk: 0.006 });
+      noise(p, 0.9, 5000, 1200, 0.32, { type: 'highpass', q: 0.4, rv: 0.4, delay: 0.03, atk: 0.02 });
+      tone(p, 'sine', 180, 55, 0.35, 0.5, 0, 0.3);
+    },
   };
 })();

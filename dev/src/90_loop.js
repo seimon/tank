@@ -7,21 +7,22 @@ function tick(dt) {
 
   // 입력 → 물리
   // 키보드가 우선, 키가 없으면 터치 패드 값 (아날로그)
-  const lockIn = titlePose() || winUp();   // 타이틀·전환 동안, 그리고 가운데 창(정보·전투 불능·적군 섬멸·확인)이 떠 있으면 조작 막힘
+  const lockIn = titlePose() || winUp() || editMode;   // 타이틀·전환 동안, 그리고 가운데 창(정보·전투 불능·적군 섬멸·확인)이 떠 있으면 조작 막힘
   const auto = entranceDrive(dt);   // 타이틀 등장: 저절로 달려온다
-  const thr = auto ? auto[0] : lockIn ? 0 : (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0) || touch.thr;
-  const steer = lockIn ? 0 : (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0) - (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) || touch.steer;
+  const thr = auto ? auto[0] : lockIn ? 0 : (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0) || touch.thr || pad.thr;
+  const steer = lockIn ? 0 : (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0) - (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) || touch.steer || pad.steer;
   const turn = auto ? auto[1] : thr < 0 ? -steer : steer;   // 후진할 땐 자동차처럼 좌우가 반대
-  const de = lockIn ? 0 : (keys.has('ArrowUp') || keys.has('KeyR') || touch.up ? 1 : 0) - (keys.has('ArrowDown') || keys.has('KeyF') || touch.down ? 1 : 0);   // 포각: R·↑ 올림, F·↓ 내림
+  const de = lockIn ? 0 : (keys.has('ArrowUp') || keys.has('KeyR') || touch.up ? 1 : 0) - (keys.has('ArrowDown') || keys.has('KeyF') || touch.down ? 1 : 0) || pad.de;   // 포각: R·↑ 올림, F·↓ 내림
   tank.elev = Math.max(-0.1, Math.min(0.96, tank.elev + de * 0.55 * dt));
-  const tq = (keys.has('KeyQ') || touch.tl ? 1 : 0) - (keys.has('KeyE') || touch.tr ? 1 : 0);   // 포탑 회전: Q(◀) 왼쪽, E(▶) 오른쪽
+  const tq = (keys.has('KeyQ') || touch.tl ? 1 : 0) - (keys.has('KeyE') || touch.tr ? 1 : 0) || pad.tq;   // 포탑 회전: Q(◀) 왼쪽, E(▶) 오른쪽
   if (tank.solid && !lockIn) turretStep(tank, tq, dt);
   tank.cool -= dt;
-  if (tank.solid && !lockIn && (keys.has('Space') || touch.fire) && tank.cool <= 0) { fireCannon(); tank.cool = tank.reload; }
+  if (tank.solid && !lockIn && (keys.has('Space') || touch.fire || pad.fire) && tank.cool <= 0) { fireCannon(); tank.cool = tank.reload; }
   if (tank.falling) updateFall(tank, dt);
   perfMark('입력');
   if (titleState !== 'title' && !aiFrozen) updateEnemies(dt);
   else for (const E of ENEMIES) { if (E.falling && titleState !== 'title') updateFall(E, dt); E.thr = 0; E.turn = 0; }   // 타이틀·AI 정지 동안 적은 가만히 (주행 입력은 0으로. 비워 두면 물리가 NaN이 된다)
+  updateBunkers(dt);
   perfMark('적 AI');
   for (const T of TANKS) T.wet = T.pos.y - COM.y < waterAt(T.pos.x, T.pos.z) + 0.1;   // 차체 바닥이 물에 잠기면 감속
   const spd0 = Math.hypot(tank.vel.x, tank.vel.z);
@@ -29,26 +30,28 @@ function tick(dt) {
     if (tank.solid) physStep(PHYS_H, thr, turn);
     for (const E of ENEMIES) if (E.solid) physStep(PHYS_H, E.thr, E.turn, E);
   }
-  // 충돌 공격: 10km/h(설정) 이상으로 적 탱크나 금고에 부딪히면 대미지 (같은 대상은 0.6초에 한 번)
+  // 충돌 공격: 10km/h(설정) 이상으로 적 탱크나 보급품에 부딪히면 대미지 (같은 대상은 0.6초에 한 번)
   if (tank.touch && tank.touch.size) {
-    if (tank.ram && spd0 * 3.6 >= PC.ramSpeed)
+    if (tank.ram && spd0 * 3.6 >= ramSpeed())
       for (const O of tank.touch) {
         if (U.uTime.value - (O.ramAt || -9) <= 0.6) continue;
-        if (O.pos) { if (O.solid) { O.ramAt = U.uTime.value; sfx.clang(O.pos, 0.8); damageTank(O, PC.ramDamage, null, tank, 'ram'); } continue; }
-        const t = targets.find(t => t.fp === O);   // 금고 (충돌 상자로 닿았다)
-        if (t && t.alive) { O.ramAt = U.uTime.value; sfx.clang(t.mesh.position, 0.8); damageTarget(t, PC.ramDamage, 'ram'); }
+        if (O.pos) { if (O.solid) { O.ramAt = U.uTime.value; sfx.clang(O.pos, 0.8); damageTank(O, ramDamage(), null, tank, 'ram'); } continue; }
+        const t = targets.find(t => t.fp === O);   // 보급품 (충돌 상자로 닿았다)
+        if (t && t.alive) { O.ramAt = U.uTime.value; sfx.clang(t.mesh.position, 0.8); damageTarget(t, ramDamage(), 'ram'); }
       }
     tank.touch.clear();
   }
   // 자동 수리: 10초(설정)마다 HP 1
-  if (tank.autoRepair && tank.solid && tank.hp < tank.maxHp && (tank.repairAcc += dt) >= PC.autoRepairEvery) { tank.repairAcc -= PC.autoRepairEvery; tank.hp = Math.min(tank.maxHp, tank.hp + 1); }
+  // '야전 정비' 조합: 주기 절반. ('광전사'도 자동 수리는 그대로: 한 번에 1이라 더 줄이지 않는다)
+  const repEvery = PC.autoRepairEvery * (tank.fieldRepair ? 0.5 : 1);
+  if (tank.autoRepair && tank.solid && tank.hp < tank.maxHp && (tank.repairAcc += dt) >= repEvery) { tank.repairAcc -= repEvery; tank.hp = Math.min(tank.maxHp, tank.hp + 1); }
   perfMark('물리');
   if (tank.solid && tank.pos.y < BOTTOM - 20) spawnTank();
   for (const E of ENEMIES) {
     if (E.solid && E.pos.y < BOTTOM - 20) startDrop(E);
     if (E.solid) (E.jeep ? jeepVisual : enemyVisual)(E, dt, E.thr);
   }
-  ramWrecks();
+  ramWrecks(); ramSandbags();
   updateTankLamps(thr);
 
   // 탱크 표시: 궤도 텍스처를 벨트 이동 거리만큼 흘린다
@@ -76,9 +79,10 @@ function tick(dt) {
   updateTrackMap(dt);
   perfMark('궤도 자국');
   updateTargets(dt); updateShadows(); updateCoins(dt); updateSmokers(dt); updateCrates(dt); updateWires(dt); updateWallDecals(dt); updateWindmill(dt);
-  perfMark('금고·동전·기타');
+  perfMark('보급품·동전·기타');
   updateLights(dt);
-  if (titleState !== 'title') { updateAim(); updateRings(); updateMG(dt); }
+  if (titleState !== 'title') { updateRings(); updateMG(dt); }
+  if (titleState === 'play') updateAim(); else { aimGeo.setDrawRange(0, 0); aimRing.visible = false; aimHitP = null; }   // 조준선은 타이틀 → 플레이 전환이 끝나면
   perfMark('조명·조준');
   updateCollisionView();
 }
@@ -88,7 +92,7 @@ Object.assign(window.dbg, { spawnSpg, spgWarns, damageTank, blastDamage, rollCho
 // 디버그: 원하는 항목으로 성장 선택지 띄우기 (id 3개), HUD + 픽셀 UI를 게임 해상도 그림 한 장으로 (배경은 단색)
 Object.assign(window.dbg, {
   setOffer(ids) {
-    const ch = ids.map((id) => GC.upgrades.find((u) => u.id === id)).filter(Boolean).map((u) => ({ u, label: upText(u.name, u), desc: upText(u.desc, u) + (upLast(u) ? ' (최대)' : '') }));
+    const ch = ids.map((id) => GC.upgrades.find((u) => u.id === id)).filter(Boolean).map((u) => ({ u, label: upText(u.name, u), desc: upText(u.desc, u) + (upLast(u) ? ' (최대)' : ''), bad: u.bad ? upText(u.bad, u) : '' }));
     curOffer = { choices: ch, picked: -1, showT: 9 }; drawOffer();
   },
   setOfferRaw(list) {   // [{ name, rarity, desc }] 그대로 (설정에 없는 긴 설명 시험용)
@@ -118,12 +122,32 @@ window.dbg.perfLog = perfLog; window.dbg.perfT = perfT;
 Object.assign(window.dbg, { addTarget, dropSafe, removeWreck, sparks });
 aoSave();   // 이번에 새로 구운 AO가 있으면 저장 (다음 로딩부터 바로 씀)
 await loadStep(1, 'WARMING UP SHADERS...');
+applyMapPreset(mapIdx);   // 처음 맵 셋팅 (config map.preset)
 markOutline(scene);
-renderer.compile(scene, camera);   // 처음 보는 재질 때문에 게임 중에 멈칫하지 않게 미리 컴파일
+// 미리 컴파일은 실제로 그리는 곳(저해상도 렌더 타깃 rt)에 맞춰서: 화면(캔버스)에 맞추면 출력 색 공간이 달라(srgb ↔ srgb-linear)
+// 미리 만든 셰이더를 하나도 못 쓰고, 처음 보이는 순간마다 다시 컴파일해 끊긴다
+function warmCompile() {
+  renderer.setRenderTarget(rt); renderer.compile(scene, camera); renderer.setRenderTarget(null);
+  // 텍스처도 미리 GPU로 올린다 (처음 보이는 순간 올리느라 멈칫하지 않게)
+  const seen = new Set();
+  scene.traverse((o) => {
+    for (const m of o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : [])
+      for (const k of ['map', 'alphaMap', 'emissiveMap', 'normalMap']) { const tx = m[k]; if (tx && tx.isTexture && !seen.has(tx)) { seen.add(tx); renderer.initTexture(tx); } }
+  });
+  for (const ms of BK_CRACK_MATS) for (const m of ms) if (m.map && !seen.has(m.map)) { seen.add(m.map); renderer.initTexture(m.map); }   // 벙커 금 간 무늬 (맞기 전엔 장면에 없다)
+}
+{ // 떨어지며 나타날 때 쓰는 디더 재질도 미리: 탱크·적·자주포·지프·보급품 복제본에 씌워 함께 컴파일하고 치운다
+  const warm = new THREE.Group();
+  for (const r of [tankGroup.clone(), enemyTemplate.clone(), spgTemplate.clone(), buildJeep().root, safeModel.clone(), repairModel.clone()]) { warm.add(r); fadeIn(r); }
+  const ch = makeChute(); ch.g.position.set(0, -200, 0); warm.add(ch.g); chutePool.push(ch);   // 낙하산도
+  scene.add(warm); warmCompile(); scene.remove(warm); warm.remove(ch.g);
+  updateFadeIns(0);   // 장면에서 빠졌으니 바로 정리
+}
+warmCompile();   // 처음 보는 재질 때문에 게임 중에 멈칫하지 않게 미리 컴파일
 fadeLoading();
 // 로딩 화면은 바로 끄지 않고 1초 동안 4x4 디더링 무늬로 점점 비워 가며 사라진다 (게임 해상도 픽셀 단위)
 function fadeLoading() {
-  const LOAD_FADE = 2000;   // 사라지는 시간 (ms)
+  const LOAD_FADE = 1333;   // 사라지는 시간 (ms). 아래에서 위로 쓸어 올리며
   const el = document.getElementById('loading'), cv = document.getElementById('loadCv');
   removeEventListener('resize', drawLoading);
   if (!cv || !cv._src) { el.remove(); return; }
@@ -134,7 +158,7 @@ function fadeLoading() {
   const step = () => {
     if (!el.isConnected) return;
     const f = Math.min(1, (performance.now() - t0) / LOAD_FADE);
-    sharpBlit(cv, ditherMask(cv._src, Math.floor(f * 16)), innerWidth, innerHeight);
+    sharpBlit(cv, ditherWipe(cv._src, f), innerWidth, innerHeight);
     if (f < 1) requestAnimationFrame(step); else done();
   };
   requestAnimationFrame(step);
@@ -153,13 +177,13 @@ const setPaused = (v) => {
     pauseUI.open(); uiShow(pauseUI);   // 탱크 성능부터
   }
   else if (!v && inPause) { uiShow(pauseUI.under || null); pauseUI.under = null; }
-  sfx.pause(v); if (!v) clock.getDelta();
+  if (!v) clock.getDelta();
 };
 function pauseSet(u) { setPaused(u); }
 addEventListener('keydown', (e) => {   // ESC: 정보 창 열기(일시정지) / 닫기(계속). 확인 창에서는 정보 창으로 되돌아감. 다른 창이 떠 있으면 무시
   if (e.code !== 'Escape' || suspended) return;
-  if (UI.screen === confirmUI) uiShow(pauseUI);
-  else if (paused) pauseSet(false);
+  if (UI.screen === confirmUI) { sfx.ui('button'); uiPress('no'); uiShow(pauseUI); }
+  else if (paused) { sfx.ui('button'); uiPress('resume'); pauseSet(false); }
   else if (!winUp()) pauseSet(true);
 });
 // 정지 (브라우저 창이 포커스를 잃음 · 탭이 가려짐): 루프 자체를 멈춰 아무것도 계산하거나 그리지 않는다 (마지막 화면 그대로).
@@ -178,7 +202,7 @@ function resume() {
   if (glitchUntil) glitchUntil += away;
   if (hudOffAt) hudOffAt += away;
   clock.getDelta();   // 멈춰 있던 시간은 게임에 넣지 않는다
-  sfx.pause(paused);
+  sfx.pause(false);
   renderer.setAnimationLoop(frame);
 }
 addEventListener('blur', suspend);
@@ -200,6 +224,8 @@ function frame() {
   // 일시정지(정보 창) 동안 게임 시간은 흐르지 않고 (재개 때 한꺼번에 몰아 계산하지 않음), 창·회색조 연출만 그린다
   const raw = clock.getDelta();
   uiDt = Math.min(raw, 0.05);   // 창·회색조 연출 시간: 멈춘 동안에도 흐른다
+  sfx.game(!paused); sfx.keepAlive();   // 일시정지(정보·확인 창) 중에는 게임 소리를 끈다 (UI 소리만). 전투 불능·적군 섬멸 창에서는 그대로
+  padPoll();   // 게임패드: 일시정지로 일찍 돌아가기 전에 (창 조작도 패드로)
   if (paused && pausedDrawn) return;
   if (paused && pauseScene) {   // 멈춘 뒤에는 장면을 다시 그리지 않는다 (카메라·흔들림이 다시 계산돼 배경이 움찔이지 않게): HUD·창·회색조만
     drawHud(); overlayFrame();
@@ -212,16 +238,25 @@ function frame() {
   if (!missionClear) playTime += Math.min(rawDt, 2);   // 혹시 모를 아주 큰 간격(창이 멈췄다 돌아옴)만 빼고
   const progs0 = renderer.info.programs.length;
   tick(dt);   // 멈춰 있을 때는 dt = 0: 모델 위치만 맞추고 시간은 그대로
+  updateFadeIns(dt); updateChutes(dt);
 
   // 카메라 추적 + 흔들림 (타이틀·전환 중에는 타이틀 카메라와 섞는다)
   titleCamBegin();
-  updateCamLead(dt);
-  camFocus(_cf);
-  _tmp.copy(_cf).sub(lastFollow);
-  camera.position.add(_tmp); controls.target.add(_tmp); lastFollow.copy(_cf);
-  followYaw(dt);
+  if (editMode) editUpdate(uiDt);   // 맵 편집: 카메라는 탱크를 따라가지 않는다
+  else if (titleState === 'trans') playRestCam();   // 타이틀 → 플레이 전환: 섞을 플레이 카메라는 끝났을 때 자리에 고정 (움직이는 카메라와 섞으면 출렁인다)
+  else {
+    updateCamLead(dt);
+    camFocus(_cf);
+    _tmp.copy(_cf).sub(lastFollow);
+    camera.position.add(_tmp); controls.target.add(_tmp); lastFollow.copy(_cf);
+    followYaw(dt);
+  }
   controls.update();
+  camAboveGround();
+  U.uOccR.value = titleK >= 1 && tank.solid ? CC.seeThrough ?? 3.2 : 0; U.uOccP.value.set(tank.pos.x, tank.pos.y + 0.6, tank.pos.z);   // 가리는 물체 비춰 보기 (플레이 중에만)
   updateTitle(dt);
+  updateWeather(dt);
+  missionCheck();
   titleCamEnd();
   drawCallouts();
   updateHudReveal(dt);
@@ -232,7 +267,6 @@ function frame() {
   updateFloaters(dt);
   updateTankPos(dt);
   drawHud();
-  padOffer();
   overlayFrame();
 
   renderer.setRenderTarget(rt);
@@ -254,9 +288,7 @@ function frame() {
 
   frames++; acc += dt;
   if (acc > 0.5) {
-    const spd = Math.hypot(tank.vel.x, tank.vel.z) * 3.6;
-    statsEl.textContent = `${Math.round(frames / acc)} fps · ${rt.width}x${rt.height} · 광원 ${lightCount} · draw ${calls} · tri ${(tris / 1000).toFixed(0)}k · ` +
-      `포각 ${Math.round(THREE.MathUtils.radToDeg(tank.elev))}° · ${spd.toFixed(0)} km/h`;
+    statsEl.textContent = `${Math.round(frames / acc)} fps · ${rt.width}x${rt.height} · 광원 ${lightCount} · draw ${calls} · tri ${(tris / 1000).toFixed(0)}k`;
     frames = 0; acc = 0;
   }
   if (suspendAfterFrame) { suspendAfterFrame = false; suspend(); }

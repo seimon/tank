@@ -1,6 +1,7 @@
 // ---------------------------------------------------------------- 마른 풀
 let grassCount = 0;
 const grassCard = [], grassCardMats = [], grassCardNames = [];   // 풀 메시: 1비트 알파 텍스처 카드 (종류마다 재질만 바꿔 낀다)
+const grassHt = new Float32Array(FN * FN);   // 0.5m 칸마다 가장 큰 풀 높이 배율 (빗방울이 풀 위에서 튀게)
 {
   // (예전 폴리곤 풀잎 모양을 만들 때 쓰던 배치 난수 9개: 뒤따르는 마을·상자 배치가 그대로 나오도록 같은 개수만큼 흘려보낸다)
   for (let k = 0; k < 9; k++) rand();
@@ -97,6 +98,7 @@ const grassCard = [], grassCardMats = [], grassCardNames = [];   // 풀 메시: 
     q.setFromAxisAngle(yAxis, grand() * Math.PI * 2);
     const sw = grr(0.8, 1.3);
     s.set(sw, hScale, sw);
+    { const gc = cellOf(x, z); if (gc >= 0 && hScale > grassHt[gc]) grassHt[gc] = hScale; }
     const ci = Math.min(CH - 1, Math.floor((x + HALF) / CW)) + Math.min(CH - 1, Math.floor((z + HALF) / CW)) * CH;
     // 땅 법선 (1m 폭으로 부드럽게, 기울기를 1.4배 과장해 굴곡이 잘 보이게)
     const gn = new THREE.Vector3((heightAt(x - 1, z) - heightAt(x + 1, z)) * 1.4, 2, (heightAt(x, z - 1) - heightAt(x, z + 1)) * 1.4).normalize();

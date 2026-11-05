@@ -153,16 +153,17 @@ function physStep(h, thr, turn, body = tank) {
       const ox = fp.hx - Math.abs(_fl.x), oz = fp.hz - Math.abs(_fl.z);
       if (ox > 0 && oz > 0) {
         // 부딪혀 부서질 대상은 막지 않고 지나간다 (멈칫하지 않게): 잔해 (1.2m/s 이상이면 ramWrecks가 부순다),
-        // '충돌 공격'으로 한 번에 깨질 금고
+        // '충돌 공격'으로 한 번에 깨질 보급품
         const sp = Math.hypot(B.vel.x, B.vel.z);
         if (fp.wreck && sp >= 1.2) continue;
-        if (fp.tgt && B === tank && B.ram && sp * 3.6 >= PC.ramSpeed && (fp.tgt.hp ?? CFG.box.hp) <= boxDmg(PC.ramDamage)) { (B.touch || (B.touch = new Set())).add(fp); continue; }
+        if (fp.sandbag) { fp.sandbag.ram = true; continue; }   // 모래주머니: 닿으면 부서진다 (ramSandbags)
+        if (fp.tgt && B === tank && B.ram && sp * 3.6 >= ramSpeed() && (fp.tgt.hp ?? CFG.box.hp) <= boxDmg(ramDamage())) { (B.touch || (B.touch = new Set())).add(fp); continue; }
         // 회전된 사각형의 가까운 면 법선 (로컬 x → (c,-s), 로컬 z → (s,c))
         if (ox < oz) { const k = Math.sign(_fl.x); _n.set(k * fp.c, 0, -k * fp.s); }
         else { const k = Math.sign(_fl.z); _n.set(k * fp.s, 0, k * fp.c); }
-        if (fp.metal || fp.target) metalHit();   // 쇠끼리(잔해·금고·급수탑·풍차) 부딪힘
+        if (fp.metal || fp.target) metalHit();   // 쇠끼리(잔해·보급품·급수탑·풍차) 부딪힘
         else if (fp.group) woodHit();             // 나무 집
-        if (fp.target && B === tank) (B.touch || (B.touch = new Set())).add(fp);   // '충돌 공격'용: 이번 프레임에 닿은 금고
+        if (fp.target && B === tank) (B.touch || (B.touch = new Set())).add(fp);   // '충돌 공격'용: 이번 프레임에 닿은 보급품
         contactForce(cp, Math.min(ox, oz), _n, true);
       }
     }
@@ -318,7 +319,7 @@ function addBlast(x, y, z, r) {
   blastSlot = (blastSlot + 1) % 4;
 }
 // power 1 = 땅에 떨어진 포탄, 3 = 공격 대상 직격
-function explode(p, n, decal, power = 1, noPush = false) {   // noPush: 내 탱크를 밀어내지 않음 (들이받아 깬 금고)
+function explode(p, n, decal, power = 1, noPush = false) {   // noPush: 내 탱크를 밀어내지 않음 (들이받아 깬 보급품)
   sfx.boom(p, power);
   const P = power, S = 1 + (P - 1) * 0.45, R = 3.6 * (1 + (P - 1) * 0.5);
   if (P > 1) {
@@ -387,6 +388,7 @@ function explode(p, n, decal, power = 1, noPush = false) {   // noPush: 내 탱�
 }
 // 물에 떨어지면 물기둥만
 function splash(p) {
+  sfx.splash(p);
   for (let k = 0; k < 70; k++) {
     const a = rand() * 6.283, r = rr(0, 1), up = rr(5, 13) * (1 - r * 0.6);
     smokeP.spawn(p.x + Math.cos(a) * r, p.y, p.z + Math.sin(a) * r, Math.cos(a) * rr(1, 4), up, Math.sin(a) * rr(1, 4),
@@ -432,13 +434,16 @@ kitMesh.count = 0; kitMesh.frustumCulled = false; scene.add(kitMesh);
 const shardMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), lambert({ color: 0xffffff }), 480);
 shardMesh.userData.noOutline = true;
 shardMesh.count = 0; shardMesh.frustumCulled = false; scene.add(shardMesh);
+shardMesh.setColorAt(0, new THREE.Color(1, 1, 1));   // 인스턴스 색 버퍼를 처음부터 (첫 파편 때 셰이더가 바뀌어 다시 컴파일되지 않게)
 const coins = [], shards = [], smokers = [];
 for (const w of WRECKS) smokers.push({ x: w.x, y: w.y, z: w.z, t: 10, dur: Infinity, acc: 0, weak: true });   // 부서진 탱크: 끝없이 약한 연기
+for (const B of BUNKERS) bunkerSmoke(B);   // 부서진 벙커도
 let gold = 0;
 const SHARD_COLS = [0xc8261c, 0x8a1810, 0xd8a640, 0x26221e].map(h => new THREE.Color(h));
 const REPAIR_COLS = [0xc9ced2, 0x9aa0a4, 0x3ccc5a, 0xf2f4f4].map(h => new THREE.Color(h));
 const METAL_COLS = [0x8e8e88, 0x5c5c58, 0xb4b2aa, 0x3a3936].map(h => new THREE.Color(h));
 const WOOD_COLS = [0x8a6440, 0x6e4e30, 0xa07850, 0x4a3422].map(h => new THREE.Color(h));
+const CONCRETE_COLS = [0x9a988e, 0x7a7870, 0xb0aea4, 0x55534e].map(h => new THREE.Color(h));
 // 파편: 튀었다가 한 번 튕기고 작아지며 사라진다. 세기·각도·무게·공기저항이 제각각. dir을 주면 그쪽으로 쏠림
 function spawnShards(p, n, cols, vmin, vmax, dir, smin, smax, spread = 0.4) {
   for (let k = 0; k < n && shards.length < 480; k++) {
@@ -450,7 +455,7 @@ function spawnShards(p, n, cols, vmin, vmax, dir, smin, smax, spread = 0.4) {
       s: rr(smin, smax), sx: rr(0.4, 1.6), t: 0, ttl: rr(0.9, 1.7), col: cols[k % cols.length] });
   }
 }
-// 바닥 그림자 대상: 탱크, 부서진 탱크, 땅 위(또는 떨어지는 중)의 금고. 카메라에 가까운 12개
+// 바닥 그림자 대상: 탱크, 부서진 탱크, 땅 위(또는 떨어지는 중)의 보급품. 카메라에 가까운 12개
 const _shList = [];
 function updateShadows() {
   _shList.length = 0;
@@ -458,7 +463,7 @@ function updateShadows() {
   for (const T of TANKS) {
     _fwd.set(0, 0, 1).applyQuaternion(T.q);
     const yaw = Math.atan2(_fwd.x, _fwd.z);
-    if (T.falling) {   // 하늘에서 떨어지는 탱크: 금고처럼 높을수록 넓고 옅게 = 떨어질 자리 예고
+    if (T.falling) {   // 하늘에서 떨어지는 탱크: 보급품처럼 높을수록 넓고 옅게 = 떨어질 자리 예고
       const h = T.pos.y - T.landY;
       push(T.pos.x, T.pos.z, yaw, 1.85 + h * 0.03, 2.45 + h * 0.03, 0.9 * (1 - smooth(2, 45, h) * 0.75));
     } else if (T.solid) {
@@ -469,7 +474,7 @@ function updateShadows() {
   for (const w of WRECKS) push(w.x, w.z, Math.atan2(w.group.matrixWorld.elements[8], w.group.matrixWorld.elements[10]), 1.9, 2.5, 0.8);
   for (const t of targets) {
     if (!t.alive || t.roof) continue;
-    const h = t.y - (t.floor + TARGET_S / 2);   // 떨어지는 금고: 높을수록 넓고 옅게 = 떨어질 자리 예고
+    const h = t.y - (t.floor + TARGET_S / 2);   // 떨어지는 보급품: 높을수록 넓고 옅게 = 떨어질 자리 예고
     push(t.x, t.z, t.rot, 1.95 + h * 0.03, 1.95 + h * 0.03, 0.9 * (1 - smooth(2, 45, h) * 0.75));
   }
   _shList.sort((a, b) => a.d - b.d);
@@ -492,7 +497,7 @@ function updateTargets(dt) {
     if (t.alive && !t.falling) updateTip(t, dt);
     if (!t.alive || !t.falling) continue;
     t.vy -= 22 * dt; t.y += t.vy * dt;
-    // 떨어지다 탱크나 다른 금고에 닿으면 그 자리에서 부서진다
+    // 떨어지다 탱크나 다른 보급품에 닿으면 그 자리에서 부서진다
     const bottom = t.y - TARGET_S / 2;
     if (TANKS.some(T => T.solid && Math.hypot(T.pos.x - t.x, T.pos.z - t.z) < 2.9 && bottom < T.pos.y + 2.3 && t.y > T.pos.y) ||
         targets.some(o => o !== t && o.alive && !o.falling && Math.hypot(o.mesh.position.x - t.x, o.mesh.position.z - t.z) < TARGET_S && bottom < o.y + TARGET_S / 2)) {
@@ -515,17 +520,17 @@ function updateTargets(dt) {
     if (t.falling) { t.mesh.position.y = t.y; t.fp.y0 = t.y - TARGET_S / 2; t.fp.top = t.y + TARGET_S / 2; }
   }
 }
-// 금고를 하늘에서 떨어뜨린다: 건물·잔해·다른 금고 4m 안, 절벽·물길·탱크 근처는 피해서. near를 주면 그 둘레에
+// 보급품을 하늘에서 떨어뜨린다: 건물·잔해·다른 보급품 4m 안, 절벽·물길·탱크 근처는 피해서. near를 주면 그 둘레에
 function dropSafe(kind, near) {
   const s = landSpot((x, z) => !TANKS.some(T => (T.solid || T.falling) && Math.hypot(T.pos.x - x, T.pos.z - z) < 8), near, 4);
   if (!s) return;
-  addTarget(s.x, s.z, groundTop(s.x, s.z) - 0.2, rand() * Math.PI / 2, 45, kind); colDirty = true;
+  addTarget(s.x, s.z, groundTop(s.x, s.z) - 0.2, rand() * Math.PI / 2, DROP_H, kind); colDirty = true;
 }
-// 금고 파괴. broken = 떨어지다 부딪혀 깨짐: 폭발 없이 부서지는 효과만, 내용물은 바로 튀어나온다
+// 보급품 파괴. broken = 떨어지다 부딪혀 깨짐: 폭발 없이 부서지는 효과만, 내용물은 바로 튀어나온다
 function destroyTarget(t, broken = false, rammed = false) {   // rammed: 내 탱크가 들이받아 깸 → 폭풍이 내 탱크를 밀지 않는다 (멈칫하지 않게)
   t.alive = false;
   if (t.shadow) scene.remove(t.shadow);
-  respawns.push({ t: rr(...(t.kind === 'repair' ? CFG.box.repairRespawn : CFG.box.goldRespawn)), kind: t.kind });   // 수리 금고는 조금 더 늦게 다시 떨어진다
+  respawns.push({ t: rr(...(t.kind === 'repair' ? CFG.box.repairRespawn : CFG.box.goldRespawn)), kind: t.kind });   // 수리 보급품은 조금 더 늦게 다시 떨어진다
   scene.remove(t.mesh);
   footprints.splice(footprints.indexOf(t.fp), 1); colDirty = true;
   const c = new THREE.Vector3(t.x, t.y, t.z), cols = t.kind === 'repair' ? REPAIR_COLS : SHARD_COLS;
@@ -536,19 +541,19 @@ function destroyTarget(t, broken = false, rammed = false) {   // rammed: 내 탱
   } else {
     // 폭발 세기·동전 퍼짐은 70%
     explode(c, UP, false, 1.7, rammed);
-    blastDamage(c, CFG.box.explodeRadius, CFG.box.explodeDamage, null, t);   // 금고 폭발: 둘레의 탱크·상자도 (방어력 적용)
+    blastDamage(c, CFG.box.explodeRadius, CFG.box.explodeDamage, null, t);   // 보급품 폭발: 둘레의 탱크·상자도 (방어력 적용)
     spawnShards(c, 36, cols, 3, 13, null, 0.25, 0.6, 1);
     smokers.push({ x: t.x, y: t.y - TARGET_S / 2 + 0.3, z: t.z, t: 0, dur: 9, acc: 0 });
   }
-  if (t.kind === 'repair') spawnCoins(c, CFG.box.repairKits, true); else spawnCoins(c, SAFE_COINS, false, SAFE_SPREAD);
+  if (t.kind === 'repair') spawnCoins(c, CFG.box.repairKits, true); else spawnCoins(c, SAFE_COINS * (tank.coinMul || 1), false, SAFE_SPREAD);   // '탐욕': 금화 x2
 }
-// 상자(보물·회복 상자, 나무 상자)와 잔해의 체력: 대미지 = 방어력 적용 후 소수점 버림. 0이 되면 부서진다
+// 상자(골드·수리 보급품, 나무 상자)와 잔해의 체력: 대미지 = 방어력 적용 후 소수점 버림. 0이 되면 부서진다
 const boxDmg = (d) => Math.floor(d * (1 - CFG.box.armor) + 1e-6);
 // kind: 대미지 플로터에 보일 공격 종류 ('blast' 범위, 'mg' 기관총, 'ram' 충돌. 없으면 포탄 직격)
 function damageTarget(t, d, kind) {
   if (!t.alive) return;
   t.hp = (t.hp ?? CFG.box.hp) - boxDmg(d);
-  if (aiShow) addFloater(t.mesh.position, 2, `${KIND_KO[kind] || KIND_KO.shell} 금고 -${boxDmg(d)} = ${fmtN(d)} · 방어 ${Math.round(CFG.box.armor * 100)}% · HP ${Math.max(0, t.hp)}`, '#ffc23a', t);
+  if (aiShow) addFloater(t.mesh.position, 2, `${KIND_KO[kind] || KIND_KO.shell} 보급품 -${boxDmg(d)} = ${fmtN(d)} · 방어 ${Math.round(CFG.box.armor * 100)}% · HP ${Math.max(0, t.hp)}`, '#ffc23a', t);
   if (t.hp <= 0) destroyTarget(t, false, kind === 'ram');
 }
 function damageCrate(c, d, boom = true) {
@@ -563,11 +568,13 @@ function damageWreck(w, d) {
 // 금화: 대략 고르게 나눈 방향에 크게 흔든 각도·세기·높이로 제멋대로 튀게 (내려앉으면 서로 밀어내 겹치지 않음)
 // 팡 터지듯 빠르게 나갔다가 공중에서 옆으로 확 느려진다: 땅에 닿을 때 수평 속도는 처음의 약 40%
 const SAFE_COINS = CFG.box.goldCoins;
-// 퍼지는 세기 1이면 금화가 가장 멀리 약 24m까지 날아간다 (드물게 더 튀는 것 제외). 금고는 설정의 m를 이 비율로
+// 퍼지는 세기 1이면 금화가 가장 멀리 약 24m까지 날아간다 (드물게 더 튀는 것 제외). 보급품은 설정의 m를 이 비율로
 const COIN_REACH = 24, SAFE_SPREAD = (CFG.box.goldSpread ?? 13.5) / COIN_REACH;
 const COIN_LAND_T = 0.45;
 const easeOutBack = (t) => { const k = 1.70158; return 1 + (k + 1) * (t - 1) ** 3 + k * (t - 1) ** 2; };
-const KIT_HEAL = CFG.box.kitHeal;   // 수리 도구 하나에 회복하는 HP
+const KIT_HEAL = CFG.box.kitHeal;
+// 충돌 공격 기준 속도·대미지 ('불도저' 조합: 대미지 x2, 기준 속도 절반)
+const ramSpeed = () => PC.ramSpeed * (tank.dozer ? 0.5 : 1), ramDamage = () => PC.ramDamage * (tank.dozer || 1);   // 수리 도구 하나에 회복하는 HP
 // vals: 동전마다 골드 값 (내 탱크가 터지며 뱉는 골드: 골드 배수를 다시 곱하지 않는다). 없으면 1개씩
 function spawnCoins(c, n, kit = false, scale = 1, vals = null) {
   const a0 = rand() * 6.283, spread = (kit ? 0.35 : 1) * scale;   // 수리 도구는 좁게 퍼진다
@@ -577,7 +584,7 @@ function spawnCoins(c, n, kit = false, scale = 1, vals = null) {
     coins.push({ p: c.clone().add(new THREE.Vector3(Math.cos(a) * 0.6, rr(0.5, 1), Math.sin(a) * 0.6)),
       v: new THREE.Vector3(Math.cos(a) * hs, vy, Math.sin(a) * hs), drag, life: COIN_LIFE + rr(-5, 5), drift: rr(-3, 3) * spread,
       q: new THREE.Quaternion().random(), w: new THREE.Vector3(rr(-12, 12), rr(-12, 12), rr(-12, 12)),
-      rest: false, spin: rand() * 6.28, bob: rand() * 6.28, age: 0, pull: 0, kit, val: vals ? vals[k] : 0 });
+      rest: false, spin: rand() * 6.28, bob: rand() * 6.28, age: 0, pull: 0, kit, val: vals ? vals[k] : 0, magT: 0.1 + Math.random() * 0.1 });   // magT: 이만큼 튀어 오른 뒤부터 자석에 끌린다
   }
 }
 const _cs = new THREE.Vector3(), _cq = new THREE.Quaternion(), _cu = new THREE.Vector3(0, 1, 0), _ct = new THREE.Vector3();
@@ -590,6 +597,8 @@ function updateCoins(dt) {
       for (let k = 0; k < 6; k++) glowP.spawn(c.p.x, c.p.y, c.p.z, rr(-1, 1), rr(0.5, 2), rr(-1, 1), rr(0.3, 0.5), [1, 0.9, 0.5, 1], [1, 0.6, 0.2, 0], 0.15, 0.05, 0, 1);
       coins.splice(i, 1); continue;
     }
+    // 튀어 오르는 중이라도 내 탱크 자석 범위에 들면 바로 끌려온다 (적은 내려앉은 것만)
+    if (!c.pull && !c.rest && tank.solid && c.age > (c.magT ?? 0.15) && Math.hypot(c.p.x - tank.pos.x, c.p.y - tank.pos.y - 0.6, c.p.z - tank.pos.z) < (tank.magnetR || MAGNET_R)) { c.to = tank; c.pull = 1; }
     // 내려앉은 동전은 자석 범위 안의 가장 가까운 탱크(나 또는 적)가 끌어간다
     if (!c.pull && c.rest) {
       let best = Infinity;
@@ -611,8 +620,9 @@ function updateCoins(dt) {
       c.q.setFromAxisAngle(_cu, c.spin);
       if (dist < PICK_R) {
         const v = c.val || (TK === tank ? tank.goldMul || 1 : 1);   // 뱉은 골드는 값 그대로, 새 골드는 골드 배수만큼
-        if (c.kit) TK.hp = Math.min(TK.maxHp, TK.hp + KIT_HEAL);
-        else if (TK === tank) goldGain(v); else TK.gold += v;
+        if (c.kit) TK.hp = Math.min(TK.maxHp, TK.hp + (TK === tank && tank.berserk ? Math.max(1, Math.floor(KIT_HEAL / 2)) : KIT_HEAL));   // '광전사': 수리 절반 (최소 1)
+        else if (TK === tank) { goldGain(v); if (tank.scrap) tank.hp = Math.min(tank.maxHp, tank.hp + tank.scrap); }   // '고물상': 금화 하나에 HP (골드 배수와 무관)
+        else TK.gold += v;
         if (TK === tank) { if (c.kit) sfx.kit(); else sfx.coin(); }
         for (let k = 0; k < 10; k++)
           glowP.spawn(c.p.x, c.p.y, c.p.z, rr(-2, 2), rr(1, 4), rr(-2, 2), rr(0.3, 0.6), c.kit ? [0.6, 1, 0.65, 1] : [1, 0.9, 0.4, 1], c.kit ? [0.1, 0.6, 0.2, 0] : [1, 0.6, 0.1, 0], 0.18, 0.05, 4, 1);
@@ -718,7 +728,7 @@ function updateSmokers(dt) {
 }
 const _seg = new THREE.Box3(), _dir = new THREE.Vector3(), _tl = {};
 const _hu = new THREE.Vector3(), _hv = new THREE.Vector3(), _ho = new THREE.Vector3(), RAY_OFS = [[0, 0], [0.8, 0], [-0.8, 0], [0, 0.8], [0, -0.8]], RAY_ONE = [[0, 0]];
-// 상자(금고·나무 상자)에 맞은 면: 상자 좌표에서 가장 많이 튀어나온 축이 그 면. 맞은 점은 그 면 위로 옮긴다
+// 상자(보급품·나무 상자)에 맞은 면: 상자 좌표에서 가장 많이 튀어나온 축이 그 면. 맞은 점은 그 면 위로 옮긴다
 const _bc = new THREE.Vector3(), _bq = new THREE.Quaternion(), _bxl = new THREE.Vector3(), _bqi = new THREE.Quaternion();
 function boxFace(c, q, half, p) {
   _bxl.copy(p).sub(c).applyQuaternion(_bqi.copy(q).invert());
@@ -773,6 +783,22 @@ function ballHit(a, p, b) {
   _seg.setFromPoints([a, p]).expandByScalar(R);
   for (const fp of footprints) {
     if (!fp.group || !_seg.intersectsBox(fp.box)) continue;
+    if (fp.bunker) {   // 벙커: 상자로 판정. 맞은 면 방향으로 터진다
+      fpLocal(fp, p.x, p.z, _tl);
+      if (Math.abs(_tl.x) < fp.hx + R && Math.abs(_tl.z) < fp.hz + R && p.y > fp.y0 - R && p.y < fp.top + R) {
+        const n = new THREE.Vector3();
+        if (p.y > fp.top - 0.5) n.set(0, 1, 0);
+        else if (Math.abs(_tl.x) / fp.hx > Math.abs(_tl.z) / fp.hz) { const k = Math.sign(_tl.x); n.set(k * fp.c, 0, -k * fp.s); }
+        else { const k = Math.sign(_tl.z); n.set(k * fp.s, 0, k * fp.c); }
+        return { p: p.clone(), n, group: fp.group, bunker: fp.bunker };
+      }
+      continue;
+    }
+    if (fp.sandbag) {   // 모래주머니: 상자로 판정
+      fpLocal(fp, p.x, p.z, _tl);
+      if (Math.abs(_tl.x) < fp.hx + R && Math.abs(_tl.z) < fp.hz + R && p.y > fp.y0 - R && p.y < fp.top + R) return { p: p.clone(), n: UP.clone(), sandbag: fp.sandbag };
+      continue;
+    }
     if (fp.wreck) {   // 잔해: 잘게 쪼갠 모델 대신 상자로 판정 (맞으면 어차피 통째로 터진다)
       fpLocal(fp, p.x, p.z, _tl);
       if (Math.abs(_tl.x) < fp.hx + R && Math.abs(_tl.z) < fp.hz + R && p.y > fp.y0 - R && p.y < fp.y0 + 2.6 + R) return { p: p.clone(), n: UP.clone(), group: fp.group, metal: true };
@@ -850,13 +876,17 @@ function updateBalls(dt) {
     }
     b.mesh.position.copy(b.p);
     if (b.p.y - groundAt(b.p.x, b.p.z) < 1.8) forCells(b.p.x, b.p.z, 0.8, (k) => { fTr[k] = 1; });
+    // '저격수': 쏜 자리에서 멀리 맞힐수록 대미지 (15m부터 1m에 2%씩, 최대 설정값)
+    if (hit && b.owner && b.owner.sniper && b.from) b.dmg *= 1 + Math.min(b.owner.sniper, Math.max(0, b.p.distanceTo(b.from) - 15) * 0.02);
     if (hit) {
       const pw = 1 + (b.blast || 0) * 0.1;   // 폭발 범위가 넓을수록 커 보이게
       const wreck = hit.group && hit.group.userData.wreck;
       if (b.harmless) { if (hit.water) splash(hit.p); else explode(hit.p, hit.n || UP, false, pw); }   // 타이틀 포탄: 터지기만 한다
       else if (hit.target) { damageTarget(hit.target, b.dmg); if (hit.target.alive) explode(hit.p, hit.n, false, pw); }
       else if (hit.enemy) hitTank(hit.enemy, hit, b);
-      else if (hit.crate) { explode(hit.p, UP, false, pw); spawnShards(hit.p, 14, WOOD_COLS, 6, 16, null, 0.15, 0.4); damageCrate(hit.crate, b.dmg); }   // 폭발은 지면과 같고 나무 조각만 더
+      else if (hit.bunker) { explode(hit.p, hit.n, false, pw); spawnShards(hit.p, 14, CONCRETE_COLS, 4, 12, hit.n, 0.15, 0.45); damageBunker(hit.bunker, b.dmg, b.owner); }
+      else if (hit.crate) { explode(hit.p, UP, false, pw); const cc = crateCols(hit.crate); spawnShards(hit.p, 14, cc, 7, 22, null, 0.18, 0.48); spawnShards(hit.p, 16, cc, 8, 26, null, 0.035, 0.08); damageCrate(hit.crate, b.dmg); }   // 폭발은 지면과 같고 조각(+잔 부스러기)만 더
+      else if (hit.sandbag) { explode(hit.p, UP, false, pw); damageSandbag(hit.sandbag, b.dmg); }
       else if (hit.water) splash(hit.p);
       else if (hit.wall) { explode(hit.p, hit.n, false, pw); addWallScorch(hit.p, hit.n); }
       else if (wreck) { damageWreck(wreck, b.dmg); if (WRECKS.includes(wreck)) explode(hit.p, hit.n, false, pw); }   // 잔해는 체력이 다하면 완전히 터진다
@@ -866,7 +896,7 @@ function updateBalls(dt) {
         if (hit.decal) spawnShards(hit.p, 18, hit.metal ? METAL_COLS : WOOD_COLS, 4, 13, hit.n, 0.15, 0.45);   // 판자 조각 / 쇳조각
       }
       // 폭발 범위: 둘레의 탱크(피아 구분 없음)·상자·잔해에 포탄 대미지 × 비율 (직격당한 것은 빼고)
-      if (!hit.water && b.blast > 0 && !b.harmless) blastDamage(hit.p, b.blast, b.dmg * b.blastRatio, b.owner, hit.target || hit.enemy || hit.crate || wreck);
+      if (!hit.water && b.blast > 0 && !b.harmless) blastDamage(hit.p, b.blast, b.dmg * b.blastRatio, b.owner, hit.target || hit.enemy || hit.crate || wreck || hit.bunker || hit.sandbag);
     }
     if (hit || b.p.y < BOTTOM - 25) { scene.remove(b.mesh); balls.splice(i, 1); }
   }
@@ -907,8 +937,9 @@ function fireCannon(T = tank, spread = 0) {
   if (spread) { dir.applyAxisAngle(UP, rr(-spread, spread)); dir.y += rr(-spread, spread) * 0.6; dir.normalize(); }
   const mesh = new THREE.Mesh(ballGeo, ballMat);
   mesh.position.copy(_tip); scene.add(mesh);
+  const berserk = T.berserk ? 1 + T.berserk * Math.max(0, 1 - T.hp / T.maxHp) : 1;   // '광전사': HP가 낮을수록
   const ball = { mesh, p: _tip.clone(), v: dir.clone().multiplyScalar(T.muzzle || MUZZLE).addScaledVector(T.vel, VEL_INHERIT), age: 0, trail: 0, owner: T,
-    dmg: T.shellDmg, blast: T.blastR || 0, blastRatio: T.blastRatio || 0 };
+    dmg: T.shellDmg * berserk, blast: T.blastR || 0, blastRatio: T.blastRatio || 0, from: _tip.clone() };
   balls.push(ball);
   if (T === tank && titleState === 'play') for (const E of ENEMIES) if (E.solid && !E.spg && E.pos.distanceTo(T.pos) < HEAR_SHOT_R) { E.seenX = T.pos.x; E.seenZ = T.pos.z; E.lost = Math.min(E.lost || 0, 1); }   // 포성: 가까운 적이 소리 난 곳으로 온다
   // 반동: 몸통이 뒤로 밀리고 앞이 들린다
@@ -953,6 +984,7 @@ const _wp = new THREE.Vector3();
 let marksDirty = false;
 function driveEffects(dt) {
   stampMeshes.forEach(m => { m.visible = false; });
+  if (dt > 0) enemySpray(dt);
   if (tank.contacts === 0) return;
   tankGroup.updateMatrixWorld(true);
   _fwd.set(0, 0, 1).applyQuaternion(tank.q);
@@ -977,34 +1009,48 @@ function driveEffects(dt) {
       pa.needsUpdate = va.needsUpdate = true;
       m.visible = true; marksDirty = true;
     }
-    const rate = Math.abs(sp) * dt * (tank.wet ? 9 : 4);
-    const n = Math.floor(rate) + (rand() < rate % 1 ? 1 : 0);
-    if (!n) return;
-    const back = sp >= 0 ? -1 : 1;
-    tankGroup.localToWorld(_wp.set(x, 0.1, back * 1.9));
-    if (_wp.y - groundAt(_wp.x, _wp.z) > 0.4 && !tank.wet) return;
-    const c = cellOf(_wp.x, _wp.z), grassy = c >= 0 && fCap[c] > 0.5 && fGrow[c] > 0.5;
-    for (let k = 0; k < n; k++) {
-      if (tank.wet) {
-        const wy = Math.max(waterAt(_wp.x, _wp.z), _wp.y), s = rr(1, 3);
-        smokeP.spawn(_wp.x + rr(-0.4, 0.4), wy, _wp.z + rr(-0.4, 0.4),
-          _fwd.x * back * s + rr(-1.2, 1.2), rr(2, 4.5), _fwd.z * back * s + rr(-1.2, 1.2),
-          rr(0.5, 0.9), [0.82, 0.88, 0.9, 0.8], [0.7, 0.78, 0.82, 0], rr(0.15, 0.3), 0.5, 9.8, 0.3);
-        if (rand() < 0.3) smokeP.spawn(_wp.x, wy + 0.05, _wp.z, rr(-1, 1), 0.1, rr(-1, 1), rr(1, 1.6), [0.75, 0.8, 0.82, 0.35], [0.7, 0.75, 0.8, 0], 0.4, 1.8, 0, 2);
-      } else if (grassy) {
-        const s = rr(2, 4.5);
-        smokeP.spawn(_wp.x + rr(-0.3, 0.3), _wp.y + rr(0, 0.3), _wp.z + rr(-0.3, 0.3),
-          _fwd.x * back * s + rr(-1, 1), rr(2, 4.5), _fwd.z * back * s + rr(-1, 1),
-          rr(0.5, 0.9), [0.42, 0.34, 0.17, 1], [0.32, 0.26, 0.14, 1], rr(0.1, 0.16), 0.1, 9, 0.3);
-        if (rand() < 0.15) smokeP.spawn(_wp.x, _wp.y + 0.3, _wp.z, _fwd.x * back, rr(0.3, 0.8), _fwd.z * back,
-          rr(0.8, 1.4), [0.2, 0.17, 0.11, 0.18], [0.22, 0.2, 0.16, 0], 0.5, 1.6, -0.1, 1.5);
-      } else if (rand() < 0.5) {
-        smokeP.spawn(_wp.x + rr(-0.3, 0.3), _wp.y + rr(0, 0.3), _wp.z + rr(-0.3, 0.3),
-          _fwd.x * back * rr(0.5, 1.5) + rr(-0.4, 0.4), rr(0.4, 1.0), _fwd.z * back * rr(0.5, 1.5) + rr(-0.4, 0.4),
-          rr(1.2, 2.0), [0.2, 0.16, 0.11, 0.3], [0.22, 0.19, 0.15, 0], rr(0.5, 0.8), rr(1.8, 2.5), -0.1, 1.5);
-      }
-    }
+    trackSpray(tank, sp, x, dt);
   });
+}
+// 적 탱크·지프도 바퀴 뒤로 흙·물이 튄다 (카메라가 보는 곳 둘레만)
+function enemySpray(dt) {
+  for (const E of ENEMIES) {
+    if (!E.solid || E.contacts === 0 || E.pos.distanceTo(controls.target) > 55) continue;
+    E.group.updateMatrixWorld(true);
+    trackSpray(E, E.sL, E.jeep ? 0.85 : TRACK_X, dt);
+    trackSpray(E, E.sR, E.jeep ? -0.85 : -TRACK_X, dt);
+  }
+}
+// 바퀴(궤도) 뒤로 튀는 흙·풀·물보라: sp = 그쪽 궤도 속도, x = 궤도 가로 위치 (탱크 기준)
+function trackSpray(T, sp, x, dt) {
+  const rate = Math.abs(sp) * dt * (T.wet ? 9 : 4);
+  const n = Math.floor(rate) + (rand() < rate % 1 ? 1 : 0);
+  if (!n) return;
+  _fwd.set(0, 0, 1).applyQuaternion(T.q);
+  const back = sp >= 0 ? -1 : 1;
+  T.group.localToWorld(_wp.set(x, 0.1, back * (T.jeep ? 1.5 : 1.9)));
+  if (_wp.y - groundAt(_wp.x, _wp.z) > 0.4 && !T.wet) return;
+  const c = cellOf(_wp.x, _wp.z), grassy = c >= 0 && fCap[c] > 0.5 && fGrow[c] > 0.5;
+  for (let k = 0; k < n; k++) {
+    if (T.wet) {
+      const wy = Math.max(waterAt(_wp.x, _wp.z), _wp.y), s = rr(1, 3);
+      smokeP.spawn(_wp.x + rr(-0.4, 0.4), wy, _wp.z + rr(-0.4, 0.4),
+        _fwd.x * back * s + rr(-1.2, 1.2), rr(2, 4.5), _fwd.z * back * s + rr(-1.2, 1.2),
+        rr(0.5, 0.9), [0.82, 0.88, 0.9, 0.8], [0.7, 0.78, 0.82, 0], rr(0.15, 0.3), 0.5, 9.8, 0.3);
+      if (rand() < 0.3) smokeP.spawn(_wp.x, wy + 0.05, _wp.z, rr(-1, 1), 0.1, rr(-1, 1), rr(1, 1.6), [0.75, 0.8, 0.82, 0.35], [0.7, 0.75, 0.8, 0], 0.4, 1.8, 0, 2);
+    } else if (grassy) {
+      const s = rr(2, 4.5);
+      smokeP.spawn(_wp.x + rr(-0.3, 0.3), _wp.y + rr(0, 0.3), _wp.z + rr(-0.3, 0.3),
+        _fwd.x * back * s + rr(-1, 1), rr(2, 4.5), _fwd.z * back * s + rr(-1, 1),
+        rr(0.5, 0.9), [0.42, 0.34, 0.17, 1], [0.32, 0.26, 0.14, 1], rr(0.1, 0.16), 0.1, 9, 0.3);
+      if (rand() < 0.15) smokeP.spawn(_wp.x, _wp.y + 0.3, _wp.z, _fwd.x * back, rr(0.3, 0.8), _fwd.z * back,
+        rr(0.8, 1.4), [0.2, 0.17, 0.11, 0.18], [0.22, 0.2, 0.16, 0], 0.5, 1.6, -0.1, 1.5);
+    } else if (rand() < 0.5) {
+      smokeP.spawn(_wp.x + rr(-0.3, 0.3), _wp.y + rr(0, 0.3), _wp.z + rr(-0.3, 0.3),
+        _fwd.x * back * rr(0.5, 1.5) + rr(-0.4, 0.4), rr(0.4, 1.0), _fwd.z * back * rr(0.5, 1.5) + rr(-0.4, 0.4),
+        rr(1.2, 2.0), [0.2, 0.16, 0.11, 0.3], [0.22, 0.19, 0.15, 0], rr(0.5, 0.8), rr(1.8, 2.5), -0.1, 1.5);
+    }
+  }
 }
 // 궤도 자국 마스크 갱신: 이번 프레임 찍기 + 30/255초마다 1/255씩 빼서 30초에 걸쳐 사라짐
 let fadeAcc = 0;
@@ -1087,6 +1133,13 @@ function updateLights(dt) {
       const flick = 0.7 + 0.3 * Math.sin(t * 21 + s.x) * Math.sin(t * 9 + s.z);
       src.push({ x: s.x, y: s.y + 1.2, z: s.z, I: 26 * flick, range: 11, color: 0xff7a30 });
     });
+  // 경보 중인 벙커 사이렌: 빛줄기 쪽으로 빨간 빛이 돌며 벽·땅을 쓸고 지나간다 (카메라 가까운 2곳)
+  BUNKERS.filter((B) => B.alarmOn && B.siren).map((B) => ({ B, d: (B.x - camera.position.x) ** 2 + (B.z - camera.position.z) ** 2 })).filter((o) => o.d < 90 * 90)
+    .sort((a, b) => a.d - b.d).slice(0, 2).forEach(({ B }) => {
+      B.siren.getWorldPosition(_tmp);
+      const a = B.rot + B.sirenA, dx = Math.cos(a), dz = -Math.sin(a);   // 빛줄기 하나의 방향 (지붕 기준 +x를 돌린 것)
+      src.push({ x: _tmp.x + dx * 3.5, y: _tmp.y - 0.8, z: _tmp.z + dz * 3.5, I: 55, range: 16, color: 0xff2412 });
+    });
   for (const s of smokers) if (s.t < 4) {   // 부서진 상자 밑에서 이글거리는 불빛
     const flick = 0.75 + 0.25 * Math.sin(t * 19 + s.x) * Math.sin(t * 7 + s.z);
     src.push({ x: s.x, y: s.y + 1.2, z: s.z, I: 70 * (1 - s.t / 4) * flick, range: 20, color: 0xff6a20 });
@@ -1115,9 +1168,10 @@ function updateLights(dt) {
 const AIM_N = 300, AIM_GAP_PX = 3.5;
 const aimGeo = new THREE.BufferGeometry();
 aimGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(AIM_N * 3), 3).setUsage(THREE.DynamicDrawUsage));
+aimGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(AIM_N * 3), 3).setUsage(THREE.DynamicDrawUsage));   // 점마다 색 (장전 게이지)
 // 색: 발사 가능 = 노란빛, 장전 중 = 흐린 회청색. 궤적 끝 맞을 자리의 표면에 포탄 지름만 한 원
-const AIM_READY = new THREE.Color(0xffe0a0), AIM_WAIT = new THREE.Color(0x6e7a8c), AIM_ENEMY = new THREE.Color(0xff3a2a);   // 쏠 수 있고 금고를 겨누면 빨강
-const aimMat = new THREE.PointsMaterial({ color: 0xffe0a0, size: 1, sizeAttenuation: false, fog: false });
+const AIM_READY = new THREE.Color(0xffe0a0), AIM_WAIT = new THREE.Color(0x6e7a8c), AIM_ENEMY = new THREE.Color(0xff3a2a);   // 쏠 수 있고 보급품·적·벙커를 겨누면 빨강
+const aimMat = new THREE.PointsMaterial({ color: 0xffffff, vertexColors: true, size: 1, sizeAttenuation: false, fog: false });
 const aimDots = new THREE.Points(aimGeo, aimMat);
 aimDots.frustumCulled = false;
 scene.add(aimDots);
@@ -1158,12 +1212,17 @@ function updateAim() {
     const h = 0.004;
     v.y -= G * h; p.addScaledVector(v, h);
   }
+  // 장전 중에는 궤적이 게이지: 끝까지 회색 점을 찍되 장전된 만큼 포구 쪽부터 노란색. 맞을 자리·폭발 범위는 숨긴다 (보이는 순간 = 쏠 수 있다)
+  const reloading = tank.cool > 0, frac = reloading ? Math.max(0, 1 - tank.cool / (tank.reload || PC.reload)) : 1;
   aimGeo.setDrawRange(0, n);
   a.needsUpdate = true;
-  aimRing.visible = !!hit;
-  aimHitP = hit ? hit.p : null;   // 폭발 범위 원형 빛 자리 (updateRings)
-  const col = tank.cool > 0 ? AIM_WAIT : hit && (hit.target || hit.enemy) ? AIM_ENEMY : AIM_READY;
-  aimMat.color.copy(col); aimLine.material.color.copy(col); aimFill.material.color.copy(col);
+  aimRing.visible = !!hit && !reloading;
+  aimHitP = hit && !reloading ? hit.p : null;   // 폭발 범위 원형 빛 자리 (updateRings)
+  const col = tank.cool > 0 ? AIM_WAIT : hit && (hit.target || hit.enemy || (hit.bunker && !hit.bunker.ruin)) ? AIM_ENEMY : AIM_READY;   // 보급품·적·벙커(부서진 것 빼고)를 겨누면 빨강
+  aimLine.material.color.copy(col); aimFill.material.color.copy(col);
+  const ca = aimGeo.attributes.color, nk = reloading ? Math.floor(n * frac) : n;
+  for (let i = 0; i < n; i++) { const c = reloading ? (i < nk ? AIM_READY : AIM_WAIT) : col; ca.setXYZ(i, c.r, c.g, c.b); }
+  ca.needsUpdate = true;
   if (hit) {
     if (hit.n) _rn.copy(hit.n); else if (hit.water) _rn.copy(UP); else normalAt(hit.p.x, hit.p.z, _rn);
     aimRing.quaternion.setFromUnitVectors(_rz, _rn);
@@ -1173,7 +1232,7 @@ function updateAim() {
 
 // ---------------------------------------------------------------- 기관총 (내 탱크: 성장 '기관총' 최대 2정 / 적 탱크: 레벨 2는 1정, 레벨 3은 2정)
 // 1정은 포탑 지붕 오른쪽, 2정은 지붕 왼쪽 (대칭). 사거리 안에서 땅·건물에 가리지 않은 가장 가까운 표적을 자동으로 쏜다.
-// 내 기관총: 지프 → 적 탱크(자주포 포함) → 금고 순서. 나무 상자는 쏘지 않는다. 적 기관총(탱크·지프): 내 탱크만.
+// 내 기관총: 지프 → 적 탱크(자주포 포함) → 보급품 순서. 나무 상자는 쏘지 않는다. 적 기관총(탱크·지프): 내 탱크만.
 // 전봇대는 무시 (총알이 뚫고 지나간다). 맞히는 데는 한 발에 바로 (탄도 없음)
 const gunDark = lambert({ color: 0x2c2c28 }), gunBody = lambert({ color: 0x4e4e44 });
 function buildGuns(turret, n) {
@@ -1212,7 +1271,7 @@ function mgClear(a, b, skip) {
 }
 // 내 기관총의 표적: 가까운 순으로 보며 처음으로 가리지 않은 것. avoid = 다른 총의 표적 (다른 게 있으면 피한다)
 function mgPick(from, range, avoid) {
-  const list = [];   // pr: 먼저 쏠 순서 (0 지프, 1 적 탱크·자주포, 2 금고). 같은 순서끼리는 가까운 것부터, 가려진 것은 건너뛴다
+  const list = [];   // pr: 먼저 쏠 순서 (0 지프, 1 적 탱크·자주포, 2 보급품). 같은 순서끼리는 가까운 것부터, 가려진 것은 건너뛴다
   for (const E of ENEMIES) if (E.solid) { const d = E.pos.distanceTo(from); if (d < range) list.push({ E, d, pr: E.jeep ? 0 : 1 }); }
   for (const t of targets) if (t.alive && !t.falling) { const d = t.mesh.position.distanceTo(from); if (d < range) list.push({ t, d, pr: 2 }); }
   list.sort((a, b) => a.pr - b.pr || a.d - b.d);

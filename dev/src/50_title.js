@@ -10,7 +10,7 @@ function showPlayHud(v) { for (const id of ['phud', 'phudS', 'touchUI']) documen
 // HUD는 게임이 시작되고 hud.showDelay초 뒤에, 피해 입을 때와 같은 치지직과 함께 나타난다
 let hudRevealT = titleState === 'play' ? CFG.hud?.showDelay ?? 3 : -1;
 showPlayHud(false);
-let titleHideT = 0, titleFadeTh = 0;   // titleFadeTh: 타이틀 그림을 지운 정도 (4x4 디더링 0~16)
+let titleHideT = 0, titleFadeTh = 0, titleFadeF = 0, titleFadeQ = 0;   // titleFadeTh: 타이틀 그림을 지운 정도 (4x4 디더링 0~16)
 const TITLE_FADE = 0.8;   // 시작할 때 타이틀 그림이 사라지는 시간 (초)
 if (titleState === 'title') controls.enabled = false; else titleEl.style.display = 'none';
 // 설정 메뉴 '타이틀 화면으로': 내 탱크 상태(위치·체력·골드·성장·카메라)를 처음으로 되돌리고 타이틀로 (적은 그대로 두고 멈춘다)
@@ -27,7 +27,7 @@ function goTitle() {
   clearTimeout(titleHideT);
   resetPlayer();
   titleState = 'title'; titleT = 0; titleK = 0; titleWait = 0; applyEnv();
-  titleEl.style.display = ''; titleFadeTh = 0;
+  titleEl.style.display = ''; titleFadeTh = 0; titleFadeF = 0; titleFadeQ = 0;
   showPlayHud(false); hudRevealT = -1; controls.enabled = false;
   layoutTitle();
   buildTitleDeco();
@@ -35,7 +35,8 @@ function goTitle() {
 document.getElementById('toTitle').onclick = (e) => { goTitle(); e.target.blur(); };
 // 설정 메뉴 '적 AI 정지': 모든 적이 그 자리에 멈춘다 (움직임·사격·증원 모두. 떨어지던 것은 마저 떨어진다)
 let aiFrozen = false;
-document.getElementById('aiStopBtn').onclick = (e) => { aiFrozen = !aiFrozen; e.target.textContent = aiFrozen ? '적 AI 정지 켜짐' : '적 AI 정지 꺼짐'; e.target.blur(); };
+function setAiFrozen(on) { aiFrozen = on; document.getElementById('aiStopBtn').textContent = on ? '적 AI 정지 켜짐' : '적 AI 정지 꺼짐'; }   // 버튼 글자도 같이
+document.getElementById('aiStopBtn').onclick = (e) => { setAiFrozen(!aiFrozen); e.target.blur(); };
 function updateHudReveal(dt) { if (hudRevealT >= 0 && (hudRevealT -= dt) < 0) hudRevealT = -1; }
 // HUD를 켤지: 시작 뒤 showDelay초가 지났고, 가운데 창이 떠 있지 않을 때. 켜질 때마다 피해 입을 때처럼 치지직하며 나타난다
 let hudOn = false, hudOffAt = 0, hudWaitLand = false;   // hudWaitLand: 재출격해서 떨어지는 중 (착지하면 HUD)   // hudOffAt: 이 시각(ms)에 HUD를 끈다 (끄기 전에 치지직)
@@ -127,43 +128,56 @@ function startGame() {
   titleState = 'trans'; titleT = 0;
   if (entr) { entr.ty0 = wrapA(tank.tyaw); entr.el0 = tank.elev; }
   clearTimeout(titleHideT);
-  hudRevealT = CFG.hud?.showDelay ?? 3;
+  hudRevealT = CFG.mission?.enabled === false ? CFG.hud?.showDelay ?? 3 : 1e9;   // 작전 정보가 사라진 뒤에 HUD
 }
-const tPressEl = document.getElementById('tPress');
+// 타이틀 그림 하나를 지금 사라진 정도(titleFadeF)로: 화면 아래쪽 줄부터
+function titleWipe(c) {
+  if (!c || !c._src || !c._css) return;
+  if (titleFadeF <= 0) { sharpBlit(c, c._src, c._css[0], c._css[1]); return; }
+  const r = c.getBoundingClientRect(), H = c._src.height;
+  sharpBlit(c, ditherWipe(c._src, titleFadeF, (y) => 1 - (r.top + y / H * r.height) / innerHeight), c._css[0], c._css[1]);
+}
+const tPressEl = document.getElementById('tPress'), tCamoEl = document.getElementById('tCamo');
+tCamoEl.style.visibility = 'hidden';
 function updateTitle(dt) {
   if (titleState === 'title') {   // PRESS ANY KEY: 입력을 받기 시작할 때 나타나 깜빡인다
     if (!document.getElementById('loading')) titleWait += dt;
     const t = titleWait - TITLE_DELAY;
     tPressEl.style.visibility = t >= 0 && t % 1.1 < 0.72 ? '' : 'hidden';
+    tCamoEl.style.visibility = t >= 0 ? '' : 'hidden';   // 위장색 안내는 깜빡이지 않는다
   }
   if (titleState !== 'trans') return;
   titleT = Math.min(1, titleT + dt / (TT.transition ?? 2.2));
   // 타이틀 그림: 4x4 디더링 무늬로 점점 비워 가며 사라진다
   if (titleEl.style.display !== 'none') {
-    const th = Math.min(16, Math.floor(titleT * (TT.transition ?? 2.2) / TITLE_FADE * 16));
-    if (th !== titleFadeTh) {
-      titleFadeTh = th;
-      if (th >= 16) titleEl.style.display = 'none';
-      else for (const id of ['tLogo', 'tBrand', 'tBadge', 'tVer', 'tPress']) { const c = document.getElementById(id); if (c._src && c._css) sharpBlit(c, ditherMask(c._src, th), c._css[0], c._css[1]); }
+    // 화면 아래에서 위로 쓸어 올리며 (ditherWipe). 그림마다 화면 속 자리로 높이를 잰다
+    const f = Math.min(1, titleT * (TT.transition ?? 2.2) / TITLE_FADE), q = Math.floor(f * 48);
+    if (q !== titleFadeQ) {
+      titleFadeQ = q; titleFadeF = f; titleFadeTh = Math.min(16, Math.floor(f * 16));
+      if (f >= 1) titleEl.style.display = 'none';
+      else for (const id of ['tLogo', 'tBrand', 'tBadge', 'tVer', 'tPress', 'tCamo']) titleWipe(document.getElementById(id));
     }
   }
   titleK = easeInOutCubic(titleT); applyEnv();
   if (titleT >= 1) { titleState = 'play'; controls.enabled = true; }
 }
-// 타이틀에서는 키·클릭이 게임에 가지 않고 시작만 한다 (설정 메뉴 ` 키와 메뉴 클릭은 그대로)
+// 타이틀에서는 키·클릭이 게임에 가지 않는다 (설정 메뉴 ` 키와 메뉴 클릭은 그대로): SPACE(또는 클릭·터치)로 시작, Q/E로 위장색
 addEventListener('keydown', (e) => {
   if (titleState !== 'title' || e.code === 'Backquote') return;
-  e.preventDefault(); e.stopImmediatePropagation();
+  sfx.unlock();
+  if (e.ctrlKey || e.metaKey || e.altKey || /^F\d+$/.test(e.code)) return;   // 새로고침 등 브라우저 단축키는 그대로
+  e.stopImmediatePropagation();
+  if (['Space', 'KeyQ', 'KeyE'].includes(e.code)) e.preventDefault();   // 소리는 첫 입력부터 (브라우저 규칙)
   if (titleWait < TITLE_DELAY) return;   // 그 전에는 눌러도 무시 (로딩 중에 눌러도 여기서 끝)
+  if (e.code === 'KeyQ' || e.code === 'KeyE') { if (!e.repeat) { setCamo(camoIdx + (e.code === 'KeyE' ? 1 : -1)); drawCamoText(); sfx.ui('tab'); } return; }
+  if (e.code !== 'Space') return;
   if (paused) pauseSet(false);
   startGame();
 }, true);
-addEventListener('pointerdown', (e) => {
+addEventListener('pointerdown', (e) => {   // 클릭·터치는 게임에 가지 않고 소리만 켠다 (시작은 SPACE로만)
   if (titleState !== 'title' || e.target.closest('#hud')) return;
   e.stopImmediatePropagation();
-  if (titleWait < TITLE_DELAY) return;
-  if (paused) pauseSet(false);
-  startGame();
+  sfx.unlock();
 }, true);
 // 카메라: 플레이 카메라는 늘 하던 대로 따라가게 두고(값은 따로 보관), 화면에는 타이틀 카메라와 섞은 자리를 쓴다.
 // 섞기는 화면 가운데 점과 거리·내려다보는 각·방향을 따로 보간 (탱크 둘레로 호를 그리며 넘어간다)

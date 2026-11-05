@@ -273,16 +273,16 @@ THREE.ShaderChunk.fog_fragment = `#ifdef USE_FOG
   float fogK = max(vFogDepth - fogNear, 0.0) * 2.0 / max(fogFar - fogNear, 0.001);
   gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, 1.0 - exp(-fogK * fogK));
 #endif`;
-const FOG = new THREE.Color(CFG.map.fogColor);
+const FOG = new THREE.Color(MAP0.fogColor);
 scene.background = FOG;
-scene.fog = new THREE.Fog(FOG, 0, 2 / CFG.map.fog);
+scene.fog = new THREE.Fog(FOG, 0, 2 / MAP0.fog);
 const FOGN = { value: 0 }, FOGF = { value: scene.fog.far };
 const camera = new THREE.PerspectiveCamera(CFG.camera.fov, 1, 0.5, 600);
 camera.position.set(100, TOWN_H + 100, 130);
 const controls = new OrbitControls(camera, canvas);
 controls.target.set(0, TOWN_H, 0);
 controls.enableDamping = true;
-controls.minDistance = 8; controls.maxDistance = 250; controls.maxPolarAngle = 1.52;
+controls.minDistance = 8; controls.maxDistance = CFG.camera.maxDistance ?? 70; controls.maxPolarAngle = 1.52;
 window.dbg = { camera, controls };
 
 // 궤도 자국: 위에서 내려다본 2048² 마스크에 궤도판 무늬를 GPU로 찍고, 조금씩 빼서 30초에 걸쳐 지운다
@@ -330,13 +330,13 @@ const fadeScene = new THREE.Scene();
 const hemi = new THREE.HemisphereLight(0x7d8aac, 0x4a3a2a, 1.5);
 scene.add(hemi);
 // 낮게 비스듬히 비추는 달: 비탈마다 명암 차가 커져 지형 굴곡이 드러난다
-const moon = new THREE.DirectionalLight(CFG.map.moonColor, CFG.map.moon);
+const moon = new THREE.DirectionalLight(MAP0.moonColor, MAP0.moon);
 moon.position.set(-70, 38, -45);
 scene.add(moon);
 // 타이틀 꾸밈 (config title.details): 탱크 포즈, 짙은 굴뚝 연기, 지나온 궤도 자국, 낙엽
 const TDET = Object.assign({ pose: true, turret: 25, elev: 14, smoke: 0.8, trail: 22, leaves: 6 }, CFG.title?.details);
 
-// 길 위의 물웅덩이 자리. 웅덩이는 없앴지만 뒤에 오는 배치(금고·상자 등)가 바뀌지 않도록 난수는 예전처럼 소비한다
+// 길 위의 물웅덩이 자리. 웅덩이는 없앴지만 뒤에 오는 배치(보급품·상자 등)가 바뀌지 않도록 난수는 예전처럼 소비한다
 const PUDDLES = [];
 for (let tries = 0; PUDDLES.length < 4 && tries < 400; tries++) {
   const poly = rand() < 0.7 ? mainPoly : branchPoly, p = poly[Math.floor(rand() * poly.length)];
@@ -457,6 +457,7 @@ let terrainCol;
         }`);
   }, 'terrain');
   mat.userData.ownWhite = true;   // 흰색 보기는 위 셰이더가 그늘을 남기며 직접 처리
+  mat.userData.noOcc = true;   // 땅은 내 탱크를 가려도 비우지 않는다
   { const m = new THREE.Mesh(geo, mat); m.userData.noOutline = true; scene.add(m); }   // 땅은 외곽선 없음
 }
 

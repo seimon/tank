@@ -77,6 +77,28 @@ function ditherMask(src, th) {
   if (th > 0) { g.globalCompositeOperation = 'destination-out'; g.fillStyle = ditherPattern(g, th); g.fillRect(0, 0, t.width, t.height); g.globalCompositeOperation = 'source-over'; }
   return t;
 }
+// 아래에서 위로 쓸어 올리며 사라지는 4x4 디더링 (로딩·타이틀 공통): f = 0 그대로 ~ 1 다 지움.
+// 화면 아래쪽 줄부터 지워지기 시작하고, 맨 위는 WIPE_SPAN만큼 늦게 시작한다. vOf(y) = 원본 y줄의 화면 높이 (0 맨 아래 ~ 1 맨 위. 없으면 원본 안에서)
+const WIPE_SPAN = 0.55;
+function ditherWipe(src, f, vOf) {
+  const t = src._dw || (src._dw = document.createElement('canvas'));
+  t.width = src.width; t.height = src.height;
+  const g = t.getContext('2d');
+  if (f >= 1) return t;
+  g.drawImage(src, 0, 0);
+  if (f <= 0) return t;
+  g.globalCompositeOperation = 'destination-out';
+  const H = src.height, pats = [];
+  for (let y = 0; y < H; y += 2) {
+    const v = vOf ? vOf(y + 1) : 1 - (y + 1) / H;
+    const th = Math.floor(Math.max(0, Math.min(1, (f - v * WIPE_SPAN) / (1 - WIPE_SPAN))) * 16);
+    if (th <= 0) continue;
+    g.fillStyle = th >= 16 ? '#000' : (pats[th] || (pats[th] = ditherPattern(g, th)));
+    g.fillRect(0, y, t.width, 2);
+  }
+  g.globalCompositeOperation = 'source-over';
+  return t;
+}
 function sharpBlit(dst, src, cssW, cssH) {
   const dpr = devicePixelRatio || 1, dw = Math.max(1, Math.round(cssW * dpr)), dh = Math.max(1, Math.round(cssH * dpr));
   if (dst.width !== dw || dst.height !== dh) { dst.width = dw; dst.height = dh; }
@@ -89,6 +111,9 @@ function sharpBlit(dst, src, cssW, cssH) {
 // 로딩 표시: 무거운 준비 작업(지형·마을·AO 굽기) 사이사이에 잠깐 쉬어 진행 막대를 그린다.
 // 게임 화면처럼 300줄 해상도 캔버스에 HUD 글꼴·게이지로 그리고 샤프 바이리니어로 창에 늘린다 (영어만)
 let loadLabel = 'LOADING...', loadK = 0;
+const loadImg0 = new Image();   // 로딩 그림 (그림이 없거나 못 읽어도 로딩은 그대로)
+loadImg0.onload = () => { if (document.getElementById('loading')) drawLoading(); };
+loadImg0.src = 'images/loading_tank.png';
 function drawLoading() {
   const cv = document.getElementById('loadCv');
   if (!cv || !innerWidth || !innerHeight) return;
@@ -98,11 +123,11 @@ function drawLoading() {
   src.width = W; src.height = H;
   const g = src.getContext('2d');
   g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
-  // 검은 바탕에 모두 흰색. 글자는 모두 HUD 글꼴 기본 크기(7칸), 게이지(7칸) 위아래로 8칸씩 띄운다
+  // 검은 바탕에 모두 흰색. 게이지(7칸)는 화면 정가운데, 위로 8칸 띄워 탱크 그림(images/loading_tank.png), 아래로 8칸 띄워 글자 (HUD 글꼴 기본 크기)
   const put = (t, y) => fontDraw(t, Math.round((W - fontWidth(t)) / 2), y, 1, (a, b) => g.fillRect(a, b, 1, 1));
   const bw = Math.min(240, W - 20), bx = Math.round((W - bw) / 2), by = Math.round(H / 2) - 3, GAP = 8;
   g.fillStyle = '#fff';
-  put('LITTLE IRON', by - GAP - 7);
+  if (loadImg0.complete && loadImg0.naturalWidth) g.drawImage(loadImg0, Math.round((W - loadImg0.naturalWidth) / 2), by - GAP - loadImg0.naturalHeight);
   g.fillRect(bx, by, bw, 1); g.fillRect(bx, by + 6, bw, 1); g.fillRect(bx, by, 1, 7); g.fillRect(bx + bw - 1, by, 1, 7);   // HUD 게이지처럼
   g.fillRect(bx, by, Math.round(bw * loadK), 7);
   put(loadLabel, by + 7 + GAP);
@@ -119,6 +144,12 @@ function loadStep(k, label) {
 // ---------------------------------------------------------------- 기본 설정
 // 세부 설정은 config.js (window.CONFIG). 숫자를 바꿔 가며 테스트하는 값은 모두 그쪽에
 const CFG = window.CONFIG;
+// 맵 셋팅: config map.presets 중 하나 (빠진 값은 첫 번째 셋팅 값). 설정 메뉴 '맵 셋팅' 버튼으로 돌아가며 바꾼다
+const MAP_PRESETS = (CFG.map.presets?.length ? CFG.map.presets : [CFG.map]).map((p, i, all) => ({
+  wind: 1, windDir: 215, debris: 0.3, fog: 0.0105, fogColor: '#414a5e', moon: 1.5, moonColor: '#9aaad0', sky: 1.5, skyColor: '#7d8aac', groundColor: '#4a3a2a',
+  ...all[0], rain: 0, sand: 0, lightning: 0, ...p, name: p.name ?? `셋팅 ${i + 1}` }));
+let mapIdx = Math.min(MAP_PRESETS.length - 1, Math.max(0, CFG.map.preset ?? 0));
+const MAP0 = MAP_PRESETS[mapIdx];
 if (!CFG) { loadLabel = 'CONFIG.JS NOT FOUND - PUT IT NEXT TO INDEX.HTML'; drawLoading(); throw new Error('config.js 없음'); }
 const DEG = Math.PI / 180;
 const HALF = 75;              // 보드 반경 (150m x 150m)
@@ -146,7 +177,8 @@ const U = {
   uTime: { value: 0 },
   uSnap: { value: new THREE.Vector2(160, 120) },
   uWindDir: { value: new THREE.Vector2(0.8, 0.6).normalize() },
-  uWind: { value: CFG.map.wind },
+  uOccP: { value: new THREE.Vector3() }, uOccR: { value: 0 },   // 내 탱크를 가리는 물체 비춰 보기: 탱크 가운데, 반지름 (0 = 끔)
+  uWind: { value: MAP0.wind },
   uField: { value: null },
   uTrack: { value: null },
   uPointScale: { value: 300 },
@@ -163,7 +195,7 @@ const U = {
   uRing0: { value: Array.from({ length: RING_N }, () => new THREE.Vector4()) },
   uRing1: { value: Array.from({ length: RING_N }, () => new THREE.Vector4()) },
 };
-// 탱크·금고 밑의 부드러운 둥근 사각형 그림자. 지면과 풀 셰이더가 같은 식으로 어둡게 한다 (겹친 면이 없어 z-fighting 없음)
+// 탱크·보급품 밑의 부드러운 둥근 사각형 그림자. 지면과 풀 셰이더가 같은 식으로 어둡게 한다 (겹친 면이 없어 z-fighting 없음)
 const SHADOW_GLSL = `
   uniform vec4 uSh0[12], uSh1[12];
   float contactShadow(vec2 p) {
@@ -215,6 +247,20 @@ const RING_GLSL = `
   }
 #endif
 `;
+// 내 탱크를 가리는 물체: 카메라와 탱크 사이(탱크보다 4m 넘게 앞)에 있고, 화면에서 탱크 둘레 원 안이면 4x4 디더링으로 절반쯤 비운다
+// (원 가장자리로 갈수록 덜 비운다). 계산은 셰이더에서만: 광선 검사 없음
+const OCC_GLSL = `uniform vec3 uOccP; uniform float uOccR;
+float occBayer(vec2 a) { a = floor(mod(a, 4.0)); vec2 b = floor(a * 0.5); vec2 c = a - b * 2.0;
+  return (4.0 * (2.0 * c.y + mod(c.x + c.y, 2.0)) + (2.0 * b.y + mod(b.x + b.y, 2.0))) / 16.0; }
+`;
+const OCC_MAIN = `if (uOccR > 0.0) {
+    vec4 ovp = viewMatrix * vec4(vRingW, 1.0), ocp = viewMatrix * vec4(uOccP, 1.0);
+    if (-ovp.z < -ocp.z - 4.0) {
+      float orr = length(ovp.xy / -ovp.z - ocp.xy / -ocp.z) * -ocp.z / uOccR;
+      if (occBayer(gl_FragCoord.xy) < 0.6 * (1.0 - smoothstep(0.65, 1.0, orr))) discard;
+    }
+  }
+`;
 // PS1식 정점 스내핑: 클립 좌표를 저해상도 격자에 맞춰 떨림을 만든다
 const SNAP = 'gl_Position.xy = floor(gl_Position.xy / gl_Position.w * uSnap + 0.5) / uSnap * gl_Position.w;';
 // PS1_NOSNAP이 켜진 동안 만든 재질은 스내핑하지 않는다 (탱크: AO를 굽느라 잘게 나눈 삼각형이 제각각 끌려가
@@ -233,6 +279,10 @@ function ps1(mat, extra, key) {
       sh.uniforms.uRing0 = U.uRing0; sh.uniforms.uRing1 = U.uRing1;
       sh.fragmentShader = RING_GLSL + 'varying vec3 vRingW;\n' + sh.fragmentShader.replace('#include <emissivemap_fragment>',
         '#include <emissivemap_fragment>\ntotalEmissiveRadiance += ringGlow(vRingW.xz) * (diffuseColor.rgb * 1.6 + 0.12);');
+      if (!(this && this.userData.noOcc)) {   // 땅은 빼고
+        sh.uniforms.uOccP = U.uOccP; sh.uniforms.uOccR = U.uOccR;
+        sh.fragmentShader = OCC_GLSL + sh.fragmentShader.replace('void main() {', 'void main() {\n' + OCC_MAIN);
+      }
     }
     sh.uniforms.uAO = U.uAO; sh.uniforms.uWhite = U.uWhite;
     sh.fragmentShader = 'uniform float uAO, uWhite;\n' + sh.fragmentShader;
@@ -250,6 +300,55 @@ function ps1(mat, extra, key) {
   return mat;
 }
 const lambert = (o) => ps1(new THREE.MeshLambertMaterial(o));
+// 떨어지며 나타나기: 물체가 4x4 디더링 무늬로 점점 채워진다 (게임 해상도 픽셀 단위).
+// 그동안만 그 물체의 재질을 '디더 복제본'으로 바꿔 끼우고(물체마다 자기 값), 다 나타나면 원래 재질로 되돌린다. 외곽선도 그동안은 뺀다
+const BAYER4_GLSL = `float bayer2(vec2 a) { a = floor(a); return fract(a.x / 2.0 + a.y * a.y * 0.75); }
+float bayer4(vec2 a) { return bayer2(0.5 * a) * 0.25 + bayer2(a); }
+`;
+function fadeMat(src, u) {
+  const m = src.clone();
+  if (src.defines) m.defines = { ...src.defines };
+  const base = src.onBeforeCompile, key = src.customProgramCacheKey.call(src);
+  m.onBeforeCompile = function (sh, r) {
+    base.call(this, sh, r);
+    sh.uniforms.uFadeIn = u;
+    sh.fragmentShader = `uniform float uFadeIn;\n${BAYER4_GLSL}` + sh.fragmentShader.replace('void main() {', 'void main() {\n  if (bayer4(gl_FragCoord.xy) + 0.03 > uFadeIn) discard;');
+  };
+  m.customProgramCacheKey = () => key + '|fadein';
+  return m;
+}
+const fadeIns = [];   // { root, u, t, swaps: [[mesh, 원래 재질, 복제본, 외곽선이었나]] }
+// 하늘에 나타나자마자 dropFadeIn초 동안 디더링으로 나타난다
+// 떨어질 높이: dropFade초 만에 땅에 닿도록 (떨어지는 가속도 22m/s²)
+const DROP_H = 0.5 * 22 * (CFG.screen?.dropFade ?? 2) ** 2;
+function fadeIn(root) {
+  const dur = CFG.screen?.dropFadeIn ?? 0.3, t0 = 0;
+  let f = fadeIns.find((e) => e.root === root);
+  if (f) { f.t = t0; f.u.value = 0; return; }
+  if (dur <= 0) return;
+  f = { root, u: { value: 0 }, t: t0, dur, swaps: [] };
+  root.traverse((o) => {
+    if (!o.isMesh || !o.material || Array.isArray(o.material) || o.material.isShaderMaterial) return;
+    const ol = o.layers.isEnabled(OUTLINE_LAYER), m = fadeMat(o.material, f.u);
+    f.swaps.push([o, o.material, m, ol]);
+    o.material = m; if (ol) o.layers.disable(OUTLINE_LAYER);
+  });
+  fadeIns.push(f);
+}
+function endFadeIn(f) {
+  for (const [o, src, m, ol] of f.swaps) {
+    if (o.material === m) { o.material = src; if (ol) o.layers.enable(OUTLINE_LAYER); }   // 그새 다른 재질(잔해 등)로 바뀌었으면 그대로 둔다
+    m.dispose();
+  }
+  fadeIns.splice(fadeIns.indexOf(f), 1);
+}
+function updateFadeIns(dt) {
+  for (let i = fadeIns.length - 1; i >= 0; i--) {
+    const f = fadeIns[i];
+    f.t += dt; f.u.value = Math.max(0, Math.min(1, f.t / f.dur));
+    if (f.t >= f.dur || !f.root.parent) endFadeIn(f);
+  }
+}
 // 외곽선 대상: 레이어 1에 올린 불투명 물체 (땅·풀·물·돌·파티클·데칼·조준 표시는 userData.noOutline이나 투명이라 빠짐).
 // 외곽선을 켜면 이 레이어만 깊이로 한 번 더 그려서, 깊이가 크게 끊기는 가장자리에 1픽셀 선을 긋는다
 const OUTLINE_LAYER = 1;

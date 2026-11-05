@@ -62,11 +62,28 @@ async function drawTitleArt() {
   g.fillStyle = '#ffffff'; fontText(g, b2, Math.round((W - fontWidth(b2)) / 2), 18);
   layoutTitle();
 }
+let titlePad = false;   // 타이틀 키 안내가 게임패드 글자인가
 if (document.getElementById('tPress')) {
-  pixelText(document.getElementById('tPress'), ['PRESS ANY KEY TO PLAY']);
+  drawTitleKeys(false);
   pixelText(document.getElementById('tVer'), [`VERSION ${VERSION}`, `BUILD ${BUILD}`]);
   drawTitleArt();
   layoutTitle();
+}
+// 타이틀 키 안내: 마지막에 쓴 입력(키보드 / 게임패드)에 맞춰 SPACE·Q·E ↔ A·LB·RB
+function drawTitleKeys(pad) {
+  titlePad = pad;
+  const c = document.getElementById('tPress');
+  if (!c) return;
+  pixelText(c, [pad ? 'PRESS A TO PLAY' : 'PRESS SPACE TO PLAY']);
+  drawCamoText();
+  if (c._css) layoutTitle();
+}
+// 타이틀 위장색 안내 (PRESS SPACE 아래, 깜빡이지 않음): 지금 고른 위장색 이름
+function drawCamoText() {
+  const c = document.getElementById('tCamo');
+  if (!c) return;
+  pixelText(c, [`${titlePad ? 'LB / RB' : 'Q / E'}  CHANGE CAMO: ${CAMO_LIST[camoIdx].name}`]);
+  if (c._css) layoutTitle();
 }
 // 타이틀 부품 설명: 부품 한 점에서 비스듬한 지시선 → 글자 밑줄. 글자는 짙은 먹색에 흰 테두리 (게임 해상도 그대로 그려 늘린다)
 const CALLOUTS = [
@@ -124,8 +141,8 @@ function drawHud() {
   const ta = Math.round(THREE.MathUtils.radToDeg(Math.atan2(Math.sin(tank.tyaw || 0), Math.cos(tank.tyaw || 0))));   // + = 왼쪽
   const rl = tank.cool > 0 ? Math.round((1 - tank.cool / tank.reload) * 40) : 40;
   const blink = rl < 40 ? Math.floor(now / 250) % 2 : 0;   // RELOAD 글자 깜빡임
-  const key = [hp, tank.maxHp, alive, gold, offerCost(), tank.goldMul, rl, blink, spd, Math.round(spdMax), elev, ta, growLevel, enemyLeft(),
-    tank.mg ? [tank.mg.count, tank.mg.rate, tank.mg.damage, tank.mg.range].join(':') : ''].join('|');
+  const bkAll = BUNKERS.length, bkLeft = BUNKERS.reduce((n, B) => n + (B.ruin ? 0 : 1), 0);
+  const key = [hp, tank.maxHp, alive, gold, offerCost(), tank.goldMul, rl, blink, spd, Math.round(spdMax), elev, ta, growLevel, enemyLeft(), bkLeft, bkAll].join('|');
   const glitch = now < glitchUntil;
   if (key !== hudKey) {
     hudKey = key;
@@ -157,7 +174,7 @@ function drawHud() {
     y += 2 * L;
     htext('LV', x0, y); htext(growLevel, vx, y); y += L;
     htext('ENEMY', x0, y); htext(enemyLeft(), vx, y); y += L;
-    if (tank.mg) { htext('MG', x0, y); htext(`${tank.mg.count > 1 ? 'X2 ' : ''}${tank.mg.rate}/S DMG ${tank.mg.damage} ${tank.mg.range}M`, vx, y); }
+    if (bkAll) { htext('BUNKER', x0, y); htext(`${bkLeft}/${bkAll}`, vx, y); y += L; }   // 남은 벙커 / 전체
   } else if (!glitch && !hudGlitched && !hudOffAt) return;
   hudGlitched = glitch;
   // 꺼지는 중이면 (syncHud의 hudOffAt) 4x4 디더링으로 점점 비운다

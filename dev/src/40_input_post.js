@@ -3,18 +3,18 @@ const keys = new Set();
 addEventListener('keydown', (e) => {
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
   keys.add(e.code);
-  if (UI.screen === pauseUI && e.code === 'KeyT') uiShow(confirmUI);   // 일시정지: T = 첫 화면으로 (확인 창)
+  if (UI.screen === pauseUI && e.code === 'KeyT') { sfx.ui('button'); uiPress('title'); uiShow(confirmUI); }   // 일시정지: T = 첫 화면으로 (확인 창)
   else if (UI.screen === pauseUI && (e.code === 'KeyW' || e.code === 'KeyS') && !e.repeat) pauseUI.nudge(e.code === 'KeyW' ? -1 : 1);   // 강화 기록 넘겨 보기 (누르고 있으면 tick이 계속 넘긴다)
   else if (UI.screen === pauseUI && (e.code === 'KeyA' || e.code === 'KeyD')) pauseUI.toEnd(e.code === 'KeyD');   // 강화 기록 맨 위(A) / 맨 아래(D)
   else if (UI.screen === pauseUI && (e.code === 'KeyQ' || e.code === 'KeyE')) pauseUI.setTab(pauseUI.tab + (e.code === 'KeyE' ? 1 : -1));   // 탭: Q 왼쪽, E 오른쪽
-  else if (UI.screen === confirmUI) { if (e.code === 'KeyY') restartGame(true); else if (e.code === 'KeyN') uiShow(pauseUI); }
+  else if (UI.screen === confirmUI) { if (e.code === 'KeyY') { sfx.ui('button'); uiPress('yes'); restartGame(true); } else if (e.code === 'KeyN') { sfx.ui('button'); uiPress('no'); uiShow(pauseUI); } }
   if (paused) return;
   if (e.code === 'KeyG' && titleState === 'play') {   // G: 적군 섬멸이면 새로 시작, 파괴됐으면 재출격, 아니면 세우기
-    if (endState === 'clear') restartGame(false);
-    else if (endState === 'dead') respawn();
+    if (endState === 'clear') { sfx.ui('button'); uiPress('restart'); restartGame(false); }
+    else if (endState === 'dead') { if (continuesLeft > 0) { sfx.ui('button'); uiPress('respawn'); } respawn(); }
     else if (!winUp()) uprightTank();   // 창이 떠 있으면 세우기도 안 됨
   }
-  if (e.code === 'KeyT' && endState === 'clear') restartGame(true);   // T: 첫 화면으로
+  if (e.code === 'KeyT' && (endState === 'clear' || endState === 'dead') && winUp()) { sfx.ui('button'); uiPress('title'); restartGame(true); }   // T: 첫 화면으로 (전투 불능·적군 섬멸 창)
 });
 // 뒤집혔을 때 세운다 (G키, 터치 '세우기' 버튼): 포탄 한 발을 쏜 것처럼 장전돼 있을 때만 되고, 하면 한 발 소모 (포탄은 안 나감)
 function uprightTank() {
@@ -39,6 +39,8 @@ function hopUpright(T, x, z, yaw) {
 }
 // 터치 조작: 아날로그 패드(위 = 전진, 좌우 = 선회)와 누르고 있는 동안 유지되는 버튼들. 마우스로도 된다
 const touch = { thr: 0, steer: 0, up: false, down: false, fire: false, tl: false, tr: false };
+// 게임패드 (81_ui.js padPoll이 매 프레임 채운다): 주행·선회·포탑·포각은 아날로그, fire = 발사 버튼을 누르고 있음
+const pad = { thr: 0, steer: 0, tq: 0, de: 0, fire: false };
 {
   const stick = document.getElementById('stick'), knob = document.getElementById('knob'), R = 50;
   let id = null;
@@ -141,8 +143,8 @@ upScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), upMat));
 
 // 화면 환경 두 벌: 타이틀(밝은 낮, 가까운 흰 안개, 위쪽 흰 그라데이션)과 플레이(밤. 설정 메뉴 값). titleK로 섞는다 (0 = 타이틀, 1 = 플레이)
 const TT = CFG.title || {};
-const ENV_PLAY = { fog: new THREE.Color(CFG.map.fogColor), near: 0, far: 2 / CFG.map.fog, moon: CFG.map.moon, moonC: new THREE.Color(CFG.map.moonColor),
-  sky: 1.5, skyC: new THREE.Color(0x7d8aac), gndC: new THREE.Color(0x4a3a2a), grad: 0 };
+const ENV_PLAY = { fog: new THREE.Color(MAP0.fogColor), near: 0, far: 2 / MAP0.fog, moon: MAP0.moon, moonC: new THREE.Color(MAP0.moonColor),
+  sky: MAP0.sky, skyC: new THREE.Color(MAP0.skyColor), gndC: new THREE.Color(MAP0.groundColor), grad: 0 };
 const ENV_TITLE = { fog: new THREE.Color(TT.fogColor ?? '#ffffff'), near: TT.fogNear ?? 20, far: TT.fogFar ?? 60, moon: TT.moon ?? 2.6, moonC: new THREE.Color(TT.moonColor ?? '#fff2dc'),
   sky: TT.sky ?? 2.2, skyC: new THREE.Color(TT.skyColor ?? '#eef2f8'), gndC: new THREE.Color(TT.groundColor ?? '#8a7a62'), grad: TT.gradient?.strength ?? 1 };
 postMat.uniforms.uGradA.value = TT.gradient?.from ?? 0.64; postMat.uniforms.uGradB.value = TT.gradient?.to ?? 0.9;
@@ -189,13 +191,15 @@ function layoutTitle() {
   const put = (id, side, v, dx = 0, dy = 0) => {
     const c = el(id);
     c._css = [c._src.width * u, c._src.height * u];   // 사라질 때 다시 그리려고 보관
-    sharpBlit(c, titleFadeTh > 0 ? ditherMask(c._src, titleFadeTh) : c._src, c._css[0], c._css[1]);
     Object.assign(c.style, { left: '', right: '', top: '', bottom: '', [side]: `${m + dx}px`, [v]: `${m + dy}px` });
+    titleWipe(c);   // 사라지는 중이면 그 정도로
     return c._src.width * u;
   };
   put('tLogo', 'left', 'top'); put('tBrand', 'right', 'top');
   // 아래 요소들은 오른쪽 아래로 1칸 그림자가 있다: 여백 10칸은 그림자를 빼고 잰다
-  const bw = put('tBadge', 'left', 'bottom', 0, -u), pw = put('tPress', 'right', 'bottom', -u, -u);
+  // 맨 아래 위장색 안내, 그 4칸 위에 PRESS SPACE
+  const camoH = el('tCamo') && el('tCamo')._src ? (put('tCamo', 'right', 'bottom', -u, -u), el('tCamo')._src.height * u + 4 * u) : 0;
+  const bw = put('tBadge', 'left', 'bottom', 0, -u), pw = put('tPress', 'right', 'bottom', -u, -u + camoH);
   const vw = el('tVer')._src.width * u, vx = bw + 6 * u;
   if (m + vx + vw + 10 * u + pw + m <= VR.w) put('tVer', 'left', 'bottom', vx, -u);
   else put('tVer', 'left', 'bottom', 0, el('tBadge')._src.height * u + 4 * u - u);
@@ -275,7 +279,9 @@ const sliderAt = (id) => { const el = document.getElementById(id); return +el.va
 // 성장으로 바뀌는 내 탱크 값을 모두 처음으로 (슬라이더 + 고른 성장 항목)
 function resetGrowth() {
   for (const [id] of GROW) { const el = document.getElementById(id); el.value = el.defaultValue; el.oninput(); }
-  Object.assign(tank, { maxHp: PC.hp, hp: Math.min(tank.hp, PC.hp), magnetR: MAGNET_R, armorM: 1, goldMul: 1, pierce: 0, ram: false, waterSpeed: undefined, goldKeep: false, autoRepair: false, repairAcc: 0, mg: null, picks: {}, pickLog: [] });
+  Object.assign(tank, { maxHp: PC.hp, hp: Math.min(tank.hp, PC.hp), magnetR: MAGNET_R, armorM: 1, goldMul: 1, pierce: 0, ram: false, waterSpeed: undefined, goldKeep: false, autoRepair: false, repairAcc: 0, mg: null, picks: {}, pickLog: [],
+    berserk: 0, coinMul: 1, combos: [], apMg: false, dozer: 0, fieldRepair: false, scrap: 0, sniper: 0 });
+  comboQueue.length = 0;
   drawPickLog();
   showGuns(0);
   growLevel = 0;
@@ -314,8 +320,15 @@ const UP_FX = {
   pierce:     { apply: (v) => { tank.pierce += v / 100; } },
   superPierce:{ apply: (v) => { tank.pierce += v / 100; } },
   autoRepair: { apply: () => { tank.autoRepair = true; tank.repairAcc = 0; } },
+  // 위험 (v = 장점, w = 단점의 양)
+  glass:      { apply: (v, w) => { bumpSlider('gDmg', x => x * (1 + v / 100)); tank.maxHp = Math.max(1, Math.round(tank.maxHp * (1 - w / 100))); tank.hp = Math.min(tank.hp, tank.maxHp); } },
+  light:      { apply: (v, w) => { bumpSlider('gSpd', x => x * (1 + v / 100)); bumpSlider('gAcc', x => x * (1 + v / 100)); tank.armorM *= 1 + w / 100; } },
+  heavy:      { apply: (v, w) => { tank.armorM *= 1 - v / 100; bumpSlider('gSpd', x => x * (1 - w / 100)); bumpSlider('gTurn', x => x * (1 - w / 100)); } },   // 장갑 강화 최대값보다 더 내려갈 수 있다
+  rapid:      { apply: (v, w) => { bumpSlider('gReload', x => x * (1 - v / 100)); bumpSlider('gDmg', x => x * (1 - w / 100)); } },
+  berserk:    { apply: (v) => { tank.berserk = v / 100; } },
+  greed:      { apply: (v, w) => { tank.coinMul = 2; tank.magnetR *= 1 - w / 100; } },
 };
-const upText = (s, u) => s.replaceAll('{v}', u.value ?? '').replaceAll('{n}', tank.goldMul + 1);
+const upText = (s, u) => s.replaceAll('{v}', u.value ?? '').replaceAll('{w}', u.value2 ?? '').replaceAll('{n}', tank.goldMul + 1);
 // 이번에 고르면 마지막 단계인가: 고를 수 있는 횟수(max)를 다 채우거나, 성능이 최대값에 닿는다
 const willMax = (id, f) => { const el = document.getElementById(id); return f(+el.value) >= +el.max - 1e-6; };
 const UP_LAST = {
@@ -328,20 +341,61 @@ const UP_LAST = {
 const upLast = (u) => (u.max > 1 && (tank.picks[u.id] || 0) + 1 >= u.max) || (UP_LAST[u.id] ? UP_LAST[u.id](u.value) : false);
 const upAvail = (u) => { const fx = UP_FX[u.id]; return fx && (u.max == null || (tank.picks[u.id] || 0) < u.max) && (!fx.ok || fx.ok()); };
 const upWeight = (u) => (GC.rarity[u.rarity] ? GC.rarity[u.rarity].weight : 0) * (u.weight ?? 1);
+// 레어도 조건: minLevel(이번 선택지의 LV가 이 이상일 때만), perOffer(한 번에 이 개수까지. '위험'은 1개)
+const rarityOk = (u, out) => { const R = GC.rarity[u.rarity] || {}; return growLevel + 1 >= (R.minLevel ?? 0) && out.filter((o) => o.rarity === u.rarity).length < (R.perOffer ?? 3); };
 function rollChoices() {
   const pool = GC.upgrades.filter(u => upAvail(u) && upWeight(u) > 0), out = [];
-  while (out.length < 3 && pool.length) {
+  for (;;) {
+    for (let i = pool.length - 1; i >= 0; i--) if (!rarityOk(pool[i], out)) pool.splice(i, 1);
+    if (out.length >= 3 || !pool.length) break;
     let r = Math.random() * pool.reduce((s, u) => s + upWeight(u), 0), k = 0;
     while (k < pool.length - 1 && (r -= upWeight(pool[k])) > 0) k++;
     out.push(pool.splice(k, 1)[0]);
   }
-  return out.map(u => ({ u, label: upText(u.name, u), desc: upText(u.desc, u) + (upLast(u) ? ' (최대)' : '') }));
+  return out.map(u => ({ u, label: upText(u.name, u), desc: upText(u.desc, u) + (upLast(u) ? ' (최대)' : ''), bad: u.bad ? upText(u.bad, u) : '' }));
 }
-let testOffers = 0, curOffer = null, growLevel = 0, heldOffer = null;   // heldOffer: 고르기 전에 터져서 접어 둔 선택지 (다시 착지하면 띄운다)
+// ---- 조합 보너스: need의 성장을 모두 갖추면 열린다. 고른 순간 효과가 들어가고, 선택지가 사라진 뒤 카드로 알린다 (comboQueue)
+const COMBOS = GC.combos || [];
+const COMBO_FX = {
+  apMg: () => { tank.apMg = true; },
+  dozer: (v) => { tank.dozer = v || 2; },
+  fieldRepair: () => { tank.fieldRepair = true; },
+  scrap: (v) => { tank.scrap = v || 1; },
+  sniper: (v) => { tank.sniper = (v || 80) / 100; },
+};
+const comboQueue = [];
+const needCount = (picks, k) => k.split('|').reduce((n, id) => n + (picks[id] || 0), 0);
+const comboReady = (C, picks) => Object.entries(C.need || {}).every(([k, n]) => needCount(picks, k) >= n);
+// 조합이 열린 이유: '자석 3회 + 골드 x3'
+function comboReason(C) {
+  return Object.entries(C.need || {}).map(([k, n]) => {
+    const id = k.split('|')[0], u = GC.upgrades.find((x) => x.id === id), nm = u ? u.name : id;
+    if (id === 'gold') return nm.replaceAll('{n}', n + 1);
+    return n > 1 ? `${nm} ${n}회` : nm;
+  }).join(' + ');
+}
+// 이 성장을 하나 더 고르면 새로 열리는 조합이 있는가 (선택지 카드의 '조합 완성' 표시)
+const completesCombo = (u) => { const p = { ...tank.picks, [u.id]: (tank.picks[u.id] || 0) + 1 }; return COMBOS.some((C) => !(tank.combos || []).includes(C.id) && !comboReady(C, tank.picks) && comboReady(C, p)); };
+function checkCombos() {
+  for (const C of COMBOS) {
+    if ((tank.combos || []).includes(C.id) || !comboReady(C, tank.picks)) continue;
+    tank.combos.push(C.id);
+    if (COMBO_FX[C.id]) COMBO_FX[C.id](C.value);
+    const card = { u: { id: C.id, rarity: 'combo' }, label: C.name, desc: upText(C.desc, C), reason: comboReason(C), combo: true };
+    tank.pickLog.push(card); comboQueue.push(card);
+  }
+}
+let testOffers = 0, curOffer = null, growLevel = 0, heldOffer = null;   // curOffer.combo: 조합 완성 알림 카드 (choices 한 장, 고를 것 없음)   // heldOffer: 고르기 전에 터져서 접어 둔 선택지 (다시 착지하면 띄운다)
 function drawOffer() { if (UI.screen !== offerUI) uiShow(offerUI); else uiDirty(); }
 // 다음 선택지: 테스트 버튼으로 예약한 것 먼저, 아니면 골드가 100 이상일 때
 function nextOffer() {
+  if (curOffer && curOffer.picked >= 0 && UI.screen !== offerUI) curOffer = null;   // 고른 선택지가 다른 창에 밀려 끝나지 못하고 남았으면 거둔다
   if (curOffer || heldOffer || !tank.solid) return;   // 터져 있거나 떨어지는 중이면 착지한 뒤에
+  if (comboQueue.length) {   // 열린 조합이 있으면 그 카드부터 (고를 것 없이 잠시 보였다 사라진다)
+    curOffer = { choices: [comboQueue.shift()], combo: true, picked: 0, showT: 0, pickT: -COMBO_HOLD };
+    drawOffer(); sfx.ui('combo');
+    return;
+  }
   if (testOffers > 0) testOffers--;
   else if (gold < offerCost()) return;
   const choices = rollChoices();
@@ -355,9 +409,9 @@ function pickOffer(i) {
   if (!curOffer || curOffer.picked >= 0 || !curOffer.choices[i]) return;
   curOffer.picked = i;
   const u = curOffer.choices[i].u;
-  UP_FX[u.id].apply(u.value);
+  UP_FX[u.id].apply(u.value, u.value2);
   tank.picks[u.id] = (tank.picks[u.id] || 0) + 1;
-  tank.pickLog.push(curOffer.choices[i]); drawPickLog();
+  tank.pickLog.push(curOffer.choices[i]); checkCombos(); drawPickLog();
   if (!curOffer.paid) gold = Math.max(0, gold - offerCost());   // 성장 값으로 골드를 낸다 (고르기 전 단계 기준. 0 아래로는 안 내려감. 터질 때 미리 낸 선택지는 빼고)
   growLevel++;   // 테스트 버튼으로 띄운 선택지도 똑같이 한 단계
   curOffer.pickT = 0;   // 고른 뒤 흐른 시간 (offerUI.tick: 게임이 멈추면 같이 멈춘다)
@@ -367,12 +421,14 @@ function pickOffer(i) {
 // 고르기 전의 선택지를 거둔다 (처음부터 다시 할 때)
 function cancelOffer() {
   heldOffer = null;
-  if (!curOffer || curOffer.picked >= 0) return;
+  if (!curOffer) return;
   curOffer = null; if (UI.screen === offerUI) uiShow(null);
 }
 // 내 탱크가 고르기 전에 터졌을 때: 선택지를 접어 둔다. 골드를 흩뿌릴 거라면 성장 값은 지금 미리 낸다 (흩뿌린 골드를 다시 주워 또 쓰지 않게)
 function holdOffer(spill) {
-  if (!curOffer || curOffer.picked >= 0) return;
+  // 이미 고른 선택지가 사라지는 중이었다면: 효과는 이미 들어갔으니 그냥 거둔다 (남겨 두면 다음 선택지가 영영 안 뜬다)
+  if (curOffer && curOffer.picked >= 0) { curOffer = null; if (UI.screen === offerUI) uiShow(null); return; }
+  if (!curOffer) return;
   heldOffer = curOffer; curOffer = null;
   if (spill && !heldOffer.paid) { heldOffer.paid = true; gold = Math.max(0, gold - offerCost()); }
   if (UI.screen === offerUI) uiShow(null);
@@ -390,9 +446,9 @@ document.getElementById('gRand10').onclick = (e) => {
     const ch = rollChoices();
     if (!ch.length) break;   // 더 고를 것이 없다
     const c = ch[Math.floor(Math.random() * ch.length)];
-    UP_FX[c.u.id].apply(c.u.value);
+    UP_FX[c.u.id].apply(c.u.value, c.u.value2);
     tank.picks[c.u.id] = (tank.picks[c.u.id] || 0) + 1;
-    tank.pickLog.push(c);
+    tank.pickLog.push(c); checkCombos();
     growLevel++;
   }
   drawPickLog(); sfx.coin(); e.target.blur();
@@ -403,7 +459,7 @@ document.getElementById('gReroll').onclick = (e) => {   // 테스트: 떠 있는
 };
 // 맵 설정의 처음 값 (config.js)
 const setInput = (id, v) => { const el = document.getElementById(id); el.value = v; if (el.oninput) el.oninput({ target: el }); };
-let windDir = CFG.map.windDir ?? 215;   // 바람이 불어 가는 쪽 (°): 0 = +x, 90 = +z(북쪽)
+let windDir = MAP0.windDir;   // 바람이 불어 가는 쪽 (°): 0 = +x, 90 = +z(북쪽)
 document.getElementById('windDir').value = windDir; document.getElementById('windDirV').textContent = `${windDir}°`;
 document.getElementById('windDir').oninput = (e) => { windDir = +e.target.value; document.getElementById('windDirV').textContent = `${windDir}°`; };
 document.getElementById('wind').oninput = (e) => { U.uWind.value = +e.target.value; document.getElementById('windV').textContent = (+e.target.value).toFixed(2); };
@@ -425,7 +481,27 @@ document.getElementById('aoWhite').onclick = (e) => { U.uWhite.value = 1 - U.uWh
 document.getElementById('moonI').oninput = (e) => { ENV_PLAY.moon = +e.target.value; applyEnv(); document.getElementById('moonIV').textContent = (+e.target.value).toFixed(2); };
 document.getElementById('moonC').oninput = (e) => { ENV_PLAY.moonC.set(e.target.value); applyEnv(); };
 for (const id of ['moonI', 'moonC']) document.getElementById(id).onchange = (e) => e.target.blur();
-for (const [id, v] of [['wind', CFG.map.wind], ['fog', CFG.map.fog], ['fogC', CFG.map.fogColor], ['aoK', CFG.map.ao], ['moonI', CFG.map.moon], ['moonC', CFG.map.moonColor]]) setInput(id, v);
+setInput('aoK', CFG.map.ao);
+// 맵 셋팅 바꾸기: 설정 메뉴 슬라이더·하늘빛·날씨를 그 셋팅 값으로 (슬라이더는 그 뒤에 따로 만져 볼 수 있다)
+function applyMapPreset(i) {
+  mapIdx = (i + MAP_PRESETS.length) % MAP_PRESETS.length;
+  const p = MAP_PRESETS[mapIdx];
+  for (const [id, v] of [['wind', p.wind], ['windDir', p.windDir], ['debris', p.debris], ['fog', p.fog], ['fogC', p.fogColor], ['moonI', p.moon], ['moonC', p.moonColor]]) setInput(id, v);
+  ENV_PLAY.sky = p.sky; ENV_PLAY.skyC.set(p.skyColor); ENV_PLAY.gndC.set(p.groundColor); applyEnv();
+  setWeather(p);
+  for (const [id, v] of [['rainA', p.rain], ['sandA', p.sand], ['boltA', p.lightning]]) setInput(id, v);
+  document.getElementById('sandC').value = p.sandColor ?? '#c8a070';
+  document.getElementById('mapBtn').textContent = `맵 셋팅: ${p.name} (${mapIdx + 1}/${MAP_PRESETS.length})`;
+}
+// 날씨 양 슬라이더 (비 · 모래바람 · 번개)
+for (const [id, key] of [['rainA', 'rain'], ['sandA', 'sand'], ['boltA', 'lightning']]) {
+  const el = document.getElementById(id);
+  el.oninput = (e) => { WEATHER[key] = +e.target.value; document.getElementById(id + 'V').textContent = (+e.target.value).toFixed(2); };
+  el.onchange = (e) => e.target.blur();
+}
+document.getElementById('sandC').oninput = (e) => WEATHER.sandCol.set(e.target.value);   // 모래 색 (설정 메뉴에서 바로)
+document.getElementById('sandC').onchange = (e) => e.target.blur();
+document.getElementById('mapBtn').onclick = (e) => { applyMapPreset(mapIdx + 1); e.target.blur(); };   // 처음 셋팅은 90_loop.js에서 (뒤 파일의 값이 다 준비된 뒤)
 resetGrowth();
 resize();
 Object.assign(window.dbg, { U, ballHit, cliffG, mainRoadX, addScorchDecal, resetCamera, renderer, scene, rt, tank, keys, fireCannon, physStep, updateBalls, fieldTick, burning, fFire, fChar, fGrow, footprints, spawnTank, resetTank, heightAt, PHYS_H, driveEffects, syncTankVisual, smokeP, glowP, targets, destroyTarget, BRIDGE, waterAt, creekPoly, explode, trackRT, balls, ballGeo, ballMat, crates, wireSpans, allPoles, WRECKS, PUDDLES, poleTilt, kickPole, toggleCollisionView, CREEK_UP: () => CREEK_UP, creekPoly, aoMs: () => aoMs, aoHits: () => aoHits, gapData });
@@ -460,6 +536,22 @@ function resetCamera() {
 }
 resetCamera();
 window.dbg.lastFollow = lastFollow;
+// 카메라가 땅 속으로 들어가지 않게: 카메라 자리와 화면 가운데 쪽으로 조금 나아간 두 곳의 땅 높이 + minHeight 아래로는 못 내려간다
+// (가까운 면이 화면 앞을 가로막지 않게 앞쪽도 본다). 마우스로 낮게 돌려도 여기서 막힌다
+const CAM_MIN_H = CC.minHeight ?? 2;
+function camAboveGround() {
+  const p = camera.position, t = controls.target;
+  let dx = t.x - p.x, dz = t.z - p.z;
+  const d = Math.hypot(dx, dz) || 1; dx /= d; dz /= d;
+  const g = Math.max(heightAt(p.x, p.z), heightAt(p.x + dx * 2, p.z + dz * 2), heightAt(p.x + dx * 4, p.z + dz * 4)) + CAM_MIN_H;
+  if (p.y < g) p.y = g;
+}
+// 전환이 끝났을 때의 플레이 카메라 자리: 포탑이 정면(전환 동안 가운데로 돌아온다)일 때의 기본 자리
+function playRestCam() {
+  const ty = tank.tyaw; tank.tyaw = 0;
+  resetCamera();
+  tank.tyaw = ty;
+}
 function followYaw(dt) {
   let d = tankYaw() + CAM_YAW - camYaw;
   d = Math.atan2(Math.sin(d), Math.cos(d));

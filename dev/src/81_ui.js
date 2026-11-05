@@ -61,20 +61,32 @@ pui.style.mixBlendMode = HC.blend;
 const uiC = document.createElement('canvas'), ucx = uiC.getContext('2d');   // 색
 const uiK = document.createElement('canvas'), ukx = uiK.getContext('2d');   // 글자·선 그림자
 const uiB = document.createElement('canvas'), ubx = uiB.getContext('2d');   // 패널 바탕 (반투명 검정)
-const UI = { screen: null, dirty: false, hits: [], hover: null, w: 0, h: 0, u: 1, shown: false, closing: null, glitchT: 0, noHit: false };
+const UI = { screen: null, dirty: false, hits: [], hover: null, w: 0, h: 0, u: 1, shown: false, closing: null, glitchT: 0, noHit: false, pressId: null, pressT: 0 };
+// 키보드로 버튼을 누르면 그 버튼을 잠깐 마우스를 올린 것처럼 (사라지는 창에서도 보이게)
+const UI_PRESS_MS = 180;
+function uiPress(id) { UI.pressId = id; UI.pressT = performance.now() + UI_PRESS_MS; uiDirty(); }
 function uiSet(screen) {
-  UI.screen = screen; UI.hover = null; UI.dirty = true; pausedDrawn = false;   // 멈춰 있어도 바뀐 화면을 그리러 루프를 깨운다
+  UI.screen = screen; UI.hover = null; UI.dirty = true; pausedDrawn = false;
+  pui.style.mixBlendMode = (screen && screen.blend) || HC.blend;   // 화면마다 블렌딩을 따로 둘 수 있다 (작전 정보 = normal)   // 멈춰 있어도 바뀐 화면을 그리러 루프를 깨운다
   if (screen && screen.win) UI.glitchT = HC.glitchTime;   // 창: 치지직하며 나타난다
   document.body.style.cursor = '';   // 모든 화면은 passive: 화면을 덮지 않고 항목을 누를 때만 가로챈다
 }
 // 화면 바꾸기. 지금 화면이 창이면 바로 바꾸지 않고 치지직 + 디더링으로 사라진 뒤에 (UI.closing)
+// 창이 열리고 닫힐 때 소리
 function uiShow(screen) {
+  const w0 = winUp(), s0 = UI.closing ? UI.closing.next : UI.screen;
+  uiShow0(screen);
+  if (screen === s0) return;
+  if (screen && screen.win) sfx.ui('open');
+  else if (w0 && !winUp()) sfx.ui('close');
+}
+function uiShow0(screen) {
   pausedDrawn = false;
   if (UI.closing) {
     if (screen === UI.screen) { UI.closing = null; UI.dirty = true; return; }   // 닫히던 창을 다시 띄움
     UI.closing.next = screen; return;
   }
-  if (UI.screen && UI.screen.win && screen !== UI.screen) {
+  if (UI.screen && (UI.screen.win || (UI.screen === offerUI && screen && screen.win)) && screen !== UI.screen) {   // 창이 닫힐 때, 그리고 선택지 위로 창이 뜰 때
     UI.closing = { next: screen, t: 0 }; UI.glitchT = HC.glitchTime; UI.dirty = true;
     document.body.style.cursor = '';
     return;
@@ -144,7 +156,12 @@ const ui = {
   // 색만 지우며 그리기 (꽉 칠한 칸 안에 '검은 글자': 바탕과 그림자가 비쳐 보인다)
   knock(fn) { ucx.globalCompositeOperation = 'destination-out'; fn(); ucx.globalCompositeOperation = 'source-over'; },
   // 클릭 영역 등록 (마우스를 올리면 UI.hover = id)
-  hit(id, x, y, w, h) { if (UI.noHit) return false; UI.hits.push({ id, x, y, w, h }); return UI.hover === id; },   // 사라지는 중에는 누를 수 없다
+  hit(id, x, y, w, h) {
+    if (id == null) return false;
+    const pressed = UI.pressId === id && performance.now() < UI.pressT;
+    if (UI.noHit) return pressed;
+    UI.hits.push({ id, x, y, w, h }); return pressed || UI.hover === id;
+  },   // 사라지는 중에는 누를 수 없다
 };
 // 화면 좌표(CSS 픽셀) → UI 칸
 const uiAt = (e) => ({ x: (e.clientX - VR.x) / UI.u, y: (e.clientY - VR.y) / UI.u });
@@ -153,7 +170,7 @@ const uiPick = (p) => { for (let i = UI.hits.length - 1; i >= 0; i--) { const r 
 addEventListener('pointerdown', (e) => {
   if (!UI.screen || !UI.screen.passive || !UI.screen.click || e.target.closest?.('#hud')) return;
   const id = uiPick(uiAt(e));
-  if (id) { e.stopImmediatePropagation(); e.preventDefault(); UI.screen.click(id); }
+  if (id) { e.stopImmediatePropagation(); e.preventDefault(); if (UI.screen.win) sfx.ui('button'); UI.screen.click(id); }
 }, true);
 // passive 화면의 마우스 올림 (버튼이 뒤집혀 보이게): 화면을 덮지 않으니 창 전체에서 본다
 addEventListener('pointermove', (e) => {
@@ -175,6 +192,7 @@ function uiUpdate() {
     UI.dirty = true;
   }
   UI.u = k * VR.h / H;   // UI 한 칸의 CSS 픽셀 수
+  if (UI.pressId && performance.now() >= UI.pressT) { UI.pressId = null; UI.dirty = true; }   // 키로 누른 표시 끝
   if (UI.closing) {   // 사라지는 중
     UI.closing.t += uiDt; UI.dirty = true;
     if (UI.closing.t >= POP.fade) { const nx = UI.closing.next; UI.closing = null; uiSet(nx); if (!UI.screen) return uiUpdate(); }
@@ -198,10 +216,11 @@ function uiUpdate() {
   const put = (g, src, o) => { for (const [sy, sh, dx] of bands) sharpDraw(g, src, (dx + o) * u, (sy + o) * u, w * u, sh * u, 0, sy, w, sh); };
   ug.clearRect(0, 0, DW, DH); usg.clearRect(0, 0, DW, DH);
   put(usg, dm(uiB), 0);
-  if (HC.shadow > 0) {
+  const shA = UI.screen.shadow ?? HC.shadow;   // 화면마다 그림자 진하기 (없으면 HUD 값)
+  if (shA > 0) {
     const sk = dm(uiK);
-    usg.globalAlpha = HC.shadow * 0.5; put(usg, sk, 0);
-    usg.globalAlpha = HC.shadow; put(usg, sk, 1);
+    usg.globalAlpha = shA * 0.5; put(usg, sk, 0);
+    usg.globalAlpha = shA; put(usg, sk, 1);
     usg.globalAlpha = 1;
   }
   put(ug, dm(uiC), 0);
@@ -214,13 +233,71 @@ function uiUpdate() {
 // 나타날 때: 위에서부터 0.1초 간격으로 화면 오른쪽 밖에서 제자리로 0.3초 (EaseOutExpo). 안내 줄은 네 번째로.
 // 고르면 나머지(안내 줄 포함)는 곧바로 어두운 회색, OFFER_HOLD초 뒤 OFFER_FADE초에 걸쳐 디더링으로 사라진다
 const OFFER_TXT = '#9c9c9c', OFFER_OFF = '#464646', OFFER_HOLD = 1.0, OFFER_FADE = 0.4, OFFER_IN = 0.3, OFFER_STEP = 0.1, OFFER_W = 200;
+// 조합 완성 카드는 COMBO_HOLD초 더 보인다. 고른 카드 테두리는 PICK_BLINK초마다 회색 ↔ 흰색
+const COMBO_HOLD = 2.0, PICK_BLINK = 0.12, BAD_C = (GC.rarity.risky || {}).color || '#e0533c', COMBO_C = (GC.rarity.combo || {}).color || '#ffd25a';
 // 숫자 뒤 '으로/로': 끝자리를 읽은 소리에 받침이 있으면(0 영·3 삼·6 육, 10 십·100 백…) '으로', 없거나 ㄹ이면 '로'
 // 숫자 뒤 '을/를': 끝자리를 읽은 소리에 받침이 있으면(0 영·1 일·3 삼·6 육·7 칠·8 팔, 10 십…) '을'
 const josaUl = (n) => [0, 1, 3, 6, 7, 8].includes(n % 10) ? '을' : '를';
 const josaRo = (n) => [0, 3, 6].includes(n % 10) ? '으로' : '로';
 const easeOutExpo = (t) => t >= 1 ? 1 : 1 - Math.pow(2, -10 * t);
-let inputPad = false;   // 마지막으로 쓴 입력이 게임패드인가 (선택지 키 표시를 바꾼다)
-addEventListener('keydown', () => { if (inputPad) { inputPad = false; if (curOffer) uiDirty(); } });
+let inputPad = false;   // 마지막으로 쓴 입력이 게임패드인가 (화면에 보이는 키 글자를 바꾼다: 선택지·창·타이틀)
+// 바뀌는 즉시 다시 그린다 (멈춘 창·타이틀도)
+function setInputPad(v) {
+  if (inputPad === v) return;
+  inputPad = v;
+  uiDirty(); pausedDrawn = false;
+  drawTitleKeys(v);
+}
+const PK = (kbd, pad) => inputPad ? pad : kbd;   // 화면에 보일 키 글자 (키보드 / 게임패드. 패드는 Xbox 이름)
+addEventListener('keydown', (e) => { if (!e.fromPad) setInputPad(false); });   // (패드가 대신 누른 키는 빼고)
+addEventListener('pointerdown', () => setInputPad(false));
+// ---- 작전 정보 (게임 시작 직후, 화면 가운데): 위 한 줄(흰색) + 한 줄 띄우고 아래 1~5줄(밝은 회색).
+// 한 글자씩 나타나고(타자 소리), hold초 뒤 fade초 동안 치지직 + 4x4 디더링으로 한꺼번에 사라진다. 다 사라지면 HUD
+const MIS = Object.assign({ enabled: true, top: 37, titleColor: '#ffffff', lineColor: '#e0533c', textColor: '#c8c8c8', blend: 'normal', shadow: 0.5, title: '', lines: [], typeSpeed: 30, hold: 3, fade: 2 }, CFG.mission);
+let missionDone = !MIS.enabled;
+const missionUI = {
+  passive: true, t: 0, th: 0, shown: -1, blend: MIS.blend, shadow: MIS.shadow,   // 이 화면만 블렌딩·그림자를 따로
+  rows() { return [[MIS.title, MIS.titleColor], ['', ''], ...MIS.lines.slice(0, 5).map((l) => [l, MIS.textColor])]; },
+  total() { return this.rows().reduce((n, [t]) => n + t.length, 0); },
+  draw(ui) {
+    let left = Math.floor(this.t * MIS.typeSpeed);   // 지금까지 나타난 글자 수
+    const rows = this.rows(), y0 = MIS.top;
+    // 작전명이 다 나오면 바로 아래 빈 줄 가운데에 빨간 가로줄 (가장 긴 줄 폭, 글자처럼 그림자)
+    if (left >= MIS.title.length) { const lw = Math.max(...rows.map(([t]) => gfWidth(t))); ui.fill(Math.round((ui.w - lw) / 2), y0 + GF_LINE + Math.floor(GF_LINE / 2) - 1, lw, 1, MIS.lineColor); }
+    rows.forEach(([t, col], i) => {
+      if (!t || left <= 0) return;
+      const part = t.slice(0, left); left -= t.length;
+      ui.text(part, Math.round((ui.w - gfWidth(t)) / 2), y0 + i * GF_LINE, col);   // 줄 전체 폭으로 가운데 맞춘 자리에서 왼쪽부터 (글자가 늘어도 흔들리지 않게)
+    });
+  },
+  tick() {
+    const dt = clock.running ? lastDt : 0, typeEnd = this.total() / Math.max(1, MIS.typeSpeed);
+    this.t += dt;
+    const n = Math.min(this.total(), Math.floor(this.t * MIS.typeSpeed));
+    if (n !== this.shown) { if (n > this.shown && n % 2) sfx.ui('type'); this.shown = n; uiDirty(); }
+    const f = (this.t - typeEnd - MIS.hold) / Math.max(0.01, MIS.fade);
+    if (f > 0) {
+      const th = Math.min(16, Math.floor(f * 16));
+      UI.glitchT = HC.glitchTime * Math.max(0.15, 1 - f) * 0.7;   // 사라지는 동안 계속 치지직 (점점 약하게)
+      if (th !== this.th) { this.th = th; uiDirty(); }
+      if (f >= 1) { this.th = 0; UI.glitchT = 0; endMission(); }
+    }
+  },
+};
+window.dbg.mission = missionUI;
+function startMission() {
+  if (missionDone) return;
+  Object.assign(missionUI, { t: 0, th: 0, shown: -1 });
+  hudRevealT = 1e9;   // HUD는 작전 정보가 사라진 뒤에
+  uiShow(missionUI);
+}
+function endMission() {
+  missionDone = true; hudRevealT = 0;
+  if (UI.screen === missionUI) uiShow(null);
+  if (pauseUI.under === missionUI) pauseUI.under = null;
+}
+// 플레이가 시작되면 (타이틀 전환이 끝나거나, 타이틀을 건너뛰면 로딩 화면이 걷힌 뒤) 한 번
+function missionCheck() { if (!missionDone && !UI.screen && !UI.closing && titleState === 'play' && !document.getElementById('loading')) startMission(); }
 const offerUI = {
   passive: true, th: 0, freezeT: null,
   draw(ui) {
@@ -236,18 +313,27 @@ const offerUI = {
     c.choices.forEach((ch, i) => {
       const off = c.picked >= 0 && c.picked !== i, rc = (GC.rarity[ch.u.rarity] || {}).color || HC.color;
       const nameC = off ? OFFER_OFF : rc, txtC = off ? OFFER_OFF : OFFER_TXT, X = x + slide(i);
-      const lines = gfWrap(ch.desc, w - 10), h = 21 + lines.length * GF_LINE;   // 위아래 안쪽 여백 5칸 + 이름 줄 + 설명 줄들
+      // 설명(회색) + 단점(빨강, 위험 선택지)
+      const lines = gfWrap(ch.desc, w - 10).map((t) => [t, txtC]).concat(ch.bad ? gfWrap(ch.bad, w - 10).map((t) => [t, off ? OFFER_OFF : BAD_C]) : []);
+      const h = 21 + lines.length * GF_LINE;   // 위아래 안쪽 여백 5칸 + 이름 줄 + 설명 줄들
+      // 고른 카드·조합 카드: 사라질 때까지 테두리가 회색 ↔ 흰색으로 깜빡인다
+      const boxC = c.picked === i ? (Math.floor(Math.max(0, c.pickT) / PICK_BLINK) % 2 ? '#ffffff' : OFFER_TXT) : txtC;
       ui.dim(X, y, w, h, 0.5);
-      ui.box(X, y, w, h, txtC);
-      // 키 칸: 이름 줄(글자 11칸) 가운데에 세로로 맞춘다
-      const kx = X + 5, ky = y + 5 + Math.floor((11 - KH) / 2), g = keys[i];
-      ui.fill(kx, ky, KW, KH, nameC);
-      ui.knock(() => gfGlyphDraw(g, kx + (KW - g.w) / 2, ky + (KH - g.h) / 2, (a, b) => ucx.fillRect(a, b, 1, 1)));
-      ui.text(ch.label, kx + KW + 4, y + 5, nameC);
-      lines.forEach((l, k) => ui.text(l, X + 5, y + 5 + GF_LINE * (k + 1), txtC));
+      ui.box(X, y, w, h, boxC);
+      let nx = X + 5;
+      if (!c.combo) {   // 키 칸: 이름 줄(글자 11칸) 가운데에 세로로 맞춘다
+        const kx = X + 5, ky = y + 5 + Math.floor((11 - KH) / 2), g = keys[i];
+        ui.fill(kx, ky, KW, KH, nameC);
+        ui.knock(() => gfGlyphDraw(g, kx + (KW - g.w) / 2, ky + (KH - g.h) / 2, (a, b) => ucx.fillRect(a, b, 1, 1)));
+        nx = kx + KW + 4;
+      }
+      ui.text(ch.label, nx, y + 5, nameC);
+      if (!c.combo && ch.combo !== false && (ch._cc ??= completesCombo(ch.u))) ui.text('조합 완성', X + w - 5, y + 5, off ? OFFER_OFF : COMBO_C, 'right');   // 고르면 조합이 열린다
+      lines.forEach(([l, col], k) => ui.text(l, X + 5, y + 5 + GF_LINE * (k + 1), col));
       if (c.picked < 0) ui.hit('o' + i, X, y, w, h);
       y += h + 4;
     });
+    if (c.combo) { ui.text(c.choices[0].reason, x + w + slide(1), y, COMBO_C, 'right'); return; }   // 조합 카드: 아래에 열린 이유 (카드 오른쪽에 맞춤)
     const lv = growLevel + (c.picked >= 0 ? 0 : 1);   // 고르면 이미 한 단계 올라 있다
     ui.text(`LV. ${lv}${josaRo(lv)} 성장! ${inputPad ? '방향키' : '숫자키'}로 고르기`, x + w + slide(3), y, c.picked >= 0 ? OFFER_OFF : HC.color, 'right');
   },
@@ -260,7 +346,9 @@ const offerUI = {
     if (this.freezeT != null) c.showT = this.freezeT;
     else if (c.showT < inEnd) { c.showT = Math.min(inEnd, c.showT + dt); uiDirty(); }
     if (c.picked < 0) { this.th = 0; return; }
+    const b0 = Math.floor(Math.max(0, c.pickT) / PICK_BLINK);
     c.pickT += dt;
+    if (Math.floor(Math.max(0, c.pickT) / PICK_BLINK) !== b0) uiDirty();   // 고른 카드·조합 카드 테두리 깜빡임
     const t = c.pickT - OFFER_HOLD, th = t <= 0 ? 0 : Math.min(16, Math.floor(t / OFFER_FADE * 16));
     if (th >= 16) { this.th = 0; curOffer = null; uiShow(null); nextOffer(); return; }
     if (th !== this.th) { this.th = th; uiDirty(); }
@@ -273,23 +361,28 @@ const ENDC = { txt: OFFER_TXT, warn: POP.dead, clear: POP.clear, pause: POP.paus
 const centerBox = (ui, pw, ph) => ({ x: Math.round((ui.w - pw) / 2), y: Math.round((ui.h - ph) / 2) });
 const deadUI = {
   win: true, passive: true,
+  // 재출격은 player.continues번까지. 다 쓰면 재출격 버튼은 회색 (누를 수 없음)
   draw(ui) {
-    const title = '전투 불능', body = '전차가 너무 많은 손상을 입어 더 이상 임무를 수행할 수 없습니다.\n이어서 다시 작전을 수행할 수 있습니다.';
-    const lines = gfWrap(body, Math.min(ui.w - 48, 340)), bw = keyButtonW('G', '재출격');
-    const pw = Math.max(gfWidth(title) * 2, ...lines.map(gfWidth)) + 28, ph = 12 + 22 + 8 + lines.length * GF_LINE + 6 + 21 + 12;
-    const { x, y } = centerBox(ui, pw, ph);
+    const left = continuesLeft, title = '전투 불능';
+    const body = '전차가 너무 많은 손상을 입어 더 이상 임무를 수행할 수 없습니다.\n' + (left > 0 ? `이어서 다시 작전을 수행할 수 있습니다. (${left}회 남음)` : '더이상 작전을 수행할 수 없습니다.');
+    const kG = PK('G', 'Y'), kT = PK('T', 'BACK');
+    const lines = gfWrap(body, Math.min(ui.w - 48, 340)), b1 = keyButtonW(kG, '재출격'), b2 = keyButtonW(kT, '첫 화면으로'), bgap = 8;
+    const pw = Math.max(gfWidth(title) * 2, b1 + bgap + b2, ...lines.map(gfWidth)) + 28, ph = 12 + 22 + 8 + lines.length * GF_LINE + 6 + 21 + 12;
+    const { x, y } = centerBox(ui, pw, ph), by = y + ph - 12 - 21, bx = x + Math.round((pw - (b1 + bgap + b2)) / 2);
     ui.panelSq(x, y, pw, ph, ENDC.warn);
     ui.textK(title, x + pw / 2, y + 12, 2, ENDC.warn, 'center');
     lines.forEach((l, i) => ui.text(l, x + pw / 2, y + 42 + i * GF_LINE, ENDC.txt, 'center'));
-    ui.keyButton('respawn', x + Math.round((pw - bw) / 2), y + ph - 12 - 21, 'G', '재출격', ENDC.warn);
+    ui.keyButton(left > 0 ? 'respawn' : null, bx, by, kG, '재출격', left > 0 ? ENDC.warn : ENDC.idle);
+    ui.keyButton('title', bx + b1 + bgap, by, kT, '첫 화면으로', ENDC.warn);
   },
-  click(id) { if (id === 'respawn') respawn(); },
+  click(id) { if (id === 'respawn') respawn(); else if (id === 'title') restartGame(true); },
 };
 const clearUI = {
   win: true, passive: true, info: { kills: 20, jeeps: 0, time: 0, lv: 0 },
   draw(ui) {
     const I = this.info, rows = [['격파한 적 탱크', `${I.kills}대`], ['격파한 적 지프', `${I.jeeps}대`], ['걸린 시간', fmtTime(I.time)], ['성장', `LV. ${I.lv}`]];
-    const title = '적군 섬멸', b1 = keyButtonW('G', '새로 시작'), b2 = keyButtonW('T', '첫 화면으로'), bgap = 8;
+    const kG = PK('G', 'Y'), kT = PK('T', 'BACK');
+    const title = '적군 섬멸', b1 = keyButtonW(kG, '새로 시작'), b2 = keyButtonW(kT, '첫 화면으로'), bgap = 8;
     const rw = Math.max(150, b1 + bgap + b2, ...rows.map(([a, b]) => gfWidth(a) + 16 + gfWidth(b)));
     const pw = Math.max(gfWidth(title) * 2, rw) + 28, ph = 12 + 22 + 8 + rows.length * GF_LINE + 6 + 21 + 12;
     const { x, y } = centerBox(ui, pw, ph), rx = x + Math.round((pw - rw) / 2);
@@ -297,8 +390,8 @@ const clearUI = {
     ui.textK(title, x + pw / 2, y + 12, 2, ENDC.clear, 'center');
     rows.forEach(([a, b], i) => { const ry = y + 42 + i * GF_LINE; ui.text(a, rx, ry, ENDC.txt); ui.text(b, rx + rw, ry, ENDC.clear, 'right'); });
     const by = y + ph - 12 - 21, bx = x + Math.round((pw - (b1 + bgap + b2)) / 2);
-    ui.keyButton('restart', bx, by, 'G', '새로 시작', ENDC.clear);
-    ui.keyButton('title', bx + b1 + bgap, by, 'T', '첫 화면으로', ENDC.clear);
+    ui.keyButton('restart', bx, by, kG, '새로 시작', ENDC.clear);
+    ui.keyButton('title', bx + b1 + bgap, by, kT, '첫 화면으로', ENDC.clear);
   },
   click(id) { if (id === 'restart') restartGame(false); else if (id === 'title') restartGame(true); },
 };
@@ -306,6 +399,8 @@ const clearUI = {
 const PAUSE_HELP = [[['W', 'S'], '전진 · 후진'], [['A', 'D'], '차체 회전'], [['Q', 'E'], '포탑 회전'], [['R', 'F'], '포신 올리기 · 내리기'],
   [['SPACE'], '발사'], [['G'], '뒤집힌 전차 세우기'], [['1', '2', '3'], '성장 고르기'], [['ESC'], '일시정지'],
   [['마우스 끌기'], '카메라 돌리기'], [['휠'], '카메라 당기기 · 밀기']];
+const PAUSE_HELP_PAD = [[['L 스틱'], '전진 · 후진 · 차체 회전'], [['R 스틱'], '포탑 회전 · 포신 올리기·내리기'], [['LB', 'RB'], '포탑 회전'],
+  [['RT', 'A'], '발사'], [['Y'], '뒤집힌 전차 세우기'], [['←', '↑', '→'], '성장 고르기'], [['START'], '일시정지']];
 // 일시정지 창 = 게임 정보 창: 탭 세 개 (탱크 성능 · 강화 기록 · 조종법). 넘치면 W/S로 위아래로 넘겨 보고, 강화 기록은 맨 아래(최근)부터.
 // 넘기기는 픽셀 단위: 한 번 누르면 한 줄만큼 부드럽게, 누르고 있으면 계속 미끄러진다 (위아래 끝의 줄은 칸에 잘려 보인다)
 const LOG_PL = 11, LOG_SB = 7, LOG_PR = 15;   // 스크롤 영역: 왼쪽 글자 시작, 스크롤 막대(창 오른쪽에서), 오른쪽 글자 끝 (막대와 8칸 띄움)
@@ -315,7 +410,7 @@ const pauseUI = {
   tab: 0,   // 0 = 탱크 성능 (처음), 1 = 강화 기록, 2 = 조종법 (Q·E로 바꾼다)
   open() { this.tab = 0; this.home(); },   // 일시정지를 열 때마다 탱크 성능부터
   home() { this.scroll = this.target = this.tab === 1 ? 1e9 : 0; this.holdT = 0; },   // 탱크 성능은 맨 위부터, 강화 기록은 맨 아래(최근)부터
-  setTab(t) { t = Math.max(0, Math.min(2, t)); if (t === this.tab) return; this.tab = t; this.home(); uiDirty(); },
+  setTab(t) { t = Math.max(0, Math.min(2, t)); if (t === this.tab) return; this.tab = t; this.home(); uiDirty(); sfx.ui('tab'); },
   busy() { return keys.has('KeyW') || keys.has('KeyS') || this.target !== this.scroll; },   // 움직이는 중이면 멈춘 화면에서도 루프를 계속 돌린다
   toEnd(bottom) { this.target = bottom ? this.maxS : 0; uiDirty(); },   // 맨 위 / 맨 아래로 (부드럽게)
   nudge(d) { this.target = Math.max(0, Math.min(this.maxS, this.target + d * GF_LINE)); uiDirty(); },   // 한 줄만큼
@@ -334,9 +429,12 @@ const pauseUI = {
   // 강화 기록 줄들: [n. + 이름(레어도 색)] 다음 줄부터 설명(회색, 줄바꿈). dw = 설명 줄 폭
   logLines(dw) {
     const out = [];
-    (tank.pickLog || []).forEach((c, i) => {
-      out.push({ lv: `${i + 1}.`, name: c.label, col: (GC.rarity[c.u.rarity] || {}).color || HC.color });
+    let n = 0;   // 번호는 성장만 (조합은 '조합 완성.')
+    (tank.pickLog || []).forEach((c) => {
+      out.push({ lv: c.combo ? '조합 완성.' : `${++n}.`, name: c.label, col: (GC.rarity[c.u.rarity] || {}).color || HC.color });
       for (const l of gfWrap(c.desc, dw)) out.push({ desc: l });
+      if (c.bad) for (const l of gfWrap(c.bad, dw)) out.push({ desc: l, col: BAD_C });
+      if (c.reason) for (const l of gfWrap(c.reason, dw)) out.push({ desc: l, col: COMBO_C });
     });
     return out;
   },
@@ -355,7 +453,8 @@ const pauseUI = {
       ['기관총', mg ? `${mg.count}정` : '없음'],
     ];
     if (mg) out.push(['연사', `${mg.rate}발/초`, 1], ['대미지', `${mg.damage}`, 1], ['사거리', `${mg.range}m`, 1]);
-    const sp = [T.ram && '충돌 공격', T.waterSpeed === 1 && '수륙양용', T.goldKeep && '골드 보존', T.autoRepair && '자동 수리'].filter(Boolean);
+    const sp = [T.ram && '충돌 공격', T.waterSpeed === 1 && '수륙양용', T.goldKeep && '골드 보존', T.autoRepair && '자동 수리', T.berserk && '광전사', T.coinMul > 1 && '탐욕',
+      ...(T.combos || []).map((id) => (COMBOS.find((C) => C.id === id) || {}).name)].filter(Boolean);
     out.push(['특수 능력', sp.length ? sp.join(' · ') : '없음']);
     // sub: 위 항목에 딸린 줄 (글머리표 + 들여쓰기). 값이 이름과 겹치면 이름만 두고 값은 다음 줄부터 오른쪽 맞춤으로 줄바꿈
     const res = [];
@@ -370,27 +469,30 @@ const pauseUI = {
   tabNames() { return ['탱크 성능', `LV. ${growLevel} 강화 기록`, '조종법']; },
   // 조종법 줄들: [키 칸(회색)들] 설명. 설명은 가장 넓은 키 묶음 오른쪽에 한 줄로 맞춘다
   controlLines() {
-    const kw = (ks) => ks.reduce((n, k) => n + gfWidth(k) + 4, 0) + (ks.length - 1) * 2, KW = Math.max(...PAUSE_HELP.map(([ks]) => kw(ks)));
-    return PAUSE_HELP.map(([keys, desc]) => ({ keys, desc, kx: KW }));
+    const H = inputPad ? PAUSE_HELP_PAD : PAUSE_HELP;   // 키보드 / 게임패드
+    const kw = (ks) => ks.reduce((n, k) => n + gfWidth(k) + 4, 0) + (ks.length - 1) * 2, KW = Math.max(...H.map(([ks]) => kw(ks)));
+    return H.map(([keys, desc]) => ({ keys, desc, kx: KW }));
   },
   // 창 하나: 탭 머리 / 내용(넘치면 W·S로 넘김) / 아래 [ESC] 계속하기 [T] 첫 화면으로. '일시정지'는 기능만 남고 창은 게임 정보를 보는 곳
   draw(ui) {
     const tabs = this.tabNames(), tabW = tabs.reduce((n, t) => n + gfWidth(t) + 12, 0) - 2;
-    const b1 = keyButtonW('ESC', '계속하기'), b2 = keyButtonW('T', '첫 화면으로'), bgap = 8;
-    const pw = Math.min(ui.w - 16, Math.max(260, 8 + gfWidth('Q') + 4 + 6 + tabW + 8 + gfWidth('E') + 4 + 8, b1 + bgap + b2 + 28));
+    const kEsc = PK('ESC', 'B'), kT = PK('T', 'Y'), kQ = PK('Q', 'LB'), kE = PK('E', 'RB');
+    const b1 = keyButtonW(kEsc, '계속하기'), b2 = keyButtonW(kT, '첫 화면으로'), bgap = 8;
+    const pw = Math.min(ui.w - 16, Math.max(260, 8 + gfWidth(kQ) + 4 + 6 + tabW + 8 + gfWidth(kE) + 4 + 8, b1 + bgap + b2 + 28));
     const ph = Math.min(ui.h - 16, 250);
     const { x, y } = centerBox(ui, pw, ph), by = y + ph - 12 - 21;
     ui.panelSq(x, y, pw, ph, ENDC.pause);
     this.drawLog(ui, x, y, pw, by - 4 - y);   // 탭 머리 + 내용 (버튼 위까지)
     const bx = x + Math.round((pw - (b1 + bgap + b2)) / 2);
-    ui.keyButton('resume', bx, by, 'ESC', '계속하기', ENDC.pause);
-    ui.keyButton('title', bx + b1 + bgap, by, 'T', '첫 화면으로', ENDC.pause);
+    ui.keyButton('resume', bx, by, kEsc, '계속하기', ENDC.pause);
+    ui.keyButton('title', bx + b1 + bgap, by, kT, '첫 화면으로', ENDC.pause);
   },
   drawLog(ui, x, y, w, h) {
     // 탭 머리: [Q] 탱크 성능 | 강화 기록 | 조종법 [E]. 고른 탭은 위·좌우 테두리로 감싸고 밑은 열어 둔다 (나머지 아래는 가로줄)
     const ty = y + 12, lineY = ty + 13, tabs = this.tabNames();
-    const qw = ui.keyText(x + 8, ty, 'Q', ENDC.pause), ew = gfWidth('E') + 4, ex0 = x + w - 8 - ew;
-    ui.keyText(ex0, ty, 'E', ENDC.pause);
+    const kQ = PK('Q', 'LB'), kE = PK('E', 'RB');
+    const qw = ui.keyText(x + 8, ty, kQ, ENDC.pause), ew = gfWidth(kE) + 4, ex0 = x + w - 8 - ew;
+    ui.keyText(ex0, ty, kE, ENDC.pause);
     let tx = x + 8 + qw + 6, gap0 = 0, gap1 = 0;
     tabs.forEach((label, i) => {
       const tw = gfWidth(label) + 10, on = i === this.tab, hot = ui.hit('tab' + i, tx, ty - 5, tw, 18), col = on || hot ? ENDC.pause : ENDC.txt;
@@ -404,7 +506,7 @@ const pauseUI = {
     const lines = this.tab === 1 ? this.logLines(w - LOG_PL - 10 - LOG_PR) : this.tab === 2 ? this.controlLines() : this.statLines(w);   // 설명은 10칸 더 들여 쓰고, 오른쪽은 스크롤 막대까지 6칸 이상 띄운다
     if (!lines.length) { ui.text('아직 강화하지 않았어요', x + LOG_PL, top, ENDC.txt); return; }
     // 넘치면 맨 아래에 조작 안내: [W S] 위·아래로  [A D] 위·아래 끝으로 (한 줄에 안 들어가면 두 줄)
-    const keyW = (a, b) => gfWidth(a) + 4 + 2 + gfWidth(b) + 4, H1 = ['W', 'S', '위·아래로'], H2 = ['A', 'D', '위·아래 끝으로'];
+    const keyW = (a, b) => gfWidth(a) + 4 + 2 + gfWidth(b) + 4, H1 = [PK('W', '↑'), PK('S', '↓'), '위·아래로'], H2 = [PK('A', '←'), PK('D', '→'), '위·아래 끝으로'];
     const hw = (h) => keyW(h[0], h[1]) + 6 + gfWidth(h[2]), oneLine = hw(H1) + 12 + hw(H2) <= w - 16;
     const hintN = oneLine ? 1 : 2;
     const totalH = lines.length * GF_LINE - 4, more = totalH > bottom - top;
@@ -426,7 +528,7 @@ const pauseUI = {
           if (L.value) ui.text(L.value, x + w - LOG_PR, ly, ENDC.pause, 'right');
         }
         else if (L.lv) { const ex = ui.text(L.lv, x + LOG_PL, ly, ENDC.txt); ui.text(L.name, ex + 5, ly, L.col); }
-        else ui.text(L.desc, x + LOG_PL + 10, ly, ENDC.txt);
+        else ui.text(L.desc, x + LOG_PL + 10, ly, L.col || ENDC.txt);
       }
     });
     if (more) {
@@ -446,30 +548,65 @@ const confirmUI = {
   click(id) { if (id === 'yes') restartGame(true); else if (id === 'no') uiShow(pauseUI); },
   draw(ui) {
     const title = '첫 화면으로 돌아갈까요?', body = '작전 진행 상황이 모두 수포로 돌아갑니다!';
-    const b1 = keyButtonW('Y', '예'), b2 = keyButtonW('N', '아니오'), bgap = 8;
+    const kY = PK('Y', 'A'), kN = PK('N', 'B');
+    const b1 = keyButtonW(kY, '예'), b2 = keyButtonW(kN, '아니오'), bgap = 8;
     const pw = Math.max(gfWidth(title) * 2, gfWidth(body), b1 + bgap + b2) + 28, ph = 12 + 22 + 8 + GF_LINE + 6 + 21 + 12;
     const { x, y } = centerBox(ui, pw, ph);
     ui.panelSq(x, y, pw, ph, ENDC.confirm);
     ui.textK(title, x + pw / 2, y + 12, 2, ENDC.confirm, 'center');
     ui.text(body, x + pw / 2, y + 42, ENDC.txt, 'center');
     const by = y + ph - 12 - 21, bx = x + Math.round((pw - (b1 + bgap + b2)) / 2);
-    ui.keyButton('yes', bx, by, 'Y', '예', ENDC.confirm);
-    ui.keyButton('no', bx + b1 + bgap, by, 'N', '아니오', ENDC.confirm);
+    ui.keyButton('yes', bx, by, kY, '예', ENDC.confirm);
+    ui.keyButton('no', bx + b1 + bgap, by, kN, '아니오', ENDC.confirm);
   },
 };
-// 게임패드 방향키 ←·↑·→ = 1·2·3 (표준 배치 패드. 누르는 순간만)
-const padPrev = {};
-function padOffer() {
+// 게임패드 (표준 배치. 매 프레임 읽는다. 일시정지 중에도). 버튼 이름은 Xbox 기준이고, PS 패드도 브라우저가 같은 자리로 맞춰 준다
+//   (A = ✕, B = ○, Y = △, X = □, LB·RB = L1·R1, START = OPTIONS, BACK = SHARE/CREATE)
+//  플레이: 왼쪽 스틱 = 주행·선회, 오른쪽 스틱 = 포탑(좌우)·포각(위아래), RT 또는 A = 발사, LB·RB = 포탑 돌리기,
+//          방향키 ←·↑·→ = 성장 선택 1·2·3, Y = 세우기(G), START = 일시정지(ESC)
+//  타이틀: A = 시작, LB·RB = 위장색
+//  일시정지(정보 창): LB·RB = 탭, 방향키 ↑↓ = 한 줄씩 넘기기(누르고 있으면 계속), ←→ = 맨 위·맨 아래, B 또는 START = 계속하기, Y 또는 BACK = 첫 화면으로
+//  첫 화면으로 확인 창: A = 예, B = 아니오
+//  전투 불능·적군 섬멸 창: Y = 재출격·새로 시작(G), BACK = 첫 화면으로(T)
+//  버튼 하나짜리 동작은 그 키를 누른 것처럼 키 입력을 만들어 보낸다 (키보드와 같은 처리를 탄다. e.fromPad)
+const padPrev = {}, padHeld = new Set();
+function padSend(type, code) { const ev = new KeyboardEvent(type, { code, key: code, bubbles: true }); ev.fromPad = true; dispatchEvent(ev); }
+function padKey(code) { padSend('keydown', code); padSend('keyup', code); }
+function padHold(code, on) {   // 누르고 있는 동안 키를 누른 채로 (일시정지 창의 넘기기)
+  if (on && !padHeld.has(code)) { padHeld.add(code); padSend('keydown', code); }
+  else if (!on && padHeld.has(code)) { padHeld.delete(code); padSend('keyup', code); }
+}
+const padDz = (v) => Math.abs(v || 0) < 0.2 ? 0 : (v - Math.sign(v) * 0.2) / 0.8;   // 스틱 가운데 흔들림은 무시
+function padPoll() {
+  pad.thr = pad.steer = pad.tq = pad.de = 0; pad.fire = false;
   if (!navigator.getGamepads) return;
+  let up = false, dn = false;
   for (const gp of navigator.getGamepads()) {
     if (!gp || gp.mapping !== 'standard') continue;
-    if (!inputPad && (gp.buttons.some((b) => b.pressed) || gp.axes.some((v) => Math.abs(v) > 0.5))) { inputPad = true; if (curOffer) uiDirty(); }
-    [14, 12, 15].forEach((b, i) => {
-      const k = gp.index * 100 + b, p = !!gp.buttons[b]?.pressed;
-      if (p && !padPrev[k] && UI.screen === offerUI) pickOffer(i);
-      padPrev[k] = p;
-    });
+    if (!inputPad && (gp.buttons.some((b) => b.pressed) || gp.axes.some((v) => Math.abs(v) > 0.5))) setInputPad(true);   // 패드를 만지면 바로 패드 글자로
+    const B = (i) => !!gp.buttons[i]?.pressed, E = {};
+    for (const i of [0, 1, 3, 4, 5, 8, 9, 12, 13, 14, 15]) { const k = gp.index * 100 + i, p = B(i); E[i] = p && !padPrev[k]; padPrev[k] = p; }   // 누르는 순간
+    const scr = UI.screen;
+    if (titleState === 'title') { if (E[0]) padKey('Space'); if (E[4]) padKey('KeyQ'); if (E[5]) padKey('KeyE'); continue; }   // 위장색: LB·RB
+    if (scr === confirmUI) { if (E[0]) padKey('KeyY'); if (E[1] || E[9]) padKey('KeyN'); continue; }
+    if (scr === pauseUI) {
+      if (E[4]) padKey('KeyQ'); if (E[5]) padKey('KeyE');
+      up = up || B(12); dn = dn || B(13);
+      if (E[14]) padKey('KeyA'); if (E[15]) padKey('KeyD');
+      if (E[1] || E[9]) padKey('Escape');
+      if (E[3] || E[8]) padKey('KeyT');
+      continue;
+    }
+    if (winUp()) { if (E[3]) padKey('KeyG'); if (E[8]) padKey('KeyT'); continue; }   // 전투 불능·적군 섬멸 창
+    // 플레이
+    pad.thr = pad.thr || -padDz(gp.axes[1]); pad.steer = pad.steer || -padDz(gp.axes[0]);
+    pad.tq = pad.tq || -padDz(gp.axes[2]) || (B(4) ? 1 : 0) - (B(5) ? 1 : 0); pad.de = pad.de || -padDz(gp.axes[3]);
+    pad.fire = pad.fire || B(7) || B(0);
+    if (scr === offerUI) [14, 12, 15].forEach((b, i) => { if (E[b]) pickOffer(i); });
+    if (E[9]) padKey('Escape');
+    if (E[3]) padKey('KeyG');
   }
+  padHold('KeyW', up && UI.screen === pauseUI); padHold('KeyS', dn && UI.screen === pauseUI);
 }
 
 // 설정 메뉴: 내 탱크를 바로 파괴 / 적군을 바로 섬멸 (남은 증원도 없앤다. 지프는 섬멸 조건이 아님)
@@ -482,7 +619,7 @@ document.getElementById('dbgWipe').onclick = (e) => {
 
 // 바람에 날리는 마른 풀 부스러기와 흙먼지: 카메라가 보는 곳 둘레에서 바람 방향으로 흘러간다.
 // windDebris 0이면 없음, 1이면 빽빽하게 (HUD 슬라이더). 바람 세기만큼 빠르고 많이
-let windDebris = CFG.map.debris, debrisAcc = 0, dustAcc = 0;
+let windDebris = MAP0.debris, debrisAcc = 0, dustAcc = 0;
 // 타이틀 낙엽: 8x8 나뭇잎 그림 4가지(갸름한 잎·단풍잎·버들잎·둥근 잎)를 붙인 작은 판이 빙글빙글 돌며 떨어진다.
 // 움직임은 바람에 날리는 풀 부스러기와 같게: 바람 방향으로 같은 빠르기(2.5~6m/s × 바람 세기)로 흘러가고, 좌우로 하늘하늘 흔들린다.
 // 타이틀 동안만 새로 생기고, 시작하면 남은 것만 마저 떨어지다가 플레이로 넘어가면 모두 지운다

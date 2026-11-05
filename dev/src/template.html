@@ -14,6 +14,7 @@
   #hud { max-width: calc(100vw - 40px); }
   #hudTop { flex-wrap: wrap; }
   #hud .grp { margin-top: 6px; padding-top: 4px; border-top: 1px solid rgba(232, 220, 192, .3); color: #ffd25a; }
+  #hud .it { display: inline-block; white-space: nowrap; margin-right: 6px; }   /* 항목 이름 + 게이지 + 값은 한 덩어리 (중간에 줄바꿈 안 됨) */
   #hud table.sl { border-collapse: collapse; } #hud table.sl td { padding: 0 4px 0 0; white-space: nowrap; }
   #loading { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
              background: #000; color: #fff; font: 14px monospace; z-index: 10; }
@@ -49,11 +50,14 @@
   #dmgFloat div { position: fixed; transform: translate(-50%, -100%); font: bold 13px monospace; text-shadow: 0 0 2px #000, 0 0 2px #000, 0 0 2px #000;
                   pointer-events: none; white-space: nowrap; z-index: 4; }
   #pickLog { margin: 4px 0; padding: 4px 6px; background: rgba(0, 0, 0, .3); border-radius: 3px; }
+  #aiTags i { display: block; width: 36px; height: 3px; margin: 2px auto 0; background: rgba(0,0,0,.65); outline: 1px solid rgba(0,0,0,.65); }   /* 적 AI 표시: 작은 체력 게이지 */
+  #aiTags b { display: block; height: 100%; background: #ff5a3a; }
   #aiTags div { position: fixed; transform: translate(-50%, -100%); font: bold 12px monospace; color: #7fe8ff; text-shadow: 0 0 2px #000, 0 0 2px #000;
                 pointer-events: none; white-space: nowrap; z-index: 3; }
   .ver { color: #e8dcc0; opacity: .6; font: 12px monospace; }
 </style>
 <script src="config.js"></script>
+<script src="map.js"></script>
 <script src="fonts/galmuri11c.js"></script>
 <script type="importmap">
 { "imports": {
@@ -80,17 +84,19 @@
   <div>해상도 <select id="res"><option>180</option><option>240</option><option selected>300</option><option>360</option><option>420</option><option value="max">최대</option></select>
        <button id="aaBtn">AA 꺼짐</button> <button id="ppBtn">Pixel Perfect 꺼짐</button> <button id="olBtn">외곽선 꺼짐</button> <button id="grassBtn">풀: 텍스처2 (이삭 풀)</button> <button id="cbox">충돌박스</button> <button id="touchBtn">터치 버튼 꺼짐</button>
        <button id="camModeBtn">시점: 포탑 방향</button></div>
-  <div>바람 <input id="wind" type="range" min="0" max="2" step="0.05" value="1"> <b id="windV">1.00</b>
-       방향 <input id="windDir" type="range" min="0" max="360" step="5" value="215"> <b id="windDirV">215°</b>
-       먼지 <input id="debris" type="range" min="0" max="1" step="0.05" value="0.3"> <b id="debrisV">0.30</b></div>
-  <div>포그 <input id="fog" type="range" min="0" max="0.025" step="0.0005" value="0.0105"> <b id="fogV">0.0105</b> <input id="fogC" type="color" value="#414a5e"></div>
-  <div>AO <button id="aoBtn">켜짐</button> 강도 <input id="aoK" type="range" min="0" max="4" step="0.1" value="1.8"> <b id="aoKv">1.8</b> <button id="aoWhite">흰색 보기</button></div>
-  <div>주광 <input id="moonI" type="range" min="0" max="4" step="0.05" value="1.5"> <b id="moonIV">1.50</b> <input id="moonC" type="color" value="#9aaad0"></div>
-  <div>소리 <input id="vol" type="range" min="0" max="1" step="0.05" value="0.5"> <b id="volV">0.50</b></div>
-  <div>WASD 이동 · QE 포탑 · RF/↑↓ 포각 · Space 발사 · G 세우기(전투 불능: 재출격, 적군 섬멸: 새로 시작) · 1·2·3 성장 선택 · ESC 일시정지 · T 첫 화면으로(일시정지·적군 섬멸 창)</div>
-  <div>마우스 드래그 카메라 회전 · 휠 줌</div>
+  <div><button id="mapEditBtn">맵 편집 모드</button> <button id="mapBtn">맵 셋팅</button>
+       <span class="it">비 <input id="rainA" type="range" min="0" max="2" step="0.05" value="0"> <b id="rainAV">0.00</b></span>
+       <span class="it">모래 <input id="sandA" type="range" min="0" max="2" step="0.05" value="0"> <b id="sandAV">0.00</b> <input id="sandC" type="color" value="#c8a070"></span>
+       <span class="it">번개 <input id="boltA" type="range" min="0" max="2" step="0.05" value="0"> <b id="boltAV">0.00</b></span></div>
+  <div><span class="it">바람 <input id="wind" type="range" min="0" max="5" step="0.05" value="1"> <b id="windV">1.00</b></span>
+       <span class="it">방향 <input id="windDir" type="range" min="0" max="360" step="5" value="215"> <b id="windDirV">215°</b></span>
+       <span class="it">먼지 <input id="debris" type="range" min="0" max="4" step="0.05" value="0.3"> <b id="debrisV">0.30</b></span></div>
+  <div><span class="it">포그 <input id="fog" type="range" min="0" max="0.05" step="0.0005" value="0.0105"> <b id="fogV">0.0105</b> <input id="fogC" type="color" value="#414a5e"></span></div>
+  <div><span class="it">AO <button id="aoBtn">켜짐</button></span> <span class="it">강도 <input id="aoK" type="range" min="0" max="4" step="0.1" value="1.8"> <b id="aoKv">1.8</b></span> <button id="aoWhite">흰색 보기</button></div>
+  <div><span class="it">주광 <input id="moonI" type="range" min="0" max="20" step="0.1" value="1.5"> <b id="moonIV">1.50</b> <input id="moonC" type="color" value="#9aaad0"></span></div>
+  <div><span class="it">소리 <input id="vol" type="range" min="0" max="1" step="0.05" value="0.5"> <b id="volV">0.50</b></span></div>
   <div class="grp">성장 테스트</div>
-  <div><button id="tDropGold">보물 상자 떨구기</button> <button id="tDropRepair">회복 상자 떨구기</button> <button id="tDropEnemy">적 탱크 떨구기</button> <button id="tDropSpg">적 자주포</button> <button id="tDropJeep">적 지프</button></div>
+  <div><button id="tDropGold">골드 보급품 떨구기</button> <button id="tDropRepair">수리 보급품 떨구기</button> <button id="tDropEnemy">적 탱크 떨구기</button> <button id="tDropSpg">적 자주포</button> <button id="tDropJeep">적 지프</button></div>
   <div><button id="gOffer">성장 선택지 표시</button> <button id="gReroll">선택지 다시 고르기</button> <button id="gRand10">10레벨 무작위 성장</button> <button id="gReset">성장 초기화</button> <button id="aiBtn">적 AI 표시 꺼짐</button> <button id="aiStopBtn">적 AI 정지 꺼짐</button> <button id="dbgDie">내 탱크 파괴</button> <button id="dbgWipe">적군 섬멸</button> <button id="gLog">고른 성장 목록</button></div>
   <div id="pickLog" style="display:none"></div>
   <table class="sl">
@@ -109,7 +115,7 @@
 </div>
 <script>
   // 버전·빌드 시각: 여기 한 곳만 고치면 로딩 화면과 설정 메뉴에 같이 나온다
-  const VERSION = '0.5.016', BUILD = '2026-11-04', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
+  const VERSION = '0.5.051', BUILD = '2026-11-05', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
   for (const e of document.querySelectorAll('.ver')) e.textContent = BUILD_TXT;
 </script>
 <div id="touchUI" style="display:none">
@@ -122,6 +128,7 @@
   <canvas id="tBadge"></canvas>
   <canvas id="tCall"></canvas>
   <canvas id="tVer"></canvas>
+  <canvas id="tCamo"></canvas>
   <canvas id="tPress"></canvas>
 </div>
 <script type="module">

@@ -66,7 +66,7 @@ let endState = null;   // 'dead' 내 탱크 파괴 / 'clear' 적군 섬멸 / nul
   resetTank(x, z, Math.atan2(tank.pos.x - x, tank.pos.z - z), E);
   E.solid = true; syncBody(E);
 }
-// 떨어뜨릴 자리: 땅 위이면서 건물·잔해·금고(모두 footprints) 근처가 아니고, 탱크·전봇대·물길·다리·절벽과 겹치지 않고, 너무 비탈지지 않은 곳.
+// 떨어뜨릴 자리: 땅 위이면서 건물·잔해·보급품(모두 footprints) 근처가 아니고, 탱크·전봇대·물길·다리·절벽과 겹치지 않고, 너무 비탈지지 않은 곳.
 // near를 주면 그 둘레(12~32m)에서 고른다
 function landSpot(clear, near, margin = 4, r0 = 12, r1 = 32) {
   for (let k = 0; k < 900; k++) {
@@ -101,12 +101,14 @@ function startDrop(T, near, r0, r1) {
   let other = null, bd = Infinity;   // 가장 가까운 상대 탱크를 바라보며 떨어진다
   for (const O of TANKS) if (O !== T && O.solid && (T === tank) !== (O === tank)) { const d = Math.hypot(O.pos.x - x, O.pos.z - z); if (d < bd) { bd = d; other = O; } }
   resetTank(x, z, other ? Math.atan2(other.pos.x - x, other.pos.z - z) : rand() * 6.283, T);
-  T.landY = T.pos.y; T.pos.y += 45; T.vy = 0;
+  T.landY = T.pos.y; T.pos.y += DROP_H; T.vy = 0;   // dropFade초 만에 땅에 닿는 높이
   T.falling = true; T.solid = false; T.hp = T.maxHp; T.cool = T.spg ? 3 : 1.5; T.tyaw = 0; T.tvel = 0; T.tsnap = false; T.elev = T === tank ? INIT_ELEV : T.spg ? SC.elev * DEG : 0.2;
   T.aimOfs = null;
   T.group.visible = true; syncBody(T);
+  fadeIn(T.group);   // 나타나자마자 4x4 디더링으로 스르륵
+  attachChute((o) => o.set(T.pos.x, T.pos.y + (T.jeep ? 1.2 : 1.9), T.pos.z), () => T.falling && T.group.visible);   // 낙하산
 }
-// 쿵: 금고와 같은 흙먼지 고리, 풀 눕힘, 깔린 상자 부서짐, 가까우면 화면 흔들림.
+// 쿵: 보급품과 같은 흙먼지 고리, 풀 눕힘, 깔린 상자 부서짐, 가까우면 화면 흔들림.
 // 무게감 있게: 완전히 튀지 않고 한쪽만 살짝 들렸다 내려앉도록 수평축으로 작은 회전을 준다 (나머지는 물리가 처리)
 function updateFall(T, dt) {
   T.vy -= 22 * dt; T.pos.y += T.vy * dt;
@@ -115,7 +117,7 @@ function updateFall(T, dt) {
     T.q.slerpQuaternions(h.q0, h.q1, e);
     T.pos.x = lerp(h.p0.x, h.p1.x, e); T.pos.z = lerp(h.p0.z, h.p1.z, e);
   }
-  // 떨어지다 밑의 탱크·금고를 밟으면 밟힌 쪽은 바로 부서진다 (충돌 공격과 같은 처리. 금고 폭풍은 떨어진 탱크를 밀지 않음)
+  // 떨어지다 밑의 탱크·보급품을 밟으면 밟힌 쪽은 바로 부서진다 (충돌 공격과 같은 처리. 보급품 폭풍은 떨어진 탱크를 밀지 않음)
   const bottom = T.pos.y - COM.y;
   for (const O of TANKS.slice()) if (O !== T && O.solid && Math.hypot(O.pos.x - T.pos.x, O.pos.z - T.pos.z) < 3.2 && bottom < O.pos.y + 2.6) damageTank(O, Math.ceil(O.hp), null, T, 'ram');
   for (const t of targets.slice()) if (t.alive && !t.falling && Math.hypot(t.x - T.pos.x, t.z - T.pos.z) < 3.0 && bottom < t.y + TARGET_S / 2) damageTarget(t, (t.hp ?? CFG.box.hp) / (1 - CFG.box.armor || 1), 'ram');
@@ -148,7 +150,8 @@ function faceAt(T, p) {
 // face가 없으면 방어력 무시 (충돌 공격)
 function damageTank(T, raw, face, src, kind) {
   if (!T.solid) return 0;
-  const a = face ? Math.max(0, (T.armor[face] ?? 0) - ((src && src.pierce) || 0)) : 0;
+  const pierce = (src && src.pierce) || 0, mgPierce = kind !== 'mg' || (src && src.apMg);   // 관통탄은 포탄만 (기관총은 '철갑 기관총' 조합이 있어야)
+  const a = face ? Math.max(0, (T.armor[face] ?? 0) - (mgPierce ? pierce : 0)) : 0;
   const d = Math.floor(raw * (1 - a) * (T.armorM || 1) + 1e-6);
   if (aiShow) floatTank(T, d, raw, face, src, a, kind);
   if (d <= 0) return 0;
@@ -169,6 +172,8 @@ function blastDamage(p, r, dmg, src, except) {
   for (const t of targets.slice()) if (t !== except && t.alive && !t.falling && t.mesh.position.distanceTo(p) < r + TARGET_S / 2) damageTarget(t, dmg, 'blast');
   for (const c of crates) if (c !== except && c.alive && Math.hypot(c.x - p.x, c.y - p.y, c.z - p.z) < r + c.s / 2) damageCrate(c, dmg);
   for (const w of WRECKS.slice()) if (w !== except && Math.hypot(w.x - p.x, w.y - 1 - p.y, w.z - p.z) < r + 1.8) damageWreck(w, dmg);
+  for (const S of SANDBAGS.slice()) if (S !== except && Math.hypot(S.fp.x - p.x, S.fp.z - p.z) < r + S.fp.hx * 0.7 && Math.abs(S.y + 0.6 - p.y) < r + 1) damageSandbag(S, dmg);
+  for (const B of BUNKERS) if (B !== except && !B.ruin && Math.hypot(B.x - p.x, B.z - p.z) < r + BK_A + 0.2 && p.y < B.y + BK_H + 1 + r) damageBunker(B, dmg, src);
 }
 // 포탄 직격: 맞은 면의 방어력만큼 깎인 대미지, 쇳조각
 function hitTank(T, hit, b) {
@@ -250,8 +255,10 @@ function showEnd(kind) {
   uiShow(kind === 'dead' ? deadUI : clearUI);   // HUD는 syncHud가 끈다
 }
 // 재출격: 처음부터가 아니라 내 탱크만 새로 떨어뜨린다 (착지하면 접어 둔 성장 선택지가 다시 뜬다)
+let continuesLeft = PC.continues ?? 3;   // 남은 재출격 횟수 (첫 화면으로 돌아가면 페이지를 다시 읽으니 다시 채워진다)
 function respawn() {
-  if (endState !== 'dead' || tank.solid || tank.falling) return;
+  if (endState !== 'dead' || tank.solid || tank.falling || continuesLeft <= 0) return;
+  continuesLeft--;
   endState = null; uiShow(null); hudWaitLand = true;   // 창은 사라지고, HUD는 착지한 뒤 치지직하며 다시 켜진다
   startDrop(tank);
   resetCamera();
@@ -263,7 +270,7 @@ function restartGame(toTitle) {
 }
 // 적 AI
 const _eAim = { thr: 0, turn: 0 }, _eT = new THREE.Vector3();
-// 시야: 두 점 사이가 키 큰 건물(3.5m 이상)에 가리는가. 금고·잔해·상자는 낮아서 가리지 않는다
+// 시야: 두 점 사이가 키 큰 건물(3.5m 이상)에 가리는가. 보급품·잔해·상자는 낮아서 가리지 않는다
 function sightClear(a, b) {
   const d = Math.hypot(b.x - a.x, b.z - a.z), n = Math.ceil(d / 1.5);
   for (let i = 1; i < n; i++) {
@@ -299,9 +306,10 @@ function fleeSpot(E, P) {
   return [0, 0];   // 구석에 몰렸으면 지도 가운데 쪽으로
 }
 // 적 AI. 우선순위:
-//  HP 30 이하면 수리 도구 → 수리 금고 쏘기 → 나에게서 도망
+//  (나를 보고 있지 않을 때) 내가 벙커를 공격하면 그 벙커로 달려온다 (수리보다 먼저)
+//  HP 30 이하면 수리 도구 → 수리 보급품 쏘기 → 나에게서 도망
 //  나를 보면 정면을 피해 옆·뒤로 돌아 들어가 멈춰서 쏜다 (오래 끌지 않고 6초 안에 공격)
-//  놓친 나를 마지막 본 곳(포성 들은 곳 포함)에서 찾기 → 가까운 골드 → 45m 안에 내가 있으면 그쪽으로 어슬렁 → 금고 사냥 → 아무 데나
+//  놓친 나를 마지막 본 곳(포성 들은 곳 포함)에서 찾기 → 가까운 골드 → 45m 안에 내가 있으면 그쪽으로 어슬렁 → 보급품 사냥 → 아무 데나
 function enemyAI(E, dt) {
   rescueTip(E, dt);
   _fwd.set(0, 0, 1).applyQuaternion(E.q);
@@ -317,12 +325,18 @@ function enemyAI(E, dt) {
   const near = (x, z) => Math.hypot(x - E.pos.x, z - E.pos.z);
   const nearest = (list, fn) => { let b = null, bd = Infinity; for (const o of list) { const d = fn(o); if (d < bd) { bd = d; b = o; } } return b; };
   let gx = null, gz = 0, aim = null, aimObj = null, hold = false, look = false;
-  // 3발을 쏴도 못 깬 금고는 20초 동안 건너뛴다 (둑·건물에 막혀 영영 못 맞히는 경우)
+  // 3발을 쏴도 못 깬 보급품은 20초 동안 건너뛴다 (둑·건물에 막혀 영영 못 맞히는 경우)
   const skipped = (t) => E.skip && E.skip.has(t) && E.skip.get(t) > U.uTime.value;
   E.mode = '';
+  const alarm = !E.sees && bunkerAlarm(E);   // 이미 나를 공격 중이면 그대로 공격
   if (E.detour > 0) { E.detour -= dt; gx = E.dx; gz = E.dz; if (near(gx, gz) < 3) E.detour = 0; E.mode = 'detour'; }   // 막혔던 곳을 옆으로 돌아가는 중
+  else if (alarm) {   // 벙커 지원: 벙커 앞쪽으로 달려가서, 닿으면 그 자리에서 두리번 (내가 보이면 다음 판단부터 공격)
+    const fx = alarm.x + Math.sin(alarm.rot) * 9, fz = alarm.z + Math.cos(alarm.rot) * 9;
+    if (near(fx, fz) > 5) { gx = fx; gz = fz; } else look = true;
+    E.mode = 'defend';
+  }
   else if (E.hp <= AI.repairAtHp) {
-    // 수리: 바닥의 수리 도구 → 수리 금고를 쏴서 깬다 → 나를 피해 달아난다
+    // 수리: 바닥의 수리 도구 → 수리 보급품을 쏴서 깬다 → 나를 피해 달아난다
     const kit = nearest(coins.filter(c => c.kit && c.rest && !c.pull), c => near(c.p.x, c.p.z));
     const rs = !kit && nearest(targets.filter(t => t.alive && !t.falling && t.kind === 'repair' && !skipped(t)), t => near(t.mesh.position.x, t.mesh.position.z));
     if (kit) { gx = kit.p.x; gz = kit.p.z; E.mode = 'kit'; }
@@ -342,7 +356,7 @@ function enemyAI(E, dt) {
       if (near(gx, gz) < 4) E.flankT = AI.flankTime;
     } else { aim = P.pos; E.mode = 'attack'; }
   } else if (!E.sees) { E.flankT = 0; E.flankSide = 0; }
-  if (gx === null && !aim) {
+  if (gx === null && !aim && !look) {   // (벙커 앞에 닿아 두리번거리는 중이면 건너뛴다)
     const coin = nearest(coins.filter(c => !c.kit && c.rest && !c.pull && near(c.p.x, c.p.z) < AI.goldRange), c => near(c.p.x, c.p.z));
     if (E.seenX !== undefined && E.lost < AI.searchTime) {
       // 놓쳤으면 마지막으로 본(포성을 들은) 자리까지 가서 3초 두리번
@@ -351,7 +365,7 @@ function enemyAI(E, dt) {
     } else if (coin) { gx = coin.p.x; gz = coin.p.z; E.mode = 'gold'; }
     else if (P && dp < PROWL_R) { gx = P.pos.x; gz = P.pos.z; E.mode = 'prowl'; }   // 가까이 있는 기척: 그쪽으로 어슬렁
     else {
-      // 금고 사냥: 가까운 금고를 쏴서 골드를 노린다 (지붕 위 것은 빼고)
+      // 보급품 사냥: 가까운 보급품을 쏴서 골드를 노린다 (지붕 위 것은 빼고)
       const safe = nearest(targets.filter(t => t.alive && !t.falling && !t.roof && t.kind !== 'repair' && !skipped(t)), t => near(t.mesh.position.x, t.mesh.position.z));
       if (safe && near(safe.mesh.position.x, safe.mesh.position.z) < AI.safeHuntRange) { aim = safe.mesh.position; aimObj = safe; E.mode = 'hunt'; }
       else {
@@ -586,6 +600,9 @@ function jeepAI(E, dt) {
     const na = dP < JC.orbit * 0.6 ? a : a + Math.max(-0.8, Math.min(0.8, d));   // 너무 붙었으면 먼저 바깥으로 빠진다
     gx = P.pos.x + Math.sin(na) * JC.orbit; gz = P.pos.z + Math.cos(na) * JC.orbit;
     E.mode = dP < JC.mg.range + 2 ? 'harass' : 'chase';
+  } else if (bunkerAlarm(E)) {   // 벙커 지원: 벙커 둘레를 돈다 (나를 찾으면 바로 쫓는다)
+    const B = bunkerAlarm(E), a = Math.atan2(E.pos.x - B.x, E.pos.z - B.z) + 0.5;
+    gx = B.x + Math.sin(a) * 10; gz = B.z + Math.cos(a) * 10; E.mode = 'defend';
   } else if (P && E.memT > 0) { gx = E.lastX; gz = E.lastZ; E.mode = 'search'; }
   else {
     if (E.wx === undefined || Math.hypot(E.wx - E.pos.x, E.wz - E.pos.z) < 6 || (E.wanderT = (E.wanderT || 0) - dt) <= 0) { const s = dropSpot(E); E.wx = s.x; E.wz = s.z; E.wanderT = 20; }
@@ -637,7 +654,7 @@ function updateRings() {
     U.uRing1.value[k].set(1, 0.2, 0.06, 0);
   }
 }
-// 그 방향으로 몇 m 앞이 건물·잔해·금고·전봇대·벽·다른 탱크·절벽에 막혔는가
+// 그 방향으로 몇 m 앞이 건물·잔해·보급품·전봇대·벽·다른 탱크·절벽에 막혔는가
 function blockedYaw(E, a) {
   const sx = Math.sin(a), cz = Math.cos(a), h0 = heightAt(E.pos.x, E.pos.z);
   for (const d of [2.6, 4.4, 6.4]) {
@@ -772,13 +789,13 @@ function updateFloaters(dt) {
     f.el.style.opacity = 1 - smooth(3.4, 4.4, f.t);
   }
 }
-// 적 AI 표시 (설정 메뉴 토글): 시야 범위(앞쪽 부채꼴 + 소리로 아는 거리 원)와 지금 가려는·겨눈 곳(선), 포탑 위에 행동 목표 글자
+// 적 AI 표시 (설정 메뉴 토글): 시야 범위(앞쪽 부채꼴 + 소리로 아는 거리 원)와 지금 가려는·겨눈 곳(선), 포탑 위에 행동 목표 글자와 작은 체력 게이지. 벙커도 시야 부채꼴·글자·게이지
 let aiShow = false;
 const aiLines = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x7fe8ff, fog: false, depthTest: false, transparent: true, opacity: 0.8 }));
 aiLines.frustumCulled = false; aiLines.renderOrder = 6; aiLines.visible = false; scene.add(aiLines);
 const aiTagsEl = document.getElementById('aiTags'), aiTagPool = [];
-const AI_MODE = { explore: '정찰', chase: '쫓아가기', harass: '맴돌며 사격', search: '놓친 자리 찾기', detour: '막혀서 비켜 가는 중', kit: '수리 도구 줍기', repairSafe: '회복 상자 깨기', flee: '도망', flank: '옆으로 돌아 들어가기', attack: '공격',
-  search: '놓친 곳 찾아가기', look: '두리번', gold: '골드 줍기', prowl: '기척 쪽으로 접근', hunt: '보물 상자 사냥', wander: '배회', aim: '포격 조준', reload: '포격 장전', idle: '대기' };
+const AI_MODE = { explore: '정찰', chase: '쫓아가기', harass: '맴돌며 사격', search: '놓친 자리 찾기', detour: '막혀서 비켜 가는 중', kit: '수리 도구 줍기', repairSafe: '수리 보급품 깨기', flee: '도망', flank: '옆으로 돌아 들어가기', attack: '공격',
+  search: '놓친 곳 찾아가기', look: '두리번', defend: '벙커 지원', gold: '골드 줍기', prowl: '기척 쪽으로 접근', hunt: '골드 보급품 사냥', wander: '배회', aim: '포격 조준', reload: '포격 장전', idle: '대기' };
 document.getElementById('aiBtn').onclick = (e) => { aiShow = !aiShow; e.target.textContent = aiShow ? '적 AI 표시 켜짐' : '적 AI 표시 꺼짐'; e.target.blur(); };
 function updateAiView() {
   aiLines.visible = aiShow;
@@ -786,9 +803,21 @@ function updateAiView() {
   const p = [];
   const gy = (x, z) => groundAt(Math.max(-HALF, Math.min(HALF, x)), Math.max(-HALF, Math.min(HALF, z))) + 0.4;
   const seg = (a, b) => p.push(a[0], gy(a[0], a[1]), a[1], b[0], gy(b[0], b[1]), b[1]);
-  ENEMIES.forEach((E, i) => {
+  const tagAt = (i) => {   // 글자 줄 + 작은 체력 게이지
     let tag = aiTagPool[i];
-    if (!tag) { tag = aiTagPool[i] = document.createElement('div'); aiTagsEl.appendChild(tag); }
+    if (!tag) { tag = aiTagPool[i] = document.createElement('div'); tag.innerHTML = '<span></span><i><b></b></i>'; aiTagsEl.appendChild(tag); }
+    return tag;
+  };
+  const showTag = (tag, x, y, z, txt, hpK) => {
+    _tmp.set(x, y, z).project(camera);
+    if (_tmp.z > 1) { tag.style.display = 'none'; return; }
+    tag.style.display = ''; tag.style.left = `${VR.x + (_tmp.x + 1) / 2 * VR.w}px`; tag.style.top = `${VR.y + (1 - _tmp.y) / 2 * VR.h}px`;
+    if (tag.firstChild.textContent !== txt) tag.firstChild.textContent = txt;
+    const w = `${Math.round(Math.max(0, Math.min(1, hpK)) * 100)}%`;
+    if (tag.lastChild.firstChild.style.width !== w) tag.lastChild.firstChild.style.width = w;
+  };
+  ENEMIES.forEach((E, i) => {
+    const tag = tagAt(i);
     if (!E.solid) { tag.style.display = 'none'; return; }
     _fwd.set(0, 0, 1).applyQuaternion(E.q);
     const yaw = Math.atan2(_fwd.x, _fwd.z), at = (a, r) => [E.pos.x + Math.sin(yaw + a) * r, E.pos.z + Math.cos(yaw + a) * r];
@@ -800,13 +829,19 @@ function updateAiView() {
       for (let k = 0; k < 16; k++) seg(at(k / 16 * 6.283, HEAR_R), at((k + 1) / 16 * 6.283, HEAR_R));
     }
     if (E.goalX !== undefined) seg([E.pos.x, E.pos.z], [E.goalX, E.goalZ]);
-    _tmp.set(E.pos.x, E.pos.y + 3.6, E.pos.z).project(camera);
-    if (_tmp.z > 1) { tag.style.display = 'none'; return; }
-    tag.style.display = ''; tag.style.left = `${VR.x + (_tmp.x + 1) / 2 * VR.w}px`; tag.style.top = `${VR.y + (1 - _tmp.y) / 2 * VR.h}px`;
-    const txt = `${E.spg ? '자주포 · ' : E.jeep ? '지프 · ' : `Lv${E.level} · `}${AI_MODE[E.mode] || E.mode || '-'} · HP ${Math.max(0, Math.round(E.hp))}${E.sees ? ' · 발견!' : ''}`;
-    if (tag.textContent !== txt) tag.textContent = txt;
+    showTag(tag, E.pos.x, E.pos.y + 3.6, E.pos.z, `${E.spg ? '자주포 · ' : E.jeep ? '지프 · ' : `Lv${E.level} · `}${AI_MODE[E.mode] || E.mode || '-'} · HP ${Math.max(0, Math.round(E.hp))}${E.sees ? ' · 발견!' : ''}`, E.hp / E.maxHp);
   });
-  for (let i = ENEMIES.length; i < aiTagPool.length; i++) aiTagPool[i].style.display = 'none';
+  let ti = ENEMIES.length;
+  for (const B of BUNKERS) {   // 벙커: 시야 기준점에서 시야 부채꼴 (탱크와 같은 식), 지붕 위에 글자·게이지
+    if (B.ruin) continue;
+    const A = BK.angle * DEG, ox = B.x + Math.sin(B.rot) * BK_EYE_Z, oz = B.z + Math.cos(B.rot) * BK_EYE_Z;
+    const at = (a, r) => [ox + Math.sin(B.rot + a) * r, oz + Math.cos(B.rot + a) * r];
+    for (let k = 0; k < 12; k++) seg(at(-A + 2 * A * k / 12, BK.sight), at(-A + 2 * A * (k + 1) / 12, BK.sight));
+    seg([ox, oz], at(-A, BK.sight)); seg([ox, oz], at(A, BK.sight));
+    if (B.sees) seg([ox, oz], [tank.pos.x, tank.pos.z]);
+    showTag(tagAt(ti++), B.x, B.y + BK_H + 0.8, B.z, `벙커 · HP ${Math.max(0, Math.round(B.hp))}${B.sees ? ' · 발견!' : ''}`, B.hp / BK.hp);
+  }
+  for (let i = ti; i < aiTagPool.length; i++) aiTagPool[i].style.display = 'none';
   aiLines.geometry.dispose();
   aiLines.geometry = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
 }
