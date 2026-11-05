@@ -20,13 +20,14 @@ function hbar(x, y, w, f, dots) {
   else for (let yy = y + 1; yy < y + 6; yy++) for (let xx = x + 1; xx < x + fw; xx++) if ((xx + yy) % 2 === 0) px(xx, yy);
 }
 // 타이틀 화면 글자: HUD와 같은 5x7 글꼴 (흰색)에 검은 그림자, 1칸 = 1픽셀 캔버스 (줄 높이 7, 줄 간격 4)
-function pixelText(cv, lines, col = '#ffffff') {
+function pixelText(cv, lines, col = '#ffffff', align = 'left') {   // align 'right': 줄마다 오른쪽 끝을 맞춘다
   const src = cv._src || (cv._src = document.createElement('canvas'));   // 1칸 = 1픽셀. 화면에는 layoutTitle이 늘려 그린다
-  src.width = Math.max(...lines.map(fontWidth)) + 1; src.height = lines.length * 11 - 3;
+  const W = Math.max(...lines.map(fontWidth));
+  src.width = W + 1; src.height = lines.length * 11 - 3;
   const g = src.getContext('2d');
   for (const [c, d] of [['rgba(0,0,0,.75)', 1], [col, 0]]) {   // 검은 그림자(오른쪽 아래 1칸) → 글자
     g.fillStyle = c;
-    lines.forEach((t, li) => fontDraw(t, d, d + li * 11, 1, (a, b) => g.fillRect(a, b, 1, 1)));
+    lines.forEach((t, li) => fontDraw(t, d + (align === 'right' ? W - fontWidth(t) : 0), d + li * 11, 1, (a, b) => g.fillRect(a, b, 1, 1)));
   }
 }
 // ---- 타이틀 그림: 제목·MIYACAT 로고는 images/의 도트 PNG (직접 고쳐 쓸 수 있게 따로 둔다), 제목 아래 설명 한 줄은 HUD 글꼴,
@@ -74,7 +75,7 @@ function drawTitleKeys(pad) {
   titlePad = pad;
   const c = document.getElementById('tPress');
   if (!c) return;
-  pixelText(c, [pad ? 'PRESS A TO PLAY' : 'PRESS SPACE TO PLAY']);
+  pixelText(c, [pad ? 'PRESS A TO PLAY' : 'PRESS SPACE TO PLAY'], '#ffffff', 'right');
   drawCamoText();
   if (c._css) layoutTitle();
 }
@@ -82,7 +83,7 @@ function drawTitleKeys(pad) {
 function drawCamoText() {
   const c = document.getElementById('tCamo');
   if (!c) return;
-  pixelText(c, [`${titlePad ? 'LB / RB' : 'Q / E'}  CHANGE CAMO: ${CAMO_LIST[camoIdx].name}`]);
+  pixelText(c, [`${titlePad ? 'LB / RB' : 'Q / E'}  CHANGE CAMO: ${CAMO_LIST[camoIdx].name}`, `${titlePad ? '<  /  >' : 'A / D'}  DECALS: ${DECAL_SETS[decalIdx].name}`], '#ffffff', 'right');   // 우하단 키 안내: 오른쪽 정렬
   if (c._css) layoutTitle();
 }
 // 타이틀 부품 설명: 부품 한 점에서 비스듬한 지시선 → 글자 밑줄. 글자는 짙은 먹색에 흰 테두리 (게임 해상도 그대로 그려 늘린다)

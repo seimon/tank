@@ -241,8 +241,9 @@ function frame() {
   updateFadeIns(dt); updateChutes(dt);
 
   // 카메라 추적 + 흔들림 (타이틀·전환 중에는 타이틀 카메라와 섞는다)
-  titleCamBegin();
-  if (editMode) editUpdate(uiDt);   // 맵 편집: 카메라는 탱크를 따라가지 않는다
+  if (!decalMode) titleCamBegin();
+  if (decalMode) decalUpdate(uiDt);   // 데칼 편집: 카메라는 마우스로 (타이틀 카메라를 섞지 않는다)
+  else if (editMode) editUpdate(uiDt);   // 맵 편집: 카메라는 탱크를 따라가지 않는다
   else if (titleState === 'trans') playRestCam();   // 타이틀 → 플레이 전환: 섞을 플레이 카메라는 끝났을 때 자리에 고정 (움직이는 카메라와 섞으면 출렁인다)
   else {
     updateCamLead(dt);
@@ -257,8 +258,7 @@ function frame() {
   updateTitle(dt);
   updateWeather(dt);
   missionCheck();
-  titleCamEnd();
-  drawCallouts();
+  if (!decalMode) { titleCamEnd(); drawCallouts(); }
   updateHudReveal(dt);
   shake = Math.max(0, shake - dt * 2.5);
   _shake.set(rr(-1, 1), rr(-1, 1), rr(-1, 1)).multiplyScalar(shake * 0.35);

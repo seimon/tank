@@ -83,7 +83,7 @@ function entranceDrive(dt) {
     }
     return [thr, Math.max(-1, Math.min(1, err * 3))];
   }
-  if (titleState !== 'title') return null;
+  if (titleState !== 'title' || decalMode) return null;   // 데칼 편집 중에는 포즈·포 쏘기 없이 (포탑은 titlePose가)
   entr.arrT += dt;
   const back = (entr.home.x - tank.pos.x) * Math.sin(entr.yaw) + (entr.home.z - tank.pos.z) * Math.cos(entr.yaw);   // 쏠 때 반동으로 밀려난 거리
   if (back > 0.25) entr.creep = true; else if (back < 0.05) entr.creep = false;
@@ -114,6 +114,7 @@ function stampTrail(len) {
 // 타이틀 동안 포탑·포신 포즈. 시작하면 전환(title.transition초) 동안 처음 값으로 되돌린다. 타이틀·전환 동안 조작은 막힌다 (true = 막힘)
 function titlePose() {
   if (titleState === 'play') return false;
+  if (decalMode) { tank.tyaw = decalFlip ? Math.PI : 0; tank.elev = INIT_ELEV; tank.tvel = 0; return true; }   // 데칼 편집: 포탑 정면(뒤집으면 뒤), 포신 기본
   if (entr) {   // 등장 연출 중: 타이틀 동안은 entranceDrive가 돌리고, 전환 동안 시작할 때 각도에서 처음 값으로
     if (titleState === 'trans') { tank.tyaw = lerp(entr.ty0, 0, titleK); tank.elev = lerp(entr.el0, INIT_ELEV, titleK); tank.tvel = 0; }
   } else if (TDET.pose) {
@@ -163,19 +164,22 @@ function updateTitle(dt) {
 }
 // 타이틀에서는 키·클릭이 게임에 가지 않는다 (설정 메뉴 ` 키와 메뉴 클릭은 그대로): SPACE(또는 클릭·터치)로 시작, Q/E로 위장색
 addEventListener('keydown', (e) => {
-  if (titleState !== 'title' || e.code === 'Backquote') return;
+  if (titleState !== 'title' || e.code === 'Backquote' || decalMode) return;   // 데칼 편집 중이면 그쪽 처리로
+  if (!e.fromPad) setInputPad(false);   // 키보드를 누르면 키 글자도 키보드로 (아래에서 다른 처리를 막으니 여기서)
   sfx.unlock();
   if (e.ctrlKey || e.metaKey || e.altKey || /^F\d+$/.test(e.code)) return;   // 새로고침 등 브라우저 단축키는 그대로
   e.stopImmediatePropagation();
-  if (['Space', 'KeyQ', 'KeyE'].includes(e.code)) e.preventDefault();   // 소리는 첫 입력부터 (브라우저 규칙)
+  if (['Space', 'KeyQ', 'KeyE', 'KeyA', 'KeyD'].includes(e.code)) e.preventDefault();   // 소리는 첫 입력부터 (브라우저 규칙)
   if (titleWait < TITLE_DELAY) return;   // 그 전에는 눌러도 무시 (로딩 중에 눌러도 여기서 끝)
   if (e.code === 'KeyQ' || e.code === 'KeyE') { if (!e.repeat) { setCamo(camoIdx + (e.code === 'KeyE' ? 1 : -1)); drawCamoText(); sfx.ui('tab'); } return; }
+  if (e.code === 'KeyA' || e.code === 'KeyD') { if (!e.repeat) { setDecalSet(decalIdx + (e.code === 'KeyD' ? 1 : -1)); drawCamoText(); sfx.ui('tab'); } return; }   // 데칼 셋
   if (e.code !== 'Space') return;
   if (paused) pauseSet(false);
   startGame();
 }, true);
 addEventListener('pointerdown', (e) => {   // 클릭·터치는 게임에 가지 않고 소리만 켠다 (시작은 SPACE로만)
-  if (titleState !== 'title' || e.target.closest('#hud')) return;
+  if (titleState !== 'title' || e.target.closest('#hud') || decalMode) return;   // 데칼 편집 중엔 카메라 돌리기·고르기로
+  setInputPad(false);
   e.stopImmediatePropagation();
   sfx.unlock();
 }, true);

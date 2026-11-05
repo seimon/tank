@@ -564,7 +564,7 @@ const confirmUI = {
 //   (A = ✕, B = ○, Y = △, X = □, LB·RB = L1·R1, START = OPTIONS, BACK = SHARE/CREATE)
 //  플레이: 왼쪽 스틱 = 주행·선회, 오른쪽 스틱 = 포탑(좌우)·포각(위아래), RT 또는 A = 발사, LB·RB = 포탑 돌리기,
 //          방향키 ←·↑·→ = 성장 선택 1·2·3, Y = 세우기(G), START = 일시정지(ESC)
-//  타이틀: A = 시작, LB·RB = 위장색
+//  타이틀: A = 시작, LB·RB = 위장색, 방향키 ←→ = 데칼 셋
 //  일시정지(정보 창): LB·RB = 탭, 방향키 ↑↓ = 한 줄씩 넘기기(누르고 있으면 계속), ←→ = 맨 위·맨 아래, B 또는 START = 계속하기, Y 또는 BACK = 첫 화면으로
 //  첫 화면으로 확인 창: A = 예, B = 아니오
 //  전투 불능·적군 섬멸 창: Y = 재출격·새로 시작(G), BACK = 첫 화면으로(T)
@@ -587,7 +587,7 @@ function padPoll() {
     const B = (i) => !!gp.buttons[i]?.pressed, E = {};
     for (const i of [0, 1, 3, 4, 5, 8, 9, 12, 13, 14, 15]) { const k = gp.index * 100 + i, p = B(i); E[i] = p && !padPrev[k]; padPrev[k] = p; }   // 누르는 순간
     const scr = UI.screen;
-    if (titleState === 'title') { if (E[0]) padKey('Space'); if (E[4]) padKey('KeyQ'); if (E[5]) padKey('KeyE'); continue; }   // 위장색: LB·RB
+    if (titleState === 'title') { if (E[0]) padKey('Space'); if (E[4]) padKey('KeyQ'); if (E[5]) padKey('KeyE'); if (E[14]) padKey('KeyA'); if (E[15]) padKey('KeyD'); continue; }   // 위장색: LB·RB, 데칼 셋: 방향키 ←→
     if (scr === confirmUI) { if (E[0]) padKey('KeyY'); if (E[1] || E[9]) padKey('KeyN'); continue; }
     if (scr === pauseUI) {
       if (E[4]) padKey('KeyQ'); if (E[5]) padKey('KeyE');
@@ -641,6 +641,7 @@ const leafMeshes = LEAF_SHAPES.map((rows) => {
 const leaves = [], _lq = new THREE.Quaternion(), _lm = new THREE.Matrix4(), _ls = new THREE.Vector3(1, 1, 1), _lc = new THREE.Color(), _ln = [0, 0, 0, 0];
 let leafAcc = 0;
 function updateLeaves(dt) {
+  if (decalMode) { for (const m of leafMeshes) m.visible = false; return; }   // 데칼 편집: 배경은 모두 끈다
   if (titleState === 'play') { if (leafMeshes[0].visible) { leaves.length = 0; for (const m of leafMeshes) { m.count = 0; m.visible = false; } } return; }
   const c = controls.target, wd = U.uWindDir.value, ws = U.uWind.value, t = U.uTime.value;
   if (titleState === 'title' && TDET.leaves > 0) for (leafAcc += dt * TDET.leaves; leafAcc >= 1 && leaves.length < LEAF_N * 4; leafAcc--) {

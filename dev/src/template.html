@@ -58,6 +58,8 @@
 </style>
 <script src="config.js"></script>
 <script src="map.js"></script>
+<script src="decal_images.js"></script>
+<script src="decals.js"></script>
 <script src="fonts/galmuri11c.js"></script>
 <script type="importmap">
 { "imports": {
@@ -84,7 +86,7 @@
   <div>해상도 <select id="res"><option>180</option><option>240</option><option selected>300</option><option>360</option><option>420</option><option value="max">최대</option></select>
        <button id="aaBtn">AA 꺼짐</button> <button id="ppBtn">Pixel Perfect 꺼짐</button> <button id="olBtn">외곽선 꺼짐</button> <button id="grassBtn">풀: 텍스처2 (이삭 풀)</button> <button id="cbox">충돌박스</button> <button id="touchBtn">터치 버튼 꺼짐</button>
        <button id="camModeBtn">시점: 포탑 방향</button></div>
-  <div><button id="mapEditBtn">맵 편집 모드</button> <button id="mapBtn">맵 셋팅</button>
+  <div><button id="mapEditBtn">맵 편집 모드</button> <button id="decalEditBtn">데칼 편집 모드</button> <button id="mapBtn">맵 셋팅</button>
        <span class="it">비 <input id="rainA" type="range" min="0" max="2" step="0.05" value="0"> <b id="rainAV">0.00</b></span>
        <span class="it">모래 <input id="sandA" type="range" min="0" max="2" step="0.05" value="0"> <b id="sandAV">0.00</b> <input id="sandC" type="color" value="#c8a070"></span>
        <span class="it">번개 <input id="boltA" type="range" min="0" max="2" step="0.05" value="0"> <b id="boltAV">0.00</b></span></div>
@@ -115,7 +117,7 @@
 </div>
 <script>
   // 버전·빌드 시각: 여기 한 곳만 고치면 로딩 화면과 설정 메뉴에 같이 나온다
-  const VERSION = '0.5.051', BUILD = '2026-11-05', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
+  const VERSION = '0.5.054', BUILD = '2026-11-05', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
   for (const e of document.querySelectorAll('.ver')) e.textContent = BUILD_TXT;
 </script>
 <div id="touchUI" style="display:none">

@@ -17,6 +17,8 @@
 ```
 index.html          ← 자동 생성 (src/를 합친 결과). 직접 고치지 말 것
 config.js           ← 사용자가 고치는 설정 (window.CONFIG)
+decals.js           ← 데칼 셋 (window.DECAL_SETS): 포탑 좌우 그림 묶음. 데칼 편집 모드에서 C로 복사해 덮어쓴다
+decal_images.js     ← 자동 생성 (images/decals/*.png를 build.py가 data URL로 담음). 직접 고치지 말 것
 map.js              ← 지도 데이터 (window.MAP_DATA): 나무 상자·탱크 잔해·벙커 자리. 맵 편집 모드에서 R로 복사해 덮어쓴다
 src/template.html   ← head·CSS·HTML·설정 메뉴. VERSION/BUILD 여기. @GAME 자리에 게임 코드가 들어간다
 src/00_core.js      ← 도트 글꼴(5x7 HUD 글꼴), 2D 늘리기(sharpDraw/sharpBlit), 디더 지우기, 로딩 화면, 기본 설정
@@ -25,6 +27,7 @@ src/11_props.js     ← 텍스처, 조명, 마을, 풍차, 다리, 전봇대, AO
 src/20_objects.js   ← 탱크 모델, 금고, 잔해, 나무 상자
 src/21_grass_fx.js  ← 풀(텍스처 카드 3종), 불 번짐, 파티클
 src/22_weather.js   ← 날씨: 비(GPU 선, 그리기 1번, 조명·안개 반영), 모래바람(바닥 모래 연기 입자), 물보라, 번개
+src/23_decals.js    ← 데칼: 셋 읽기, 포탑 옆면에 붙이기(decalPose), 셋 바꾸기(setDecalSet)
 src/30_combat.js    ← 탱크 물리, 포탄·폭발, 기관총, 충돌 박스
 src/40_input_post.js← 입력, 성장(선택지 로직 포함), PS1 후처리, 화면 크기, 설정 메뉴 동작
 src/50_title.js     ← 타이틀(등장 연출·카메라), HUD 켜고 끄기(syncHud), 끝 창 흐름(showEnd/respawn/restartGame)
@@ -34,10 +37,11 @@ src/72_bunker.js    ← 벙커 사격·대미지·파괴 (모델·배치는 20_o
 src/80_hud.js       ← 픽셀 HUD, 타이틀 그림
 src/81_ui.js        ← 픽셀 UI(한글): 부품, 성장 선택지, 끝 창, 정보 창(일시정지), 확인 창, 작전 정보
 src/85_editor.js    ← 맵 편집 모드 (설정 메뉴 버튼)
+src/86_decal_editor.js ← 데칼 편집 모드 (설정 메뉴 버튼, 타이틀에서만)
 src/90_loop.js      ← tick, 로딩 퇴장, 일시정지·정지, 메인 루프(frame), 디버그 dbg
-tools/build.py      ← src/*.js를 이름 순서대로 이어 붙여 index.html 생성 (--watch 지원)
+tools/build.py      ← src/*.js를 이름 순서대로 이어 붙여 index.html 생성 (--watch 지원). images/decals/*.png → decal_images.js도
 fonts/galmuri11c.js ← 갈무리11 장체 비트맵 데이터 (OFL, fonts/LICENSE.txt). fonts/bdf2js.py로 BDF에서 변환
-images/             ← 타이틀 도트 PNG (사용자가 직접 그림)
+images/             ← 타이틀 도트 PNG (사용자가 직접 그림). images/decals/ = 데칼 그림 (32x32, 투명 배경)
 mockups/            ← 사용자에게 보여 준 시안 그림
 ```
 - 모든 src/*.js는 **하나의 모듈 범위**를 나눠 쓴다. import/export 없이 앞 파일의 이름을 그대로 쓰고, **파일 이름 순서가 곧 실행 순서**다 (let/const는 선언 전에 쓰면 TDZ 오류).
@@ -58,6 +62,10 @@ mockups/            ← 사용자에게 보여 준 시안 그림
 ## 위장색·용어
 - 위장색은 내 탱크만 (`20_objects.js`, config `camo`). 단색은 재질 색, 무늬는 탱크 기준 좌표를 정점에 구운 `aCamo`로 그린다 (셰이더 하나, `CAMO_U`로 바꿈). 타이틀에서 Q/E, 고른 것은 `localStorage['littleIron.camoName']`(이름).
 - 공격 대상 상자는 **보급품** (골드 보급품 = 붉은 금고, 수리 보급품 = 초록 띠 상자). 코드 이름은 `targets`, `safeModel/repairModel`.
+
+## 데칼
+- 내 탱크 포탑 좌우에만 붙인다. 셋은 `decals.js`, 그림은 `images/decals/*.png` → `decal_images.js` (file://에서 PNG를 WebGL 텍스처로 못 올려서 JS에 담는다). 타이틀에서 A/D(패드 ←→)로 셋을 고르고 `localStorage['littleIron.decalSet']`(이름)에 기억.
+- 데칼 편집 모드(`86_decal_editor.js`): 타이틀에서만. 배경을 숨기고 마우스 카메라. 1~n 붙이기(보이는 옆면), WASD·QE·RF, T 포탑 뒤집기(`titlePose`가 `decalFlip`을 따른다), A/D 셋, N 새 셋, C decals.js 복사.
 
 ## 지도 데이터·맵 편집
 - `map.js`가 있으면 나무 상자·드럼통·모래주머니·잔해·벙커는 그 목록대로 (자동 배치는 난수 순서를 지키려고 돌린 뒤 지우고 바꾼다). 넣기·옮기기·지우기 함수는 `20_objects.js` (`addCrate/moveCrate/deleteCrate`, `moveWreck/deleteWreck`, `placeBunker/moveBunker/deleteBunker`, `placeSandbag/moveSandbag/deleteSandbag`).

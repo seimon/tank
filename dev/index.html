@@ -59,6 +59,8 @@
 </style>
 <script src="config.js"></script>
 <script src="map.js"></script>
+<script src="decal_images.js"></script>
+<script src="decals.js"></script>
 <script src="fonts/galmuri11c.js"></script>
 <script type="importmap">
 { "imports": {
@@ -85,7 +87,7 @@
   <div>해상도 <select id="res"><option>180</option><option>240</option><option selected>300</option><option>360</option><option>420</option><option value="max">최대</option></select>
        <button id="aaBtn">AA 꺼짐</button> <button id="ppBtn">Pixel Perfect 꺼짐</button> <button id="olBtn">외곽선 꺼짐</button> <button id="grassBtn">풀: 텍스처2 (이삭 풀)</button> <button id="cbox">충돌박스</button> <button id="touchBtn">터치 버튼 꺼짐</button>
        <button id="camModeBtn">시점: 포탑 방향</button></div>
-  <div><button id="mapEditBtn">맵 편집 모드</button> <button id="mapBtn">맵 셋팅</button>
+  <div><button id="mapEditBtn">맵 편집 모드</button> <button id="decalEditBtn">데칼 편집 모드</button> <button id="mapBtn">맵 셋팅</button>
        <span class="it">비 <input id="rainA" type="range" min="0" max="2" step="0.05" value="0"> <b id="rainAV">0.00</b></span>
        <span class="it">모래 <input id="sandA" type="range" min="0" max="2" step="0.05" value="0"> <b id="sandAV">0.00</b> <input id="sandC" type="color" value="#c8a070"></span>
        <span class="it">번개 <input id="boltA" type="range" min="0" max="2" step="0.05" value="0"> <b id="boltAV">0.00</b></span></div>
@@ -116,7 +118,7 @@
 </div>
 <script>
   // 버전·빌드 시각: 여기 한 곳만 고치면 로딩 화면과 설정 메뉴에 같이 나온다
-  const VERSION = '0.5.051', BUILD = '2026-11-05', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
+  const VERSION = '0.5.054', BUILD = '2026-11-05', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
   for (const e of document.querySelectorAll('.ver')) e.textContent = BUILD_TXT;
 </script>
 <div id="touchUI" style="display:none">
@@ -148,7 +150,7 @@ const FONT = {
   K: [17, 18, 20, 24, 20, 18, 17], L: [16, 16, 16, 16, 16, 16, 30], M: [17, 27, 21, 17, 17, 17, 17], N: [17, 17, 25, 21, 19, 17, 17], O: [14, 17, 17, 17, 17, 17, 14],
   P: [28, 18, 18, 28, 16, 16, 16], Q: [14, 17, 17, 17, 21, 18, 13], R: [30, 17, 17, 30, 20, 18, 17], S: [14, 16, 16, 12, 2, 2, 28], T: [31, 4, 4, 4, 4, 4, 4],
   U: [17, 17, 17, 17, 17, 17, 14], V: [17, 17, 17, 17, 17, 10, 4], W: [17, 17, 17, 17, 21, 27, 17], X: [17, 17, 10, 4, 10, 17, 17], Y: [17, 10, 4, 4, 4, 4, 4],
-  Z: [31, 1, 2, 4, 8, 16, 31], '/': [0, 1, 2, 4, 8, 16, 0], ':': [0, 8, 0, 0, 0, 8, 0], '.': [0, 0, 0, 0, 0, 0, 8], '-': [0, 0, 0, 14, 0, 0, 0],
+  Z: [31, 1, 2, 4, 8, 16, 31], '/': [0, 1, 2, 4, 8, 16, 0], '<': [2, 4, 8, 16, 8, 4, 2], '>': [8, 4, 2, 1, 2, 4, 8], ':': [0, 8, 0, 0, 0, 8, 0], '.': [0, 0, 0, 0, 0, 0, 8], '-': [0, 0, 0, 14, 0, 0, 0],
   '+': [0, 4, 4, 31, 4, 4, 0], '%': [24, 25, 2, 4, 8, 19, 3], '°': [8, 20, 8, 0, 0, 0, 0], ' ': [0, 0, 0, 0, 0, 0, 0],
   "'": [4, 4, 8, 0, 0, 0, 0], '*': [0, 4, 21, 14, 21, 4, 0], '(': [2, 4, 8, 8, 8, 4, 2], ')': [8, 4, 2, 2, 2, 4, 8], '!': [4, 4, 4, 4, 4, 0, 4],
   '?': [14, 17, 1, 2, 4, 0, 4], ',': [0, 0, 0, 0, 0, 4, 8],
@@ -3940,6 +3942,69 @@ function updateWeather(dt) {
     sfx.weather(WEATHER.rain * on, U.uWind.value * on, WEATHER.sand * on);
   }
 }
+// ===== src/23_decals.js =====
+// ---------------------------------------------------------------- 데칼: 내 탱크 포탑 좌우에 붙이는 그림 (타이틀에서 A/D로 셋을 고른다. 위장색 × 데칼 셋)
+// 셋은 decals.js(window.DECAL_SETS), 그림은 decal_images.js(window.DECAL_IMAGES = images/decals/*.png를 build.py가 담은 것).
+// file://로 열면 PNG 파일을 WebGL 텍스처로 못 올리므로 그림을 JS 안에 담아 쓴다. 고치는 법: PNG를 고치고 python tools/build.py
+// 데칼 한 장 = { img, side(1 = 왼쪽 +x, -1 = 오른쪽), z(앞뒤, 포탑 가운데 0, 앞 +), y(높이, 옆면 가운데 0), rot(°), s(크기 m) }
+const DECAL_IMG = window.DECAL_IMAGES || {};
+const DECAL_NAMES = Object.keys(DECAL_IMG).sort();
+const DECAL_SETS = (Array.isArray(window.DECAL_SETS) && window.DECAL_SETS.length ? window.DECAL_SETS : [{ name: 'NONE', decals: [] }])
+  .map((s) => ({ name: String(s.name || 'SET'), decals: (s.decals || []).map((d) => ({ img: d.img, side: d.side < 0 ? -1 : 1, z: +d.z || 0, y: +d.y || 0, rot: +d.rot || 0, s: +d.s || 0.6 })) }));
+let decalIdx = 0;
+try { decalIdx = Math.max(0, DECAL_SETS.findIndex((s) => s.name === localStorage.getItem('littleIron.decalSet'))); } catch (_) {}   // 이름으로 기억
+const decalTexs = new Map(), tankDecalMats = new Map();
+function decalTex(name) {
+  if (!decalTexs.has(name)) {
+    const img = new Image(), t = new THREE.Texture(img);
+    t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace;
+    img.onload = () => { t.needsUpdate = true; try { uiDirty(); } catch (_) {} };   // (편집 창 그림 목록도 다시 그린다. 로딩 중이면 아직 없다)
+    img.src = DECAL_IMG[name] || '';
+    decalTexs.set(name, t);
+  }
+  return decalTexs.get(name);
+}
+function tankDecalMat(name) {   // 그림마다 재질 하나 (탱크처럼 스내핑 없이: 포탑과 같이 움직여야 떨리지 않는다)
+  if (!tankDecalMats.has(name)) {
+    const was = PS1_NOSNAP; PS1_NOSNAP = true;
+    tankDecalMats.set(name, lambert({ map: decalTex(name), alphaTest: 0.5, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 }));
+    PS1_NOSNAP = was;
+  }
+  return tankDecalMats.get(name);
+}
+// 포탑 옆면: buildTank의 포탑 상자 (폭 2.3, 높이 1.4, 깊이 1.8, 윗면 폭 75%) → 옆면은 위로 갈수록 안쪽으로 기운다
+const TUR = { y: DECK_TOP + 0.7, hw0: 1.15, hw1: 1.15 * 0.75, h: 1.4, d: 1.8 };
+const TUR_K = (TUR.hw0 - TUR.hw1) / TUR.h, TUR_A = Math.atan(TUR_K);
+const DECAL_GEO = new THREE.PlaneGeometry(1, 1);
+const _dm = new THREE.Matrix4(), _dcQ = new THREE.Quaternion(), _dzA = new THREE.Vector3(0, 0, 1), _dr = new THREE.Vector3(), _du = new THREE.Vector3(), _dn = new THREE.Vector3();
+// 데칼 한 장을 옆면에 맞춰 놓는다 (면에서 1.5cm 띄워 겹쳐 깜빡이지 않게. 판의 +z = 바깥, +y = 옆면 위쪽)
+function decalPose(d, o) {
+  const sd = d.side < 0 ? -1 : 1, yy = TUR.y + d.y, x = TUR.hw0 - (yy - (TUR.y - TUR.h / 2)) * TUR_K + 0.015;
+  o.position.set(sd * x, yy, d.z);
+  _dn.set(sd * Math.cos(TUR_A), Math.sin(TUR_A), 0); _du.set(-sd * Math.sin(TUR_A), Math.cos(TUR_A), 0); _dr.set(0, 0, -sd);
+  o.quaternion.setFromRotationMatrix(_dm.makeBasis(_dr, _du, _dn)).multiply(_dcQ.setFromAxisAngle(_dzA, d.rot * DEG));
+  o.scale.set(d.s, d.s, 1);
+}
+const decalGroup = new THREE.Group();
+parts.turret.add(decalGroup);
+function addDecalMesh(d) {
+  if (!DECAL_IMG[d.img]) return null;
+  const m = new THREE.Mesh(DECAL_GEO, tankDecalMat(d.img));
+  m.userData.noOutline = true; m.userData.decal = d;
+  decalPose(d, m); decalGroup.add(m);
+  return m;
+}
+function applyDecals() {
+  for (const m of decalGroup.children.slice()) decalGroup.remove(m);
+  for (const d of (DECAL_SETS[decalIdx] || { decals: [] }).decals) addDecalMesh(d);
+}
+function setDecalSet(i) {
+  decalIdx = (i + DECAL_SETS.length) % DECAL_SETS.length;
+  try { localStorage.setItem('littleIron.decalSet', DECAL_SETS[decalIdx].name); } catch (_) {}
+  applyDecals();
+}
+applyDecals();
+for (const n of DECAL_NAMES) { const w = new THREE.Mesh(DECAL_GEO, tankDecalMat(n)); w.visible = false; w.userData.noOutline = true; parts.turret.add(w); }   // 셰이더·텍스처 미리 준비용 (보이지 않음)
 // ===== src/30_combat.js =====
 // ---------------------------------------------------------------- 탱크 물리 (강체 + 접촉점 페널티)
 // 질량 1로 정규화. 궤도 접촉점은 벨트 속도만큼 지면을 밀어 추진하고, 마찰 한계를 넘으면 미끄러진다
@@ -5976,7 +6041,7 @@ function entranceDrive(dt) {
     }
     return [thr, Math.max(-1, Math.min(1, err * 3))];
   }
-  if (titleState !== 'title') return null;
+  if (titleState !== 'title' || decalMode) return null;   // 데칼 편집 중에는 포즈·포 쏘기 없이 (포탑은 titlePose가)
   entr.arrT += dt;
   const back = (entr.home.x - tank.pos.x) * Math.sin(entr.yaw) + (entr.home.z - tank.pos.z) * Math.cos(entr.yaw);   // 쏠 때 반동으로 밀려난 거리
   if (back > 0.25) entr.creep = true; else if (back < 0.05) entr.creep = false;
@@ -6007,6 +6072,7 @@ function stampTrail(len) {
 // 타이틀 동안 포탑·포신 포즈. 시작하면 전환(title.transition초) 동안 처음 값으로 되돌린다. 타이틀·전환 동안 조작은 막힌다 (true = 막힘)
 function titlePose() {
   if (titleState === 'play') return false;
+  if (decalMode) { tank.tyaw = decalFlip ? Math.PI : 0; tank.elev = INIT_ELEV; tank.tvel = 0; return true; }   // 데칼 편집: 포탑 정면(뒤집으면 뒤), 포신 기본
   if (entr) {   // 등장 연출 중: 타이틀 동안은 entranceDrive가 돌리고, 전환 동안 시작할 때 각도에서 처음 값으로
     if (titleState === 'trans') { tank.tyaw = lerp(entr.ty0, 0, titleK); tank.elev = lerp(entr.el0, INIT_ELEV, titleK); tank.tvel = 0; }
   } else if (TDET.pose) {
@@ -6056,19 +6122,22 @@ function updateTitle(dt) {
 }
 // 타이틀에서는 키·클릭이 게임에 가지 않는다 (설정 메뉴 ` 키와 메뉴 클릭은 그대로): SPACE(또는 클릭·터치)로 시작, Q/E로 위장색
 addEventListener('keydown', (e) => {
-  if (titleState !== 'title' || e.code === 'Backquote') return;
+  if (titleState !== 'title' || e.code === 'Backquote' || decalMode) return;   // 데칼 편집 중이면 그쪽 처리로
+  if (!e.fromPad) setInputPad(false);   // 키보드를 누르면 키 글자도 키보드로 (아래에서 다른 처리를 막으니 여기서)
   sfx.unlock();
   if (e.ctrlKey || e.metaKey || e.altKey || /^F\d+$/.test(e.code)) return;   // 새로고침 등 브라우저 단축키는 그대로
   e.stopImmediatePropagation();
-  if (['Space', 'KeyQ', 'KeyE'].includes(e.code)) e.preventDefault();   // 소리는 첫 입력부터 (브라우저 규칙)
+  if (['Space', 'KeyQ', 'KeyE', 'KeyA', 'KeyD'].includes(e.code)) e.preventDefault();   // 소리는 첫 입력부터 (브라우저 규칙)
   if (titleWait < TITLE_DELAY) return;   // 그 전에는 눌러도 무시 (로딩 중에 눌러도 여기서 끝)
   if (e.code === 'KeyQ' || e.code === 'KeyE') { if (!e.repeat) { setCamo(camoIdx + (e.code === 'KeyE' ? 1 : -1)); drawCamoText(); sfx.ui('tab'); } return; }
+  if (e.code === 'KeyA' || e.code === 'KeyD') { if (!e.repeat) { setDecalSet(decalIdx + (e.code === 'KeyD' ? 1 : -1)); drawCamoText(); sfx.ui('tab'); } return; }   // 데칼 셋
   if (e.code !== 'Space') return;
   if (paused) pauseSet(false);
   startGame();
 }, true);
 addEventListener('pointerdown', (e) => {   // 클릭·터치는 게임에 가지 않고 소리만 켠다 (시작은 SPACE로만)
-  if (titleState !== 'title' || e.target.closest('#hud')) return;
+  if (titleState !== 'title' || e.target.closest('#hud') || decalMode) return;   // 데칼 편집 중엔 카메라 돌리기·고르기로
+  setInputPad(false);
   e.stopImmediatePropagation();
   sfx.unlock();
 }, true);
@@ -7334,13 +7403,14 @@ function hbar(x, y, w, f, dots) {
   else for (let yy = y + 1; yy < y + 6; yy++) for (let xx = x + 1; xx < x + fw; xx++) if ((xx + yy) % 2 === 0) px(xx, yy);
 }
 // 타이틀 화면 글자: HUD와 같은 5x7 글꼴 (흰색)에 검은 그림자, 1칸 = 1픽셀 캔버스 (줄 높이 7, 줄 간격 4)
-function pixelText(cv, lines, col = '#ffffff') {
+function pixelText(cv, lines, col = '#ffffff', align = 'left') {   // align 'right': 줄마다 오른쪽 끝을 맞춘다
   const src = cv._src || (cv._src = document.createElement('canvas'));   // 1칸 = 1픽셀. 화면에는 layoutTitle이 늘려 그린다
-  src.width = Math.max(...lines.map(fontWidth)) + 1; src.height = lines.length * 11 - 3;
+  const W = Math.max(...lines.map(fontWidth));
+  src.width = W + 1; src.height = lines.length * 11 - 3;
   const g = src.getContext('2d');
   for (const [c, d] of [['rgba(0,0,0,.75)', 1], [col, 0]]) {   // 검은 그림자(오른쪽 아래 1칸) → 글자
     g.fillStyle = c;
-    lines.forEach((t, li) => fontDraw(t, d, d + li * 11, 1, (a, b) => g.fillRect(a, b, 1, 1)));
+    lines.forEach((t, li) => fontDraw(t, d + (align === 'right' ? W - fontWidth(t) : 0), d + li * 11, 1, (a, b) => g.fillRect(a, b, 1, 1)));
   }
 }
 // ---- 타이틀 그림: 제목·MIYACAT 로고는 images/의 도트 PNG (직접 고쳐 쓸 수 있게 따로 둔다), 제목 아래 설명 한 줄은 HUD 글꼴,
@@ -7388,7 +7458,7 @@ function drawTitleKeys(pad) {
   titlePad = pad;
   const c = document.getElementById('tPress');
   if (!c) return;
-  pixelText(c, [pad ? 'PRESS A TO PLAY' : 'PRESS SPACE TO PLAY']);
+  pixelText(c, [pad ? 'PRESS A TO PLAY' : 'PRESS SPACE TO PLAY'], '#ffffff', 'right');
   drawCamoText();
   if (c._css) layoutTitle();
 }
@@ -7396,7 +7466,7 @@ function drawTitleKeys(pad) {
 function drawCamoText() {
   const c = document.getElementById('tCamo');
   if (!c) return;
-  pixelText(c, [`${titlePad ? 'LB / RB' : 'Q / E'}  CHANGE CAMO: ${CAMO_LIST[camoIdx].name}`]);
+  pixelText(c, [`${titlePad ? 'LB / RB' : 'Q / E'}  CHANGE CAMO: ${CAMO_LIST[camoIdx].name}`, `${titlePad ? '<  /  >' : 'A / D'}  DECALS: ${DECAL_SETS[decalIdx].name}`], '#ffffff', 'right');   // 우하단 키 안내: 오른쪽 정렬
   if (c._css) layoutTitle();
 }
 // 타이틀 부품 설명: 부품 한 점에서 비스듬한 지시선 → 글자 밑줄. 글자는 짙은 먹색에 흰 테두리 (게임 해상도 그대로 그려 늘린다)
@@ -8078,7 +8148,7 @@ const confirmUI = {
 //   (A = ✕, B = ○, Y = △, X = □, LB·RB = L1·R1, START = OPTIONS, BACK = SHARE/CREATE)
 //  플레이: 왼쪽 스틱 = 주행·선회, 오른쪽 스틱 = 포탑(좌우)·포각(위아래), RT 또는 A = 발사, LB·RB = 포탑 돌리기,
 //          방향키 ←·↑·→ = 성장 선택 1·2·3, Y = 세우기(G), START = 일시정지(ESC)
-//  타이틀: A = 시작, LB·RB = 위장색
+//  타이틀: A = 시작, LB·RB = 위장색, 방향키 ←→ = 데칼 셋
 //  일시정지(정보 창): LB·RB = 탭, 방향키 ↑↓ = 한 줄씩 넘기기(누르고 있으면 계속), ←→ = 맨 위·맨 아래, B 또는 START = 계속하기, Y 또는 BACK = 첫 화면으로
 //  첫 화면으로 확인 창: A = 예, B = 아니오
 //  전투 불능·적군 섬멸 창: Y = 재출격·새로 시작(G), BACK = 첫 화면으로(T)
@@ -8101,7 +8171,7 @@ function padPoll() {
     const B = (i) => !!gp.buttons[i]?.pressed, E = {};
     for (const i of [0, 1, 3, 4, 5, 8, 9, 12, 13, 14, 15]) { const k = gp.index * 100 + i, p = B(i); E[i] = p && !padPrev[k]; padPrev[k] = p; }   // 누르는 순간
     const scr = UI.screen;
-    if (titleState === 'title') { if (E[0]) padKey('Space'); if (E[4]) padKey('KeyQ'); if (E[5]) padKey('KeyE'); continue; }   // 위장색: LB·RB
+    if (titleState === 'title') { if (E[0]) padKey('Space'); if (E[4]) padKey('KeyQ'); if (E[5]) padKey('KeyE'); if (E[14]) padKey('KeyA'); if (E[15]) padKey('KeyD'); continue; }   // 위장색: LB·RB, 데칼 셋: 방향키 ←→
     if (scr === confirmUI) { if (E[0]) padKey('KeyY'); if (E[1] || E[9]) padKey('KeyN'); continue; }
     if (scr === pauseUI) {
       if (E[4]) padKey('KeyQ'); if (E[5]) padKey('KeyE');
@@ -8155,6 +8225,7 @@ const leafMeshes = LEAF_SHAPES.map((rows) => {
 const leaves = [], _lq = new THREE.Quaternion(), _lm = new THREE.Matrix4(), _ls = new THREE.Vector3(1, 1, 1), _lc = new THREE.Color(), _ln = [0, 0, 0, 0];
 let leafAcc = 0;
 function updateLeaves(dt) {
+  if (decalMode) { for (const m of leafMeshes) m.visible = false; return; }   // 데칼 편집: 배경은 모두 끈다
   if (titleState === 'play') { if (leafMeshes[0].visible) { leaves.length = 0; for (const m of leafMeshes) { m.count = 0; m.visible = false; } } return; }
   const c = controls.target, wd = U.uWindDir.value, ws = U.uWind.value, t = U.uTime.value;
   if (titleState === 'title' && TDET.leaves > 0) for (leafAcc += dt * TDET.leaves; leafAcc >= 1 && leaves.length < LEAF_N * 4; leafAcc--) {
@@ -8446,6 +8517,200 @@ const editUI = {
   click(id) { if (id.startsWith('add')) editAdd(+id.slice(3)); },
 };
 Object.assign(window.dbg, { mapFileText, setEditMode, editAdd, editMove, editSelect, BUNKERS, damageBunker, edit: () => ({ editMode, editSel }) });
+// ===== src/86_decal_editor.js =====
+// ---------------------------------------------------------------- 데칼 편집 모드 (설정 메뉴 '데칼 편집 모드', 타이틀 화면에서만. 개발용)
+// 배경을 모두 끄고 내 탱크만 남긴다. 카메라는 마우스로 돌린다. 오른쪽 위 목록에서 그림을 고르면 지금 보이는 포탑 옆면 가운데에 붙는다.
+// 고른 데칼: WASD 옮기기 · QE 돌리기 · RF 크기 (Shift 잘게) · Del 지우기. 아무것도 안 골랐을 때: A/D 셋 바꾸기 · N 새 셋 · T 포탑 뒤집기 · C decals.js 복사
+let decalMode = false, decalSel = null, decalFlip = false, decalMsg = '', decalMsgT = 0, decalBg = null;
+const decalHidden = [];   // 편집하는 동안 숨긴 장면 물체와 원래 보임
+const decalSelLine = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints([[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]].map(([x, y]) => new THREE.Vector3(x, y, 0.01))),
+  new THREE.LineBasicMaterial({ color: 0xffffff, depthTest: false, fog: false }));   // 고른 데칼 테두리 (깜빡인다)
+decalSelLine.renderOrder = 7; decalSelLine.userData.noOutline = true;
+function decalNote(t) { decalMsg = t; decalMsgT = 2.5; uiDirty(); }
+const decalBtn = document.getElementById('decalEditBtn');
+function setDecalMode(on) {
+  if (on === decalMode) return;
+  if (on && titleState !== 'title') { decalBtn.textContent = '데칼 편집 모드 (타이틀에서만)'; return; }
+  decalMode = on;
+  if (on) {
+    for (const o of scene.children) if (o !== tankGroup && !o.isLight && !o.isCamera && o.visible) { decalHidden.push(o); o.visible = false; }
+    document.getElementById('title').style.visibility = 'hidden';
+    decalBg = scene.background; scene.background = new THREE.Color(0x34373a);   // 배경은 어두운 회색 (하늘·안개 대신)
+    controls.enabled = true; decalFlip = false;
+    decalView(1);
+    uiShow(decalUI);
+  } else {
+    for (const o of decalHidden) o.visible = true;
+    decalHidden.length = 0;
+    document.getElementById('title').style.visibility = '';
+    scene.background = decalBg; applyEnv();   // 배경·그라데이션 되돌리기
+    controls.enabled = false; decalSelect(null); decalFlip = false;
+    if (UI.screen === decalUI) uiShow(null);
+  }
+  decalBtn.textContent = decalMode ? '데칼 편집 모드 끝내기' : '데칼 편집 모드';
+}
+decalBtn.onclick = (e) => { setDecalMode(!decalMode); e.target.blur(); };
+// 카메라를 포탑 옆(sd = 1 왼쪽 / -1 오른쪽)에서 바라보게
+const _dv = new THREE.Vector3(), _dv2 = new THREE.Vector3();
+function decalView(sd) {
+  tankGroup.updateMatrixWorld(true);
+  parts.turret.localToWorld(_dv.set(0, TUR.y, 0));
+  parts.turret.localToWorld(_dv2.set(sd * 9, TUR.y + 1.2, 0));
+  controls.target.copy(_dv); camera.position.copy(_dv2); camera.lookAt(_dv);
+}
+// 지금 카메라 쪽 포탑 옆면 (1 = 왼쪽 +x / -1 = 오른쪽)
+const decalSide = () => parts.turret.worldToLocal(_dv.copy(camera.position)).x >= 0 ? 1 : -1;
+function decalSelect(m) {
+  decalSelLine.removeFromParent();
+  decalSel = m || null;
+  if (decalSel) decalSel.add(decalSelLine);
+  uiDirty();
+}
+function decalSet() { return DECAL_SETS[decalIdx]; }
+function decalAdd(i) {
+  const name = DECAL_NAMES[i];
+  if (!name) return;
+  const d = { img: name, side: decalSide(), z: 0, y: 0, rot: 0, s: 0.6 };
+  decalSet().decals.push(d);
+  decalSelect(addDecalMesh(d));
+  decalNote(`${name} 추가 (${d.side > 0 ? '왼쪽' : '오른쪽'})`);
+}
+function decalDelete() {
+  const d = decalSel.userData.decal, L = decalSet().decals;
+  L.splice(L.indexOf(d), 1);
+  const m = decalSel; decalSelect(null); m.removeFromParent();
+  decalNote(`${d.img} 지웠어요`);
+}
+function decalChange(fn) {   // 고른 데칼 값을 바꾸고 다시 놓는다 (옆면 밖으로 너무 나가지 않게)
+  const d = decalSel.userData.decal;
+  fn(d);
+  d.s = Math.max(0.1, Math.min(1.4, d.s));
+  d.z = Math.max(-TUR.d / 2, Math.min(TUR.d / 2, d.z)); d.y = Math.max(-TUR.h / 2, Math.min(TUR.h / 2, d.y));
+  decalPose(d, decalSel); uiDirty();
+}
+function decalSwitch(dir) { decalSelect(null); setDecalSet(decalIdx + dir); decalNote(`셋: ${decalSet().name}`); }
+function decalNewSet() {
+  let n = DECAL_SETS.length, name;
+  do name = `SET ${n++}`; while (DECAL_SETS.some((s) => s.name === name));
+  DECAL_SETS.push({ name, decals: [] });
+  decalSwitch(DECAL_SETS.length - 1 - decalIdx);
+  decalNote(`새 셋 '${name}' (이름은 decals.js에서 고친다)`);
+}
+// ---- decals.js 형식으로 복사
+const dn2 = (v) => Math.round(v * 1000) / 1000;
+function decalFileText() {
+  const sets = DECAL_SETS.map((s) => `  { name: '${s.name.replace(/'/g, "\\'")}', decals: [${s.decals.length ? '\n' + s.decals.map((d) =>
+    `    { img: '${d.img}', side: ${d.side}, z: ${dn2(d.z)}, y: ${dn2(d.y)}, rot: ${Math.round(d.rot)}, s: ${dn2(d.s)} },`).join('\n') + '\n  ' : ''}] },`).join('\n');
+  return `// 데칼 셋: 내 탱크 포탑 좌우에 붙이는 그림 묶음. 타이틀에서 A/D(패드 방향키 ←→)로 고른다 (위장색 × 데칼 셋).
+// 게임의 설정 메뉴(\` 키) → 타이틀 화면에서 '데칼 편집 모드'로 고친 뒤 C를 누르면 이 파일 내용 전체가 복사된다. 그대로 덮어 붙여 넣으면 된다.
+//   name: 셋 이름 (타이틀에 보인다. 영어 대문자·숫자)
+//   img: 그림 이름 = images/decals/의 PNG 파일 이름 (확장자 빼고). 그림을 고치거나 더하면 python tools/build.py (decal_images.js를 다시 만든다)
+//   side: 1 = 왼쪽(탱크 기준) · -1 = 오른쪽     z: 앞뒤 위치 (m, 포탑 가운데 0, 앞이 +)     y: 높이 (m, 포탑 옆면 가운데 0)
+//   rot: 돌림 (°, 바깥에서 볼 때 시계 반대 방향 +)     s: 크기 (m)
+window.DECAL_SETS = [
+${sets}
+];
+`;
+}
+function decalCopy() {
+  const t = decalFileText();
+  const fallback = () => { const ta = document.createElement('textarea'); ta.value = t; ta.style.cssText = 'position:fixed;left:-9999px;top:0'; document.body.appendChild(ta); ta.select(); let ok = false; try { ok = document.execCommand('copy'); } catch (_) {} ta.remove(); return ok; };
+  const done = (ok) => decalNote(ok ? 'decals.js 전체 복사했어요' : '복사하지 못했어요');
+  if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(t).then(() => done(true), () => done(fallback()));
+  else done(fallback());
+}
+// ---- 입력: 편집 중에는 키를 모두 가로챈다 (설정 메뉴 \` 키·Ctrl 조합은 그대로)
+addEventListener('keydown', (e) => {
+  if (!decalMode || e.code === 'Backquote' || e.ctrlKey || e.metaKey || e.altKey || /^F\d+$/.test(e.code)) return;
+  if (e.target && /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
+  e.preventDefault(); e.stopImmediatePropagation();
+  if (/^Digit[1-9]$/.test(e.code)) { decalAdd(+e.code.slice(5) - 1); return; }
+  if (e.code === 'Escape') { decalSelect(null); return; }
+  if (e.code === 'KeyT') { decalFlip = !decalFlip; decalNote(decalFlip ? '포탑을 뒤로 돌렸어요' : '포탑을 앞으로 돌렸어요'); return; }
+  if (e.code === 'KeyC') { decalCopy(); return; }
+  if (!decalSel) {
+    if (e.code === 'KeyA' || e.code === 'KeyD') decalSwitch(e.code === 'KeyD' ? 1 : -1);
+    else if (e.code === 'KeyN') decalNewSet();
+    return;
+  }
+  if (e.code === 'Delete' || e.code === 'Backspace') { decalDelete(); return; }
+  const fine = e.shiftKey, step = fine ? 0.005 : 0.02, sd = decalSel.userData.decal.side;
+  if (e.code === 'KeyW') decalChange((d) => { d.y += step; });
+  if (e.code === 'KeyS') decalChange((d) => { d.y -= step; });
+  if (e.code === 'KeyD') decalChange((d) => { d.z -= sd * step; });   // 화면 오른쪽 = 그 옆면의 오른쪽
+  if (e.code === 'KeyA') decalChange((d) => { d.z += sd * step; });
+  if (e.code === 'KeyQ') decalChange((d) => { d.rot += fine ? 1 : 5; });
+  if (e.code === 'KeyE') decalChange((d) => { d.rot -= fine ? 1 : 5; });
+  if (e.code === 'KeyR') decalChange((d) => { d.s *= fine ? 1.01 : 1.06; });
+  if (e.code === 'KeyF') decalChange((d) => { d.s /= fine ? 1.01 : 1.06; });
+}, true);
+// 클릭(끌지 않고 누름)으로 고르기. 끌면 카메라 돌리기
+let decalDown = null;
+const _dRay = new THREE.Raycaster();
+addEventListener('pointerdown', (e) => { if (decalMode && e.target === renderer.domElement) decalDown = { x: e.clientX, y: e.clientY }; }, true);
+addEventListener('pointerup', (e) => {
+  if (!decalMode || !decalDown || e.target !== renderer.domElement) { decalDown = null; return; }
+  const moved = Math.hypot(e.clientX - decalDown.x, e.clientY - decalDown.y); decalDown = null;
+  if (moved > 5) return;
+  const r = renderer.domElement.getBoundingClientRect();
+  _dRay.setFromCamera({ x: (e.clientX - r.left) / r.width * 2 - 1, y: -((e.clientY - r.top) / r.height) * 2 + 1 }, camera);
+  const hit = _dRay.intersectObjects(decalGroup.children, false)[0];
+  decalSelect(hit ? hit.object : null);
+}, true);
+// 매 프레임: 포탑 자세는 titlePose가, 카메라는 마우스(OrbitControls)가. 여기서는 테두리 깜빡임과 알림만
+function decalUpdate(dt) {
+  if (decalMsgT > 0 && (decalMsgT -= dt) <= 0) { decalMsg = ''; uiDirty(); }
+  decalSelLine.visible = (performance.now() % 600) < 400;
+  postMat.uniforms.uGrad.value = 0;   // 타이틀 화면 위쪽 흰 그라데이션 끄기 (끝내면 applyEnv가 되돌린다)
+}
+// ---- 화면: 오른쪽 위 그림 목록 (번호 · 작은 그림 · 이름), 왼쪽 위 셋 이름, 아래 조작키 안내·고른 데칼 정보·알림
+const DEC_C = '#9c9c9c';
+const decalUI = {
+  passive: true,
+  draw(ui) {
+    // 오른쪽 위: 그림 목록
+    const rowH = 18, lw = Math.max(...DECAL_NAMES.map((n) => gfWidth(n)), gfWidth('데칼 편집 · 붙이기')) + 44, x = ui.w - 6 - lw;
+    let y = 6;
+    ui.dim(x - 4, y - 3, lw + 8, 19 + DECAL_NAMES.length * rowH, 0.55);
+    ui.text('데칼 편집 · 붙이기', x, y, HC.color); y += GF_LINE + 4;
+    DECAL_NAMES.forEach((n, i) => {
+      const hot = ui.hit('add' + i, x - 4, y - 2, lw + 8, rowH);
+      const kw = ui.keyText(x, y + 2, `${i + 1}`, HC.color);
+      const img = decalTex(n).image;
+      if (img && img.complete && img.naturalWidth) { ucx.imageSmoothingEnabled = false; ucx.drawImage(img, x + kw + 4, y - 1, 16, 16); }
+      ui.text(n, x + kw + 24, y + 2, hot ? '#ffffff' : DEC_C);
+      y += rowH;
+    });
+    // 왼쪽 위: 셋 이름 (A/D로 바꾼다)
+    const s = decalSet(), st = `셋 ${decalIdx + 1}/${DECAL_SETS.length}  ${s.name}  (데칼 ${s.decals.length}장)`;
+    ui.dim(2, 3, gfWidth(st) + 60, 19, 0.55);
+    let sx = 6;
+    sx += ui.keyText(sx, 7, 'A', HC.color) + 2; sx += ui.keyText(sx, 7, 'D', HC.color) + 6;
+    ui.text(st, sx, 7, '#ffffff');
+    // 아래: 조작키
+    const help = decalSel
+      ? [['W A S D', '옮기기'], ['Q E', '돌리기'], ['R F', '크기'], ['Shift', '잘게'], ['Del', '지우기'], ['Esc', '선택 해제']]
+      : [['클릭', '고르기'], [`1~${DECAL_NAMES.length}`, '붙이기'], ['A D', '셋 바꾸기'], ['N', '새 셋'], ['T', '포탑 뒤집기'], ['C', 'decals.js 복사'], ['마우스 끌기', '카메라']];
+    const itemW = ([k, l]) => gfWidth(k) + 4 + 4 + gfWidth(l), gap = 10, maxW = ui.w - 16, rows = [[]];
+    let rw = 0;
+    for (const h of help) { const w = itemW(h); if (rows[rows.length - 1].length && rw + gap + w > maxW) { rows.push([]); rw = 0; } rw += (rw ? gap : 0) + w; rows[rows.length - 1].push(h); }
+    const d = decalSel && decalSel.userData.decal;
+    const info = d ? `${d.img}  ${d.side > 0 ? '왼쪽' : '오른쪽'}   z ${d.z.toFixed(3)}   y ${d.y.toFixed(3)}   ${Math.round(d.rot)}°   크기 ${d.s.toFixed(2)}` : '고른 데칼 없음';
+    const lines = rows.length + 1 + (decalMsg ? 1 : 0), y0 = ui.h - 6 - lines * GF_LINE;
+    ui.dim(0, y0 - 4, ui.w, ui.h - y0 + 4, 0.55);
+    let ly = y0;
+    if (decalMsg) { ui.text(decalMsg, ui.w / 2, ly, '#ffd25a', 'center'); ly += GF_LINE; }
+    ui.text(info, ui.w / 2, ly, d ? '#ffffff' : DEC_C, 'center'); ly += GF_LINE;
+    for (const row of rows) {
+      const w = row.reduce((n, h, i) => n + itemW(h) + (i ? gap : 0), 0);
+      let hx = Math.round((ui.w - w) / 2);
+      for (const [k, l] of row) { hx += ui.keyText(hx, ly, k, HC.color) + 4; hx = ui.text(l, hx, ly, DEC_C) + gap; }
+      ly += GF_LINE;
+    }
+  },
+  click(id) { if (id.startsWith('add')) decalAdd(+id.slice(3)); },
+};
+Object.assign(window.dbg, { setDecalMode, decalFileText, DECAL_SETS, setDecalSet });
 // ===== src/90_loop.js =====
 function tick(dt) {
   perfT.length = 0; perfLast = performance.now();
@@ -8690,8 +8955,9 @@ function frame() {
   updateFadeIns(dt); updateChutes(dt);
 
   // 카메라 추적 + 흔들림 (타이틀·전환 중에는 타이틀 카메라와 섞는다)
-  titleCamBegin();
-  if (editMode) editUpdate(uiDt);   // 맵 편집: 카메라는 탱크를 따라가지 않는다
+  if (!decalMode) titleCamBegin();
+  if (decalMode) decalUpdate(uiDt);   // 데칼 편집: 카메라는 마우스로 (타이틀 카메라를 섞지 않는다)
+  else if (editMode) editUpdate(uiDt);   // 맵 편집: 카메라는 탱크를 따라가지 않는다
   else if (titleState === 'trans') playRestCam();   // 타이틀 → 플레이 전환: 섞을 플레이 카메라는 끝났을 때 자리에 고정 (움직이는 카메라와 섞으면 출렁인다)
   else {
     updateCamLead(dt);
@@ -8706,8 +8972,7 @@ function frame() {
   updateTitle(dt);
   updateWeather(dt);
   missionCheck();
-  titleCamEnd();
-  drawCallouts();
+  if (!decalMode) { titleCamEnd(); drawCallouts(); }
   updateHudReveal(dt);
   shake = Math.max(0, shake - dt * 2.5);
   _shake.set(rr(-1, 1), rr(-1, 1), rr(-1, 1)).multiplyScalar(shake * 0.35);
