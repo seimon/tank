@@ -97,11 +97,13 @@ function contactForce(cp, pen, n, wall) {
 function woodHit() {
   if (-_vp.dot(_n) < 1.0 || U.uTime.value - (B.woodAt || -9) < 0.35) return;
   B.woodAt = U.uTime.value;
+  if (B === tank) padRumble(0.3, 0.45, 90);   // 패드 진동: 부딪힘
   sfx.wood(_pw, Math.min(1.4, 0.5 - _vp.dot(_n) * 0.25));
 }
 function metalHit() {
   if (-_vp.dot(_n) < 1.2 || U.uTime.value - (B.sparkAt || -9) < 0.35) return;
   B.sparkAt = U.uTime.value;
+  if (B === tank) padRumble(0.4, 0.55, 100);   // 패드 진동: 쇠끼리 부딪힘
   sparks(_pw, _n);
 }
 // 불똥: 작고 밝은 점이 빠르게 사방으로 튀고, 날아가는 자리마다 더 작은 점을 흘려 선처럼 보이게 (뿌연 덩어리 없이)
@@ -246,18 +248,65 @@ const decalGeo = new THREE.PlaneGeometry(1, 1);
 const decalMat = ps1(new THREE.MeshBasicMaterial({ map: scorchTex, transparent: true, depthWrite: false, ...DECAL, polygonOffsetFactor: -4 }));
 const decals = [];
 // 건물 그을음: 맞은 물체의 면에 투영해 스티커처럼 붙인다 (모서리에 맞아도 허공에 뜨지 않고 꺾인 면을 따라 감긴다)
-const _dproj = new THREE.Object3D(), _dsize = new THREE.Vector3();
+const _dproj = new THREE.Object3D(), _dsize = new THREE.Vector3(), _dsc = new THREE.Vector3();
+// 데칼 상자(가로·세로 s, 깊이 2.2)에 닿을 수 있는 메시만 고른다: 메시 경계 구가 데칼 둘레 구와 겹치는 것만 (모든 메시에 투영하면 수백 ms가 걸렸다)
+function scorchTargets(group, p, s, out) {
+  const R = Math.hypot(s / 2, s / 2, 1.1);
+  group.traverse((o) => {
+    if (!o.isMesh || o.material.transparent) return;
+    const g = o.geometry; if (!g.boundingSphere) g.computeBoundingSphere();
+    _dsc.copy(g.boundingSphere.center).applyMatrix4(o.matrixWorld);
+    if (_dsc.distanceTo(p) <= g.boundingSphere.radius * o.matrixWorld.getMaxScaleOnAxis() + R) out.push(o);
+  });
+  return out;
+}
+// 데칼 둘레(반지름 R)에 닿는 삼각형만 골라 작은 임시 메시로 (DecalGeometry는 삼각형마다 자르기를 해서 느리다: 건물은 AO로 잘게 나뉘어 수만 개).
+// 거르기는 메시 자기 좌표에서 삼각형 경계 상자로만 (꼭짓점 변환 없이). 닿는 삼각형이 없으면 null
+const _scInv = new THREE.Matrix4(), _scLp = new THREE.Vector3(), _cullMesh = new THREE.Mesh(), _scM3 = new THREE.Matrix3(), _scR = new THREE.Matrix4(), _scA = new THREE.Vector3(), _scB = new THREE.Vector3(), _scC = new THREE.Vector3();
+_cullMesh.matrixAutoUpdate = false;
+function decalCulled(o, p, R, rot, size) {
+  _scInv.copy(o.matrixWorld).invert(); _scLp.copy(p).applyMatrix4(_scInv);
+  const r = R * 1.05 / Math.max(1e-6, o.matrixWorld.getMaxScaleOnAxis()), px = _scLp.x, py = _scLp.y, pz = _scLp.z;
+  // 데칼 상자 축을 메시 자기 좌표로 (꼭짓점 차이와 내적하면 데칼 상자 기준 좌표): 둘레 상자로 거른 뒤 데칼 상자 방향으로 한 번 더
+  _scM3.setFromMatrix4(o.matrixWorld).transpose(); _scR.makeRotationFromEuler(rot); _scR.extractBasis(_scA, _scB, _scC);
+  _scA.applyMatrix3(_scM3); _scB.applyMatrix3(_scM3); _scC.applyMatrix3(_scM3);
+  const hx = size.x * 0.53, hy = size.y * 0.53, hz = size.z * 0.53;
+  const off = (A, h, a, b, c) => {   // 삼각형이 이 축 방향으로 상자 밖인가
+    const da = (P[a] - px) * A.x + (P[a + 1] - py) * A.y + (P[a + 2] - pz) * A.z, db = (P[b] - px) * A.x + (P[b + 1] - py) * A.y + (P[b + 2] - pz) * A.z, dc = (P[c] - px) * A.x + (P[c + 1] - py) * A.y + (P[c + 2] - pz) * A.z;
+    return Math.max(da, db, dc) < -h || Math.min(da, db, dc) > h;
+  };
+  const g = o.geometry, P = g.attributes.position.array, N = g.attributes.normal && g.attributes.normal.array, I = g.index && g.index.array;
+  const cnt = I ? I.length : P.length / 3, outP = [], outN = [];
+  for (let t = 0; t < cnt; t += 3) {
+    const a = (I ? I[t] : t) * 3, b = (I ? I[t + 1] : t + 1) * 3, c = (I ? I[t + 2] : t + 2) * 3;
+    const x0 = Math.min(P[a], P[b], P[c]), x1 = Math.max(P[a], P[b], P[c]);
+    if (px < x0 - r || px > x1 + r) continue;
+    const y0 = Math.min(P[a + 1], P[b + 1], P[c + 1]), y1 = Math.max(P[a + 1], P[b + 1], P[c + 1]);
+    if (py < y0 - r || py > y1 + r) continue;
+    const z0 = Math.min(P[a + 2], P[b + 2], P[c + 2]), z1 = Math.max(P[a + 2], P[b + 2], P[c + 2]);
+    if (pz < z0 - r || pz > z1 + r) continue;
+    if (off(_scC, hz, a, b, c) || off(_scA, hx, a, b, c) || off(_scB, hy, a, b, c)) continue;
+    for (const k of [a, b, c]) { outP.push(P[k], P[k + 1], P[k + 2]); if (N) outN.push(N[k], N[k + 1], N[k + 2]); else outN.push(0, 1, 0); }
+  }
+  if (!outP.length) return null;
+  const tg = new THREE.BufferGeometry();
+  tg.setAttribute('position', new THREE.Float32BufferAttribute(outP, 3)); tg.setAttribute('normal', new THREE.Float32BufferAttribute(outN, 3));
+  _cullMesh.geometry = tg; _cullMesh.matrixWorld.copy(o.matrixWorld);
+  const geo = new DecalGeometry(_cullMesh, p, rot, size);
+  tg.dispose();
+  return geo;
+}
 function addScorchDecal(p, n, group, s = rr(4.4, 6.4), keep = false) {
   if (!group) return;
+  if (group.userData.ray) group = group.userData.ray;   // 건물: 잘게 쪼개기 전 저해상도 사본에 투영 (보이는 건물과 같은 면)
   _dproj.position.copy(p); _dproj.lookAt(_tmp.copy(p).add(n)); _dproj.rotateZ(rand() * 6.283);
   _dsize.set(s, s, 2.2);
   const g = new THREE.Group();
   group.updateMatrixWorld(true);
-  group.traverse((o) => {
-    if (!o.isMesh || o.material.transparent) return;
-    const geo = new DecalGeometry(o, p, _dproj.rotation, _dsize);
-    if (geo.attributes.position.count) g.add(new THREE.Mesh(geo, decalMat)); else geo.dispose();
-  });
+  for (const o of scorchTargets(group, p, s, [])) {
+    const geo = decalCulled(o, p, Math.hypot(s / 2, s / 2, 1.1), _dproj.rotation, _dsize);
+    if (geo && geo.attributes.position.count) g.add(new THREE.Mesh(geo, decalMat)); else if (geo) geo.dispose();
+  }
   scene.add(g);
   if (keep) return g;   // 영구 자국은 오래된 순 삭제 대상이 아니다
   decals.push(g);
@@ -265,21 +314,40 @@ function addScorchDecal(p, n, group, s = rr(4.4, 6.4), keep = false) {
 }
 // 투명한 벽에 남는 그을음: 한동안 허공에 떠 있다가 옅어지며 사라진다
 const wallDecals = [];
-// 부서진 탱크에는 폭발 자국이 영구히 몇 군데 붙어 있다
-for (const w of WRECKS) wreckScorch(w);
-function wreckScorch(w) {
-  w.group.updateMatrixWorld(true);
-  const c = new THREE.Vector3(w.x, w.group.position.y + 1.6, w.z), dir = new THREE.Vector3();
-  for (let k = 0, got = 0; k < 20 && got < 5; k++) {
-    dir.set(rr(-1, 1), rr(0.15, 1), rr(-1, 1)).normalize();
-    raycaster.set(c.clone().addScaledVector(dir, 7), dir.clone().negate()); raycaster.far = 10;
-    const h = raycaster.intersectObject(w.group, true).find(o => o.face);
-    if (!h) continue;
-    const n = h.face.normal.clone().transformDirection(h.object.matrixWorld);
-    w.decals.push(addScorchDecal(h.point, n, w.group, rr(1.3, 2.3), true));
-    got++;
+// 부서진 탱크에는 폭발 자국이 영구히 몇 군데 붙어 있다.
+// 잔해는 모두 같은 모델이라, 로딩 때 잔해 기준 좌표로 자국 묶음을 3벌 만들어 두고 잔해마다 하나를 자식으로 붙인다
+// (예전엔 탱크가 터질 때마다 그 자리에서 투영해 한 프레임에 수십~수백 ms가 걸려 끊겼다). 기하는 모든 잔해가 같이 쓴다
+const WRECK_SCORCH = (() => {
+  let sd = 4242;
+  const r = () => ((sd = (sd * 16807) % 2147483647) - 1) / 2147483646, rrr = (a, b) => a + (b - a) * r();   // (전역 난수 순서를 건드리지 않게)
+  const src = wreckModel.clone(); src.position.set(0, 0, 0); src.rotation.set(0, 0, 0); src.updateMatrixWorld(true);
+  const c = new THREE.Vector3(0, 1.6, 0), dir = new THREE.Vector3(), out = [];
+  for (let v = 0; v < 3; v++) {
+    const geos = [];
+    for (let k = 0, got = 0; k < 20 && got < 5; k++) {
+      dir.set(rrr(-1, 1), rrr(0.15, 1), rrr(-1, 1)).normalize();
+      raycaster.set(c.clone().addScaledVector(dir, 7), dir.clone().negate()); raycaster.far = 10;
+      const h = raycaster.intersectObject(src, true).find((o) => o.face && !o.object.material.transparent);
+      if (!h) continue;
+      const n = h.face.normal.clone().transformDirection(h.object.matrixWorld), s = rrr(1.3, 2.3);
+      _dproj.position.copy(h.point); _dproj.lookAt(_tmp.copy(h.point).add(n)); _dproj.rotateZ(r() * 6.283);
+      _dsize.set(s, s, 2.2);
+      for (const o of scorchTargets(src, h.point, s, [])) {
+        const geo = decalCulled(o, h.point, Math.hypot(s / 2, s / 2, 1.1), _dproj.rotation, _dsize);
+        if (geo && geo.attributes.position.count) geos.push(geo); else if (geo) geo.dispose();
+      }
+      got++;
+    }
+    out.push(geos.length ? mergeGeometries(geos) : null);   // 한 벌 = 메시 하나 (그리기 1번)
   }
+  raycaster.far = Infinity;
+  return out;
+})();
+function wreckScorch(w) {   // 잔해에 미리 만든 자국 한 벌을 붙인다 (어느 벌인지는 자리로 정한다)
+  const geo = WRECK_SCORCH[Math.abs(Math.round(w.x * 7 + w.z * 13)) % WRECK_SCORCH.length];
+  if (geo) { const m = new THREE.Mesh(geo, decalMat); m.userData.noOutline = true; w.group.add(m); }
 }
+for (const w of WRECKS) wreckScorch(w);
 // 벽 평면 위의 격자로 만들고, 보드 모서리를 넘는 부분은 옆 벽으로 꺾어 붙인다 (경계 밖으로 삐져나가지 않게)
 function addWallScorch(p, n) {
   const s = rr(4.4, 6.4), a = rand() * 6.283, ca = Math.cos(a), sa = Math.sin(a), G = 8, E = HALF - 0.03;
@@ -320,6 +388,7 @@ function addBlast(x, y, z, r) {
 }
 // power 1 = 땅에 떨어진 포탄, 3 = 공격 대상 직격
 function explode(p, n, decal, power = 1, noPush = false) {   // noPush: 내 탱크를 밀어내지 않음 (들이받아 깬 보급품)
+  vfStamp(p.x, p.z, VF.blastRadius * Math.min(1.5, Math.max(0.5, power)));   // 복셀 안개를 밀어낸다
   sfx.boom(p, power);
   const P = power, S = 1 + (P - 1) * 0.45, R = 3.6 * (1 + (P - 1) * 0.5);
   if (P > 1) {
@@ -385,6 +454,7 @@ function explode(p, n, decal, power = 1, noPush = false) {   // noPush: 내 탱�
     applyAngularImpulse(new THREE.Vector3(rr(-1, 1), rr(-1, 1), rr(-1, 1)).multiplyScalar(s * 0.12), J);
   }
   shake = Math.min(1.6 * S, shake + Math.max(0.25, 1.5 * S - camera.position.distanceTo(p) / 60));
+  { const k = S * (1 - tank.pos.distanceTo(p) / 30); if (k > 0.05) padRumble(Math.min(1, k * 0.9), Math.min(1, k), 120 + 220 * Math.min(1, k)); }   // 패드 진동: 가까운 폭발일수록 세고 길게
 }
 // 물에 떨어지면 물기둥만
 function splash(p) {
@@ -429,7 +499,12 @@ const kitGeo = (() => {
   parts.forEach((g, i) => { const c = new Float32Array(g.attributes.position.count * 3); for (let k = 0; k < c.length; k += 3) cols[i].toArray(c, k); g.setAttribute('color', new THREE.BufferAttribute(c, 3)); });
   return mergeGeometries(parts).scale(1.3, 1.3, 1.3);
 })();
-const kitMesh = new THREE.InstancedMesh(kitGeo, coinMat, 40);   // 골드와 같은 금색·반짝임으로 잘 보이게
+const kitMat = ps1(new THREE.MeshLambertMaterial({ color: 0x46d060, emissive: 0x0c3a16 }), (sh) => {   // 수리 도구: 초록 (금화와 같은 반짝임)
+  sh.fragmentShader = sh.fragmentShader.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+    float glint = max(normal.z, 0.0);
+    totalEmissiveRadiance += vec3(0.75, 1.0, 0.8) * (pow(glint, 24.0) * 1.8 + pow(glint, 4.0) * 0.25);`);
+}, 'kit');
+const kitMesh = new THREE.InstancedMesh(kitGeo, kitMat, 40);
 kitMesh.count = 0; kitMesh.frustumCulled = false; scene.add(kitMesh);
 const shardMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), lambert({ color: 0xffffff }), 480);
 shardMesh.userData.noOutline = true;
@@ -620,10 +695,12 @@ function updateCoins(dt) {
       c.q.setFromAxisAngle(_cu, c.spin);
       if (dist < PICK_R) {
         const v = c.val || (TK === tank ? tank.goldMul || 1 : 1);   // 뱉은 골드는 값 그대로, 새 골드는 골드 배수만큼
+        const hp0 = TK.hp;
         if (c.kit) TK.hp = Math.min(TK.maxHp, TK.hp + (TK === tank && tank.berserk ? Math.max(1, Math.floor(KIT_HEAL / 2)) : KIT_HEAL));   // '광전사': 수리 절반 (최소 1)
-        else if (TK === tank) { goldGain(v); if (tank.scrap) tank.hp = Math.min(tank.maxHp, tank.hp + tank.scrap); }   // '고물상': 금화 하나에 HP (골드 배수와 무관)
+        else if (TK === tank) { goldGain(v); dmgTextGold(v, c.p); if (tank.scrap) tank.hp = Math.min(tank.maxHp, tank.hp + tank.scrap); }   // '고물상': 금화 하나에 HP (골드 배수와 무관)
         else TK.gold += v;
-        if (TK === tank) { if (c.kit) sfx.kit(); else sfx.coin(); }
+        dmgTextHeal(TK, TK.hp - hp0, c.p);   // 대미지 숫자: 회복 (+). 날아온 쪽 반대로
+        if (TK === tank) { if (c.kit) { sfx.kit(); padRumble(0.1, 0.4, 60); } else { sfx.coin(); padRumble(0, 0.22, 35); } }   // 패드 진동: 줍기 (톡)
         for (let k = 0; k < 10; k++)
           glowP.spawn(c.p.x, c.p.y, c.p.z, rr(-2, 2), rr(1, 4), rr(-2, 2), rr(0.3, 0.6), c.kit ? [0.6, 1, 0.65, 1] : [1, 0.9, 0.4, 1], c.kit ? [0.1, 0.6, 0.2, 0] : [1, 0.6, 0.1, 0], 0.18, 0.05, 4, 1);
         coins.splice(i, 1);
@@ -944,6 +1021,7 @@ function fireCannon(T = tank, spread = 0) {
   if (T === tank && titleState === 'play') for (const E of ENEMIES) if (E.solid && !E.spg && E.pos.distanceTo(T.pos) < HEAR_SHOT_R) { E.seenX = T.pos.x; E.seenZ = T.pos.z; E.lost = Math.min(E.lost || 0, 1); }   // 포성: 가까운 적이 소리 난 곳으로 온다
   // 반동: 몸통이 뒤로 밀리고 앞이 들린다
   T.vel.addScaledVector(dir, -RECOIL);
+  vfPush(_tip.x + dir.x * 2.5, _tip.z + dir.z * 2.5, 5, 4, dir.x * VF.cannonPush, dir.z * VF.cannonPush, 0.5);   // 복셀 안개: 포구 앞으로 풍압
   applyAngularImpulse(_tmp.copy(_tip).sub(T.pos).cross(dir.clone().multiplyScalar(-RECOIL)), T);
   T.recoil = 1;
   // 포구를 중심으로 풀이 바깥으로 확 눕고 (범위 9.6m), 땅에서 흙먼지 고리가 퍼진다 (탱크·상자 착지와 같은 먼지, 2배 빠르게)

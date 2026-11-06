@@ -34,7 +34,7 @@ function pixelText(cv, lines, col = '#ffffff', align = 'left') {   // align 'rig
 // 좌하단 배지는 사각형 + HUD 글꼴. 모두 게임 픽셀 단위 캔버스(_src)에 한 번 그리고 layoutTitle이 늘려 보인다
 const titleSrc = (id, w, h) => { const c = document.getElementById(id), s = c._src || (c._src = document.createElement('canvas')); s.width = w; s.height = h; return s.getContext('2d'); };
 const fontText = (g, t, x, y, k = 1) => fontDraw(t, x, y, k, (a, b, kk) => g.fillRect(a, b, kk, kk));
-const loadImg = (src) => new Promise((ok) => { const im = new Image(); im.onload = () => ok(im); im.onerror = () => ok(null); im.src = src; });
+const loadImg = (src) => new Promise((ok) => { const im = new Image(); im.onload = () => ok(im); im.onerror = () => ok(null); im.src = imgSrc(src); });
 const TGREEN = '#2e6a40', TINK = '#1b1b19', TCREAM = '#f6f1e3';
 async function drawTitleArt() {
   const [logo, brand, deco] = await Promise.all(['title_logo', 'title_brand', 'title_deco'].map((n) => loadImg(`images/${n}.png`)));
@@ -83,7 +83,7 @@ function drawTitleKeys(pad) {
 function drawCamoText() {
   const c = document.getElementById('tCamo');
   if (!c) return;
-  pixelText(c, [`${titlePad ? 'LB / RB' : 'Q / E'}  CHANGE CAMO: ${CAMO_LIST[camoIdx].name}`, `${titlePad ? '<  /  >' : 'A / D'}  DECALS: ${DECAL_SETS[decalIdx].name}`], '#ffffff', 'right');   // 우하단 키 안내: 오른쪽 정렬
+  pixelText(c, [`${titlePad ? 'LB / RB' : 'Q / E'}  CHANGE CAMO: ${CAMO_LIST[camoIdx].name}`, `${titlePad ? '<  /  >' : 'A / D'}  DECALS: ${DECAL_SETS[decalIdx].name}`, `${titlePad ? 'START' : 'ESC'}  SETTINGS`], '#ffffff', 'right');   // 우하단 키 안내: 오른쪽 정렬
   if (c._css) layoutTitle();
 }
 // 타이틀 부품 설명: 부품 한 점에서 비스듬한 지시선 → 글자 밑줄. 글자는 짙은 먹색에 흰 테두리 (게임 해상도 그대로 그려 늘린다)
@@ -132,7 +132,7 @@ function hudHit(d) {
   glitchPow = Math.min(1, 0.45 + d / 40);
 }
 function drawHud() {
-  const W = rt.width, H = rt.height, now = performance.now(), dpr = devicePixelRatio || 1, DW = Math.max(1, Math.round(VR.w * dpr)), DH = Math.max(1, Math.round(VR.h * dpr));
+  const W = rt.width, H = rt.height, now = performance.now(), dpr = layerScale || devicePixelRatio || 1, DW = Math.max(1, Math.round(VR.w * dpr)), DH = Math.max(1, Math.round(VR.h * dpr));
   if (phud.width !== DW || phud.height !== DH) { phud.width = phudS.width = DW; phud.height = phudS.height = DH; hudKey = ''; }   // 화면에 보이는 크기 그대로 (늘리지 않음)
   hk = Math.max(1, Math.floor(H / 360));
   const alive = tank.solid || tank.falling;
@@ -175,14 +175,13 @@ function drawHud() {
     y += 2 * L;
     htext('LV', x0, y); htext(growLevel, vx, y); y += L;
     htext('ENEMY', x0, y); htext(enemyLeft(), vx, y); y += L;
-    if (bkAll) { htext('BUNKER', x0, y); htext(`${bkLeft}/${bkAll}`, vx, y); y += L; }   // 남은 벙커 / 전체
   } else if (!glitch && !hudGlitched && !hudOffAt) return;
   hudGlitched = glitch;
   // 꺼지는 중이면 (syncHud의 hudOffAt) 4x4 디더링으로 점점 비운다
   const fth = hudOffAt ? Math.max(0, Math.min(16, Math.floor((1 - (hudOffAt - now) / (POP.fade * 1000)) * 16))) : 0;
   const srcC = fth ? ditherMask(hudC, fth) : hudC, srcK = fth ? ditherMask(hudK, fth) : hudK;
   // 화면으로 옮기기: 평소엔 통째로, 치지직일 땐 1~4칸 높이 띠마다 좌우로 몇 칸씩 어긋나게
-  pg.clearRect(0, 0, DW, DH); sg.clearRect(0, 0, DW, DH);
+  pg.clearRect(0, 0, DW, DH); sg.clearRect(0, 0, DW, DH); crtDirty = true;
   const u = hk * DH / H;   // HUD 한 칸의 화면 픽셀 수 (정수 배는 또렷하게, 나머지만 부드럽게: sharpDraw)
   const k = glitch ? glitchPow * Math.min(1, (glitchUntil - now) / (HC.glitchTime * 1000) * 1.5) : 0;
   const CW = hudC.width, CH = hudC.height;

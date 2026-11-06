@@ -3,11 +3,13 @@ const keys = new Set();
 addEventListener('keydown', (e) => {
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
   keys.add(e.code);
-  if (UI.screen === pauseUI && e.code === 'KeyT') { sfx.ui('button'); uiPress('title'); uiShow(confirmUI); }   // 일시정지: T = 첫 화면으로 (확인 창)
+  if (UI.screen === pauseUI && e.code === 'KeyT' && !pauseUI.titleMode) { sfx.ui('button'); uiPress('title'); confirmUI.mode = 'title'; uiShow(confirmUI); }
+  else if (UI.screen === pauseUI && pauseUI.tab === 3 && e.code === 'KeyR') { sfx.ui('button'); uiPress('reset'); confirmUI.mode = 'reset'; uiShow(confirmUI); }   // 설정: R = 모두 초기 값으로 (확인 창)   // 일시정지: T = 첫 화면으로 (확인 창)
+  else if (UI.screen === pauseUI && pauseUI.tab === 3 && ['KeyW', 'KeyS', 'KeyA', 'KeyD'].includes(e.code)) pauseUI.setKey(e.code);   // '설정' 탭: W/S 항목, A/D 값
   else if (UI.screen === pauseUI && (e.code === 'KeyW' || e.code === 'KeyS') && !e.repeat) pauseUI.nudge(e.code === 'KeyW' ? -1 : 1);   // 강화 기록 넘겨 보기 (누르고 있으면 tick이 계속 넘긴다)
   else if (UI.screen === pauseUI && (e.code === 'KeyA' || e.code === 'KeyD')) pauseUI.toEnd(e.code === 'KeyD');   // 강화 기록 맨 위(A) / 맨 아래(D)
-  else if (UI.screen === pauseUI && (e.code === 'KeyQ' || e.code === 'KeyE')) pauseUI.setTab(pauseUI.tab + (e.code === 'KeyE' ? 1 : -1));   // 탭: Q 왼쪽, E 오른쪽
-  else if (UI.screen === confirmUI) { if (e.code === 'KeyY') { sfx.ui('button'); uiPress('yes'); restartGame(true); } else if (e.code === 'KeyN') { sfx.ui('button'); uiPress('no'); uiShow(pauseUI); } }
+  else if (UI.screen === pauseUI && (e.code === 'KeyQ' || e.code === 'KeyE')) pauseUI.step(e.code === 'KeyE' ? 1 : -1);   // 탭: Q 왼쪽, E 오른쪽
+  else if (UI.screen === confirmUI) { if (e.code === 'KeyY') { sfx.ui('button'); uiPress('yes'); confirmUI.yes(); } else if (e.code === 'KeyN') { sfx.ui('button'); uiPress('no'); uiShow(pauseUI); } }
   if (paused) return;
   if (e.code === 'KeyG' && titleState === 'play') {   // G: 적군 섬멸이면 새로 시작, 파괴됐으면 재출격, 아니면 세우기
     if (endState === 'clear') { sfx.ui('button'); uiPress('restart'); restartGame(false); }
@@ -88,18 +90,111 @@ const POPC = CFG.popup || {};
 const POP = { dark: POPC.grayDark || '#191d20', light: POPC.grayLight || '#7b919b', grayTime: POPC.grayTime ?? 0.4, fade: POPC.fadeTime ?? 0.4,
   pause: POPC.pauseColor || '#cc8000', confirm: POPC.confirmColor || '#e0533c', dead: POPC.deadColor || '#e0533c', clear: POPC.clearColor || '#00b37d' };
 const hexV3 = (h) => new THREE.Vector3(...[1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255));   // 색 그대로 (sRGB, 후처리도 sRGB에서 섞는다)
+// 복셀 안개 (설정 메뉴 '복셀 안개', config voxelFog): 땅을 따라 height m 두께로 cell m 크기의 각진 안개 덩어리가 깔리고 천천히 흘러간다.
+// 후처리에서 깊이로 화면 픽셀마다 보이는 자리를 되찾고, 거기서 카메라 쪽으로 march번 거슬러 올라가며 지나는 칸(복셀)마다 짙기를 쌓는다
+// (칸 가운데에서 3D 노이즈 × 땅에서 높이 × 걷힘). 칸 안은 한 값이라 옆면까지 각진 덩어리로 보인다.
+// 땅 높이는 지형 격자를 1m 텍스처(VF_TEX)로 한 번 굽는다.
+// 걷힘은 '흉내 유체'(GPU, 128×128 = 보드 150m): 칸마다 걷힘(r)과 흐름 속도(g, b, m/s). 매 프레임 한 번 그려서
+//   흐름을 따라 옮기고(semi-Lagrangian) → 잔잔한 소용돌이(curl 노이즈) → 바람 쪽으로 가라앉음 → 밀기(내 탱크·대포·폭발) → 천천히 다시 참.
+//   압력 계산은 하지 않는다 (가볍게). 안개 무늬도 흐름만큼 살짝 밀려 보인다(flowWarp)
+const VF = Object.assign({ enabled: false, height: 2.5, cell: 1.5, density: 1.0, scale: 0.09, speed: 0.35, color: '#94a0b0', steps: 4, march: 6,
+  tankRadius: 3, blastRadius: 7, refill: 6, swirl: 1.5, damping: 1.2, windFollow: 0.3, cannonPush: 14, flowWarp: 0.4 }, CFG.voxelFog);
+let vfOn = !!VF.enabled;
+const VF_N = 151;
+// 땅 높이 텍스처·유체 격자는 처음 켤 때 만든다 (꺼져 있으면 아무것도 만들지 않고, 매 프레임 일도 하지 않는다)
+let VF_TEX = null, vfFluid = null;
+function vfInit() {
+  if (vfFluid) return;
+  const d = new Uint16Array(VF_N * VF_N);
+  for (let z = 0; z < VF_N; z++) for (let x = 0; x < VF_N; x++) d[z * VF_N + x] = THREE.DataUtils.toHalfFloat(heightAt(x - HALF, z - HALF));
+  VF_TEX = new THREE.DataTexture(d, VF_N, VF_N, THREE.RedFormat, THREE.HalfFloatType);
+  VF_TEX.magFilter = VF_TEX.minFilter = THREE.LinearFilter; VF_TEX.needsUpdate = true;
+  vfFluid = [0, 1].map(() => new THREE.WebGLRenderTarget(VF_FN, VF_FN, { type: THREE.HalfFloatType, magFilter: THREE.LinearFilter, minFilter: THREE.LinearFilter, depthBuffer: false }));
+  postMat.uniforms.tHgt.value = VF_TEX; postMat.uniforms.tClr.value = vfFluid[0].texture;
+}
+const VF_FN = 128, VF_IMP = 8;
+let vfCur = 0, vfT = 0;
+const vfImps = [];   // 다음 한 번만 넣을 밀기: { x, z, r, push(바깥으로 m/s), dx, dz(그 방향으로 m/s), clear(0~1) }
+const vfFluidMat = new THREE.ShaderMaterial({
+  uniforms: { tPrev: { value: null }, uDt: { value: 0 }, uT: { value: 0 }, uSwirl: { value: VF.swirl }, uDamp: { value: VF.damping }, uRefill: { value: VF.refill },
+    uWind: { value: new THREE.Vector2() }, uImp: { value: Array.from({ length: VF_IMP }, () => new THREE.Vector4()) }, uImpD: { value: Array.from({ length: VF_IMP }, () => new THREE.Vector4()) } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+  fragmentShader: `
+    uniform sampler2D tPrev; uniform float uDt, uT, uSwirl, uDamp, uRefill; uniform vec2 uWind; uniform vec4 uImp[${VF_IMP}], uImpD[${VF_IMP}]; varying vec2 vUv;
+    float h2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+    float n2(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(h2(i), h2(i + vec2(1, 0)), f.x), mix(h2(i + vec2(0, 1)), h2(i + vec2(1, 1)), f.x), f.y); }
+    vec2 curl(vec2 p) { const float e = 0.5; return vec2(n2(p + vec2(0, e)) - n2(p - vec2(0, e)), n2(p - vec2(e, 0)) - n2(p + vec2(e, 0))) / (2.0 * e); }
+    void main() {
+      vec4 s = texture2D(tPrev, vUv - texture2D(tPrev, vUv).gb * uDt / 150.0);   // 흐름을 따라 거슬러 가서 가져온다
+      float c = s.r; vec2 v = s.gb, w = vUv * 150.0 - 75.0;   // w = 월드 xz
+      v += curl(w * 0.12 + uT * 0.15) * uSwirl * uDt;   // 잔잔한 소용돌이
+      v = uWind + (v - uWind) * exp(-uDamp * uDt);   // 바람 쪽으로 가라앉는다
+      for (int i = 0; i < ${VF_IMP}; i++) {   // 밀기
+        vec4 I = uImp[i]; if (I.z <= 0.0) continue;
+        vec2 d = w - I.xy; float r = length(d), k = 1.0 - smoothstep(0.0, I.z, r);
+        if (k <= 0.0) continue;
+        vec4 D = uImpD[i];
+        v += ((r > 0.01 ? d / r : vec2(0.0)) * I.w + D.xy) * k;
+        c = max(c, D.z * k);
+      }
+      c = max(0.0, c - uDt / uRefill);   // 다시 찬다
+      gl_FragColor = vec4(c, clamp(v, -25.0, 25.0), 1.0);
+    }`,
+  depthTest: false, depthWrite: false,
+});
+const vfFluidScene = new THREE.Scene(), vfFluidCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+vfFluidScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), vfFluidMat));
+// 한 번 밀기 (대포·폭발): push = 바깥으로, (dx, dz) = 그 방향으로 (m/s), clear = 가운데를 걷는 정도
+function vfPush(x, z, r, push, dx = 0, dz = 0, clear = 0) { if (vfOn && vfImps.length < VF_IMP - 1) vfImps.push({ x, z, r, push, dx, dz, clear }); }
+function vfStamp(x, z, r) { vfPush(x, z, r, 16 * r / Math.max(1, VF.blastRadius), 0, 0, 0.9); }   // 폭발
+// 유체 한 걸음 (게임이 멈추면 안 부른다). 내 탱크는 매 프레임 밀고, 한 번짜리 밀기는 이번에 넣고 비운다
+function vfStep(dt) {
+  if (!vfOn || !vfFluid || dt <= 0) return;
+  vfT += dt;
+  const u = vfFluidMat.uniforms, list = [];
+  if (tank && tank.pos) { const sp = Math.hypot(tank.vel.x, tank.vel.z); list.push({ x: tank.pos.x, z: tank.pos.z, r: VF.tankRadius, push: (0.3 + sp * 0.5) * dt * 3, dx: tank.vel.x * dt * 2, dz: tank.vel.z * dt * 2, clear: 1 }   /* 서 있으면 거의 안 민다 (구멍만), 달릴수록 옆·앞으로 */); }
+  list.push(...vfImps.splice(0));
+  for (let i = 0; i < VF_IMP; i++) {
+    const m = list[i];
+    if (m) { u.uImp.value[i].set(m.x, m.z, m.r, m.push); u.uImpD.value[i].set(m.dx, m.dz, m.clear, 0); } else u.uImp.value[i].set(0, 0, 0, 0);
+  }
+  const wd = U.uWindDir.value, ws = U.uWind.value * VF.windFollow;
+  u.uWind.value.set(wd.x * ws, wd.y * ws); u.uDt.value = Math.min(dt, 0.05); u.uT.value = vfT;
+  const prev = vfFluid[vfCur], next = vfFluid[vfCur ^ 1];
+  u.tPrev.value = prev.texture;
+  renderer.setRenderTarget(next); renderer.render(vfFluidScene, vfFluidCam); renderer.setRenderTarget(null);
+  vfCur ^= 1;
+  postMat.uniforms.tClr.value = next.texture;
+}
+function vfReset() {   // 안개를 끄면 유체를 비운다 (지우는 색은 원래대로 돌려 둔다)
+  if (!vfFluid) return;
+  const c = renderer.getClearColor(new THREE.Color()), al = renderer.getClearAlpha();
+  renderer.setClearColor(0x000000, 0);
+  for (const t of vfFluid) { renderer.setRenderTarget(t); renderer.clear(); }
+  renderer.setRenderTarget(null); renderer.setClearColor(c, al);
+}
+const _vfM = new THREE.Matrix4();
 const postMat = new THREE.ShaderMaterial({
   uniforms: { tDiffuse: { value: rt.texture }, uFlash: { value: 0 }, tDepth: { value: rt.depthTexture }, tOL: { value: olRT.depthTexture },
     uOL: { value: 0 }, uNear: { value: camera.near }, uFar: { value: camera.far }, uTexel: { value: new THREE.Vector2(1, 1) },
     uFogN: FOGN, uFogF: FOGF, uFogC: { value: FOG },
     uGrad: { value: 0 }, uGradA: { value: 0.6 }, uGradB: { value: 0.9 }, uGradC: { value: new THREE.Color(1, 1, 1) },
-    uGray: { value: 0 }, uGrayA: { value: hexV3(POP.dark) }, uGrayB: { value: hexV3(POP.light) } },
+    uGray: { value: 0 }, uGrayA: { value: hexV3(POP.dark) }, uGrayB: { value: hexV3(POP.light) }, uBright: { value: 1 },
+    tHgt: { value: null }, tClr: { value: null }, uVFWarp: { value: VF.flowWarp }, uCamP: { value: new THREE.Vector3() }, uVFMarch: { value: VF.march }, uInvPV: { value: new THREE.Matrix4() }, uVF: { value: 0 }, uVFTop: { value: VF.height }, uVFCell: { value: VF.cell }, uVFDen: { value: VF.density },
+    uVFScale: { value: VF.scale }, uVFT: { value: 0 }, uVFSteps: { value: VF.steps }, uVFC: { value: new THREE.Color(VF.color) } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
   fragmentShader: `
-    uniform sampler2D tDiffuse, tDepth, tOL; uniform float uFlash, uOL, uNear, uFar, uFogN, uFogF, uGrad, uGradA, uGradB, uGray; uniform vec2 uTexel; uniform vec3 uFogC, uGradC, uGrayA, uGrayB; varying vec2 vUv;
+    uniform sampler2D tHgt, tClr; uniform vec3 uCamP; uniform float uVFMarch, uVFWarp; uniform mat4 uInvPV; uniform float uVF, uVFTop, uVFCell, uVFDen, uVFScale, uVFT, uVFSteps; uniform vec3 uVFC;
+    uniform sampler2D tDiffuse, tDepth, tOL; uniform float uFlash, uOL, uNear, uFar, uFogN, uFogF, uGrad, uGradA, uGradB, uGray, uBright; uniform vec2 uTexel; uniform vec3 uFogC, uGradC, uGrayA, uGrayB; varying vec2 vUv;
     float lin(float d) { return uNear * uFar / (uFar - d * (uFar - uNear)); }   // 깊이 버퍼 값 → 카메라에서 거리
     float bayer2(vec2 a) { a = floor(a); return fract(dot(a, vec2(0.5, a.y * 0.75))); }
     float bayer4(vec2 a) { return bayer2(0.5 * a) * 0.25 + bayer2(a); }
+    float vfH(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
+    float vfNoise(vec3 p) {   // 3D 값 노이즈 (0~1)
+      vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+      return mix(mix(mix(vfH(i), vfH(i + vec3(1, 0, 0)), f.x), mix(vfH(i + vec3(0, 1, 0)), vfH(i + vec3(1, 1, 0)), f.x), f.y),
+                 mix(mix(vfH(i + vec3(0, 0, 1)), vfH(i + vec3(1, 0, 1)), f.x), mix(vfH(i + vec3(0, 1, 1)), vfH(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+    }
     vec3 toSRGB(vec3 c) { c = max(c, 0.0); return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); }
     void main() {
       vec3 lc = texture2D(tDiffuse, vUv).rgb;
@@ -115,8 +210,30 @@ const postMat = new THREE.ShaderMaterial({
           if (m - d > 0.6 + d * 0.06) lc = mix(lc, mix(vec3(0.012, 0.01, 0.008), uFogC, fogK), 0.9 * seen);
         }
       }
+      if (uVF > 0.0) {   // 복셀 안개: 보이는 자리에서 카메라 쪽으로 거슬러 올라가며 지나는 칸마다 짙기를 쌓는다
+        float d = texture2D(tDepth, vUv).r;
+        vec4 w = uInvPV * vec4(vUv * 2.0 - 1.0, (d < 1.0 ? d : 0.9999) * 2.0 - 1.0, 1.0);
+        vec3 P = w.xyz / w.w, dir = normalize(uCamP - P);
+        float len = min(distance(uCamP, P), uVFTop * 2.5 / max(dir.y, 0.25)), st = len / uVFMarch, tr = 1.0;   // 안개 층을 지나는 만큼만
+        for (int i = 0; i < 12; i++) {
+          if (float(i) >= uVFMarch) break;
+          vec3 q = (floor((P + dir * (st * (float(i) + 0.5))) / uVFCell) + 0.5) * uVFCell;   // 칸 가운데
+          vec2 tu = (q.xz + 75.0) / 151.0 + 0.5 / 151.0;
+          float hy = q.y - texture2D(tHgt, tu).r;   // 땅에서 높이
+          if (hy > uVFTop || hy < -uVFCell) continue;
+          vec3 fl = texture2D(tClr, (q.xz + 75.0) / 150.0).rgb;   // 흉내 유체: r = 걷힘, gb = 흐름 (m/s)
+          vec2 qw = q.xz - fl.gb * uVFWarp;   // 흐름만큼 무늬가 밀려 보인다
+          float n = vfNoise(vec3(qw.x * uVFScale + uVFT, qw.y * uVFScale + uVFT * 0.6, q.y * uVFScale * 2.0 + uVFT * 0.25));
+          float den = smoothstep(0.4, 0.7, n) * (1.0 - smoothstep(uVFTop * 0.4, uVFTop, hy)) * (1.0 - fl.r);
+          tr *= exp(-den * uVFDen * st * 0.9);
+        }
+        float a = (1.0 - tr) * uVF;
+        a = clamp(floor(a * uVFSteps + bayer4(gl_FragCoord.xy)) / uVFSteps, 0.0, 1.0);   // uVFSteps단계 + 4x4 디더
+        lc = mix(lc, uVFC, a);
+      }
       lc = mix(lc, uGradC, uGrad * smoothstep(uGradA, uGradB, vUv.y));   // 타이틀: 화면 위쪽으로 갈수록 흰색 (아래 → 위, 0~1)
       vec3 c = toSRGB(lc);
+      c = pow(c, vec3(1.0 / uBright));   // 화면 밝기 (설정)
       c = mix(c, vec3(1.0, 0.94, 0.82), uFlash * 0.7);
       if (uGray > 0.0) c = mix(c, mix(uGrayA, uGrayB, dot(c, vec3(0.299, 0.587, 0.114))), uGray);   // 끝 창·일시정지: 밝기를 두 색 사이로 (그라디언트 맵)
       c = floor(c * 31.0 + 0.5 + (bayer4(gl_FragCoord.xy) - 0.5)) / 31.0;
@@ -124,6 +241,19 @@ const postMat = new THREE.ShaderMaterial({
     }`,
 });
 postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), postMat));
+postMat.uniforms.uVFC.value.convertSRGBToLinear();   // 장면 색(선형)에 섞는다
+postMat.onBeforeRender = () => {   // 복셀 안개: 화면 → 월드 행렬, 흐르는 시간(게임 시간: 멈추면 같이 멈춘다)
+  const u = postMat.uniforms;
+  u.uVF.value = vfOn ? titleK : 0;   // 타이틀에서는 안 보이고 플레이로 넘어가며 나타난다
+  if (!vfOn) return;
+  camera.updateMatrixWorld();
+  u.uInvPV.value.copy(camera.matrixWorld).multiply(_vfM.copy(camera.projectionMatrix).invert());
+  u.uCamP.value.setFromMatrixPosition(camera.matrixWorld);
+  u.uVFT.value = playTime * VF.speed * VF.scale * 4;
+};
+function setVoxelFog(v) { vfOn = v; if (v) vfInit(); else vfReset(); document.getElementById('vfBtn').textContent = v ? '복셀 안개 켜짐' : '복셀 안개 꺼짐'; pausedDrawn = false; pauseScene = false; }
+if (vfOn) vfInit();   // config에서 켜 두었으면 처음부터
+document.getElementById('vfBtn').onclick = (e) => { setVoxelFog(!vfOn); e.target.blur(); };
 // 화면으로 늘리기: 후처리(디더링·32단계 색)까지는 게임 해상도 버퍼(postRT)에서 끝내고, 마지막에 기기 픽셀 크기 캔버스로 옮긴다.
 // 샤프 바이리니어: 정수 배까지는 니어리스트처럼 또렷하게, 남는 소수 배만 경계에서 부드럽게 (픽셀마다 텍스처 한 번, 하드웨어 선형 필터)
 const postRT = new THREE.WebGLRenderTarget(2, 2, { magFilter: THREE.LinearFilter, minFilter: THREE.LinearFilter, depthBuffer: false });
@@ -209,6 +339,7 @@ function resize() {
   if (!innerWidth || !innerHeight) return;   // 창이 접혀 크기가 0이면 다음 크기 변경 때
   viewRect();
   if (resMax) lowH = Math.round(VR.h * (devicePixelRatio || 1));
+  layerScale = crtOn ? lowH / VR.h : 0;   // CRT 표현: HUD·UI를 게임 픽셀 크기로 (00_core.js)
   const w = Math.max(2, Math.round(lowH * VR.w / VR.h)), dpr = devicePixelRatio || 1, dw = Math.max(2, Math.round(VR.w * dpr)), dh = Math.max(2, Math.round(VR.h * dpr));
   renderer.setSize(dw, dh, false);   // 캔버스는 기기 픽셀 크기 (게임은 rt에 저해상도로 그리고 마지막에 늘린다)
   rt.setSize(w, lowH); olRT.setSize(w, lowH); postRT.setSize(w, lowH);
@@ -242,12 +373,12 @@ document.getElementById('aaBtn').onclick = (e) => {   // 안티에일리어싱: 
   rt.samples = rt.samples ? 0 : 4; rt.dispose();
   e.target.textContent = rt.samples ? 'AA 켜짐' : 'AA 꺼짐'; e.target.blur();
 };
-document.getElementById('camModeBtn').onclick = (e) => {   // 화면 가운데·카메라 방향을 포탑 기준 / 차체 기준으로
-  camByTurret = !camByTurret; e.target.textContent = camByTurret ? '시점: 포탑 방향' : '시점: 차체 방향'; e.target.blur();
+document.getElementById('camModeBtn').onclick = (e) => {   // 보는 방향 기준: 자동 → 차체 → 포탑 → 자동
+  setCamMode(CAM_MODES[(CAM_MODES.indexOf(camMode) + 1) % CAM_MODES.length]); e.target.blur();
 };
 document.getElementById('fogC').oninput = (e) => { ENV_PLAY.fog.set(e.target.value); applyEnv(); };
 document.getElementById('fogC').onchange = (e) => e.target.blur();
-document.getElementById('vol').oninput = (e) => { sfx.setVolume(+e.target.value); document.getElementById('volV').textContent = (+e.target.value).toFixed(2); };
+document.getElementById('vol').oninput = (e) => setVolume(+e.target.value);
 document.getElementById('debris').oninput = (e) => { windDebris = +e.target.value; document.getElementById('debrisV').textContent = windDebris.toFixed(2); };
 for (const id of ['vol', 'debris']) document.getElementById(id).onchange = (e) => e.target.blur();
 // 성장 테스트: 상자·적 떨구기 (내 탱크 둘레 12~32m), 내 탱크 성능 슬라이더 (오른쪽일수록 강하게)
@@ -274,6 +405,22 @@ for (const [id, min, max, init, apply] of GROW) {
   el.oninput = () => { lab.textContent = apply(+el.value); };
   el.onchange = () => el.blur();
   el.oninput();
+}
+// 기관총 (내 탱크에 기관총이 있을 때만): 초당 발사 수 · 대미지. 성장으로 바뀌면 dbgSync가 따라 맞춘다
+const mgSl = [['gMgRate', 1, Math.max(PM.mgRate, 30), (v) => { if (tank.mg) tank.mg.rate = v; return `${v}발/초`; }], ['gMgDmg', 1, Math.max(PM.mgDamage, 40), (v) => { if (tank.mg) tank.mg.damage = v; return `${v}`; }]];
+for (const [id, min, max, apply] of mgSl) { const el = document.getElementById(id); el.min = min; el.max = max; el.oninput = () => { document.getElementById(id + 'V').textContent = apply(+el.value); }; el.onchange = () => el.blur(); }
+document.getElementById('gMgAdd').onclick = (e) => { UP_FX.mg.apply(); dbgSync(); e.target.blur(); };   // 기관총 하나 더 (최대 2정)
+document.getElementById('gRegen').oninput = (e) => { tank.regen = +e.target.value; document.getElementById('gRegenV').textContent = `${tank.regen}`; };
+document.getElementById('gRegen').onchange = (e) => e.target.blur();
+// 설정 메뉴 버튼·게이지 상태 맞추기 (메뉴가 열려 있을 때 0.2초마다): 할 수 없는 것은 흐리게
+function dbgSync() {
+  const mg = tank.mg, n = mg ? mg.count : 0;
+  const add = document.getElementById('gMgAdd'); add.disabled = n >= 2; add.textContent = n >= 2 ? '기관총 추가 (최대 2정)' : `기관총 추가 (${n}정)`;
+  for (const [id, , , apply] of mgSl) {
+    const el = document.getElementById(id); el.disabled = !mg;
+    if (mg && document.activeElement !== el) { el.value = id === 'gMgRate' ? mg.rate : mg.damage; document.getElementById(id + 'V').textContent = apply(+el.value); }
+    if (!mg) document.getElementById(id + 'V').textContent = '없음';
+  }
 }
 const sliderAt = (id) => { const el = document.getElementById(id); return +el.value >= +el.max - 1e-6; };   // 최대값에 닿았는가
 // 성장으로 바뀌는 내 탱크 값을 모두 처음으로 (슬라이더 + 고른 성장 항목)
@@ -438,7 +585,7 @@ function landOffer() {
   if (heldOffer) { curOffer = heldOffer; heldOffer = null; curOffer.showT = 0; drawOffer(); sfx.kit(); }
   else nextOffer();
 }
-addEventListener('keydown', (e) => { const k = ['Digit1', 'Digit2', 'Digit3'].indexOf(e.code); if (k >= 0 && UI.screen === offerUI) pickOffer(k); });   // 선택지가 보일 때만 (일시정지 창 아래에 있으면 안 됨)
+addEventListener('keydown', (e) => { const k = ['Digit1', 'Digit2', 'Digit3'].indexOf(e.code) >= 0 ? ['Digit1', 'Digit2', 'Digit3'].indexOf(e.code) : ['Numpad1', 'Numpad2', 'Numpad3'].indexOf(e.code); if (k >= 0 && UI.screen === offerUI) pickOffer(k); });   // 숫자 1·2·3 (위쪽 숫자 줄 또는 숫자 키패드). 선택지가 보일 때만 (일시정지 창 아래에 있으면 안 됨)
 document.getElementById('gOffer').onclick = (e) => { testOffers++; nextOffer(); e.target.blur(); };   // 테스트: 골드 없이 바로 선택지
 // 테스트: 성장 10단계를 한 번에. 단계마다 평소처럼 선택지 3개를 뽑아 그중 하나를 무작위로 고른다 (골드는 쓰지 않음. 떠 있는 선택지는 그대로)
 document.getElementById('gRand10').onclick = (e) => {
@@ -469,8 +616,33 @@ document.getElementById('fog').onchange = (e) => e.target.blur();
 document.getElementById('cbox').onclick = (e) => { toggleCollisionView(); e.target.blur(); };
 // 설정 메뉴: ` 키로 열고 닫는다 (늘 펼쳐진 상태)
 const hudEl = document.getElementById('hud');
-addEventListener('keydown', (e) => { if (e.code === 'Backquote') { hudEl.style.display = hudEl.style.display === 'block' ? 'none' : 'block'; e.preventDefault(); } });
+addEventListener('keydown', (e) => { if (e.code === 'Backquote' && e.shiftKey) { hudEl.style.display = hudEl.style.display === 'block' ? 'none' : 'block'; e.preventDefault(); } });   // 설정 메뉴: ~ (Shift + `. 숫자 1 옆이라 잘못 눌러 열리지 않게)
 document.getElementById('camreset').onclick = (e) => { resetCamera(); e.target.blur(); };
+// 마우스 오른쪽 끌기로 카메라 옮기기: 평소엔 끔 (설정 메뉴에서 켠다)
+controls.enablePan = false;
+document.getElementById('camPanBtn').onclick = (e) => { controls.enablePan = !controls.enablePan; e.target.textContent = controls.enablePan ? '우클릭 카메라 이동 켜짐' : '우클릭 카메라 이동 꺼짐'; e.target.blur(); };
+// 자동 카메라 (설정, 기본 켜기): 마우스로 돌리거나 당긴 카메라가 손을 뗀 뒤 2초가 지나면 기본 방향·거리로 EaseInOutCubic(1.5초)으로 돌아온다.
+// 끄면 바꾼 방향·거리를 그대로 둔다. camBack()을 frame이 부른다
+const CAM_BACK_WAIT = 2000, CAM_BACK_T = 1.5;
+let camDrag = false, camBackAt = 0, camRet = null;
+controls.addEventListener('start', () => { camDrag = true; camBackAt = 0; camRet = null; });
+controls.addEventListener('end', () => { camDrag = false; camBackAt = autoCam ? performance.now() + CAM_BACK_WAIT : 0; });
+function camBack(dt) {
+  if (camDrag || !autoCam) return;
+  if (!camRet) {
+    if (!camBackAt || performance.now() < camBackAt) return;
+    _tmp.copy(camera.position).sub(controls.target);
+    const r = _tmp.length();
+    camRet = { yaw: Math.atan2(-_tmp.x, -_tmp.z), pit: Math.asin(Math.max(-1, Math.min(1, _tmp.y / r))), r, t: 0 };   // 돌아오기 시작한 자리
+    camBackAt = 0;
+  }
+  camRet.t += dt;
+  const e = easeInOutCubic(Math.min(1, camRet.t / CAM_BACK_T));
+  let dy = camYaw - camRet.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));   // 기본 방향은 탱크를 따라 계속 바뀐다
+  const yaw = camRet.yaw + dy * e, pit = camRet.pit + (CC.pitch * DEG - camRet.pit) * e, r = camRet.r + (CC.distance - camRet.r) * e;
+  camera.position.copy(controls.target).add(_tmp.set(-Math.sin(yaw) * Math.cos(pit) * r, Math.sin(pit) * r, -Math.cos(yaw) * Math.cos(pit) * r));
+  if (camRet.t >= CAM_BACK_T) camRet = null;
+}
 // AO 한 줄: 켜기/끄기, 세기, 흰색 보기
 let aoOn = true;
 const aoK = document.getElementById('aoK'), aoKv = document.getElementById('aoKv');
@@ -510,11 +682,44 @@ Object.assign(window.dbg, { U, ballHit, cliffG, mainRoadX, addScorchDecal, reset
 // 화면 가운데에는 탱크가 아니라 탱크가 바라보는 쪽 9m 앞을 둔다: 기본 시점에서 탱크는 화면 세로 2/3쯤 아래에 보이고
 // 앞이 넓게 보인다. 바라보는 쪽 = 포탑이 겨눈 방향(기본) 또는 차체 앞 (HUD 토글). 탱크·포탑이 돌면 부드럽게 따라 돈다
 const CC = CFG.camera, CAM_LEAD = CC.lead, CAM_YAW = CC.yaw * DEG, camLead = new THREE.Vector3(), _cf = new THREE.Vector3(), _cl2 = new THREE.Vector3();
-let camByTurret = CC.byTurret;
-document.getElementById('camModeBtn').textContent = camByTurret ? '시점: 포탑 방향' : '시점: 차체 방향';
+// 보는 방향 기준: 'auto' 자동(키보드 = 포탑, 게임패드 = 차체) · 'hull' 차체 방향 · 'turret' 포탑 방향. 고른 것은 localStorage에 기억
+const CAM_MODES = ['auto', 'hull', 'turret'], CAM_MODE_KO = { auto: '자동', hull: '차체 방향', turret: '포탑 방향' };
+let camMode = 'auto';
+try { const m = localStorage.getItem('littleIron.camMode'); if (CAM_MODES.includes(m)) camMode = m; } catch (_) {}
+const camTurret = () => { if (camMode !== 'auto') return camMode === 'turret'; try { return !inputPad; } catch (_) { return true; } };
+function setCamMode(m) {
+  camMode = m; try { localStorage.setItem('littleIron.camMode', m); } catch (_) {}
+  document.getElementById('camModeBtn').textContent = `시점: ${CAM_MODE_KO[m]}`;
+}
+setCamMode(camMode);
+// 소리 크기 (0~1): 일시정지 창 '설정' 탭과 설정 메뉴 게이지가 같이 쓴다. 기억해 둔다
+let volNow = 0.5;
+try { const v = parseFloat(localStorage.getItem('littleIron.volume')); if (v >= 0 && v <= 1) volNow = v; } catch (_) {}
+function setVolume(v) {
+  volNow = Math.max(0, Math.min(1, Math.round(v * 100) / 100));
+  try { sfx.setVolume(volNow); } catch (_) {}   // (로딩 중엔 소리가 아직 없다: 60_audio.js 뒤에서 다시 맞춘다)
+  try { localStorage.setItem('littleIron.volume', String(volNow)); } catch (_) {}
+  const el = document.getElementById('vol'); el.value = volNow; document.getElementById('volV').textContent = volNow.toFixed(2);
+}
+setVolume(volNow);
+// 켜기/끄기 설정 (일시정지 창 '설정' 탭): 기억해 두었다가 다시 쓴다
+const saveOpt = (k, v) => { try { localStorage.setItem('littleIron.' + k, v ? '1' : '0'); } catch (_) {} };
+let autoCam = loadOpt('autoCam', true), shakeOn = loadOpt('shake', true), rumbleOn = loadOpt('rumble', true);
+const setAutoCam = (v) => { autoCam = v; saveOpt('autoCam', v); if (!v) { camBackAt = 0; camRet = null; } };
+const setShakeOn = (v) => { shakeOn = v; saveOpt('shake', v); };
+const setRumbleOn = (v) => { rumbleOn = v; saveOpt('rumble', v); };
+// 화면 밝기 (0.5~1.5, 1 = 그대로): 후처리에서 감마로 (어두운 곳이 밝아진다)
+let brightness = 1;
+try { const b = parseFloat(localStorage.getItem('littleIron.bright')); if (b >= 0.5 && b <= 1.5) brightness = b; } catch (_) {}
+// 설정 탭 모두 초기 값으로 (일시정지 → 설정 → [R], 확인 창에서 예)
+function resetSettings() {
+  setVolume(0.5); setCamMode('auto'); setAutoCam(true); setShakeOn(true); setRumbleOn(true); setDmgTextOn(!!DTC.enabled); setBright(1);
+  if (crtOn !== !!CRT.enabled) setCrt(!!CRT.enabled);
+}
+function setBright(b) { brightness = Math.max(0.5, Math.min(1.5, Math.round(b * 20) / 20)); postMat.uniforms.uBright.value = brightness; try { localStorage.setItem('littleIron.bright', String(brightness)); } catch (_) {} }
 const camFocus = (out) => out.copy(tank.pos).add(camLead);
 function updateCamLead(dt, snap = false) {
-  const ty = camByTurret ? tank.tyaw || 0 : 0;
+  const ty = camTurret() ? tank.tyaw || 0 : 0;
   _cl2.set(Math.sin(ty), 0, Math.cos(ty)).applyQuaternion(tank.q); _cl2.y = 0;
   if (_cl2.lengthSq() < 1e-4) return;
   _cl2.normalize().multiplyScalar(CAM_LEAD);
@@ -522,7 +727,7 @@ function updateCamLead(dt, snap = false) {
 }
 const lastFollow = tank.pos.clone();
 // 카메라는 탱크가 도는 방향을 레이싱 게임처럼 한 박자 늦게 느슨하게 따라 돈다
-const tankYaw = () => { _fwd.set(0, 0, 1).applyQuaternion(tank.q); return Math.atan2(_fwd.x, _fwd.z) + (camByTurret ? tank.tyaw || 0 : 0); };   // 카메라가 따라 도는 방향
+const tankYaw = () => { _fwd.set(0, 0, 1).applyQuaternion(tank.q); return Math.atan2(_fwd.x, _fwd.z) + (camTurret() ? tank.tyaw || 0 : 0); };   // 카메라가 따라 도는 방향
 let camYaw = 0;
 // 기본 위치: 화면 가운데에서 42.6m, 내려다보는 각 33.6도, 탱크 뒤에서 오른쪽으로 20도 돌아가 탱크 오른쪽 옆면이 살짝 보인다 (설정. 카메라 초기화 버튼도 이것)
 function resetCamera() {

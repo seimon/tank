@@ -272,3 +272,4 @@ const sfx = (() => {
     },
   };
 })();
+sfx.setVolume(volNow);   // 기억해 둔 소리 크기 (설정 탭·설정 메뉴. 40_input_post.js의 setVolume)

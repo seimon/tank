@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------- 데칼: 내 탱크 포탑 좌우에 붙이는 그림 (타이틀에서 A/D로 셋을 고른다. 위장색 × 데칼 셋)
 // 셋은 decals.js(window.DECAL_SETS), 그림은 decal_images.js(window.DECAL_IMAGES = images/decals/*.png를 build.py가 담은 것).
 // file://로 열면 PNG 파일을 WebGL 텍스처로 못 올리므로 그림을 JS 안에 담아 쓴다. 고치는 법: PNG를 고치고 python tools/build.py
-// 데칼 한 장 = { img, side(1 = 왼쪽 +x, -1 = 오른쪽), z(앞뒤, 포탑 가운데 0, 앞 +), y(높이, 옆면 가운데 0), rot(°), s(크기 m) }
+// 데칼 한 장 = { img, side(1 = 왼쪽 +x, -1 = 오른쪽), z(앞뒤, 포탑 가운데 0, 앞 +), y(높이, 옆면 가운데 0), rot(°), s(세로 크기 m. 가로는 그림 비율대로) }
 const DECAL_IMG = window.DECAL_IMAGES || {};
 const DECAL_NAMES = Object.keys(DECAL_IMG).sort();
 const DECAL_SETS = (Array.isArray(window.DECAL_SETS) && window.DECAL_SETS.length ? window.DECAL_SETS : [{ name: 'NONE', decals: [] }])
@@ -13,7 +13,7 @@ function decalTex(name) {
   if (!decalTexs.has(name)) {
     const img = new Image(), t = new THREE.Texture(img);
     t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace;
-    img.onload = () => { t.needsUpdate = true; try { uiDirty(); } catch (_) {} };   // (편집 창 그림 목록도 다시 그린다. 로딩 중이면 아직 없다)
+    img.onload = () => { t.needsUpdate = true; t.userData.aspect = img.naturalWidth / Math.max(1, img.naturalHeight); for (const m of decalGroup.children) if (m.userData.decal && m.userData.decal.img === name) decalPose(m.userData.decal, m); try { uiDirty(); } catch (_) {} };   // 직사각형 그림이면 비율대로 다시 놓는다   // (편집 창 그림 목록도 다시 그린다. 로딩 중이면 아직 없다)
     img.src = DECAL_IMG[name] || '';
     decalTexs.set(name, t);
   }
@@ -38,7 +38,7 @@ function decalPose(d, o) {
   o.position.set(sd * x, yy, d.z);
   _dn.set(sd * Math.cos(TUR_A), Math.sin(TUR_A), 0); _du.set(-sd * Math.sin(TUR_A), Math.cos(TUR_A), 0); _dr.set(0, 0, -sd);
   o.quaternion.setFromRotationMatrix(_dm.makeBasis(_dr, _du, _dn)).multiply(_dcQ.setFromAxisAngle(_dzA, d.rot * DEG));
-  o.scale.set(d.s, d.s, 1);
+  o.scale.set(d.s * ((decalTexs.get(d.img) || { userData: {} }).userData.aspect || 1), d.s, 1);   // s = 세로 크기, 가로는 그림 비율대로
 }
 const decalGroup = new THREE.Group();
 parts.turret.add(decalGroup);

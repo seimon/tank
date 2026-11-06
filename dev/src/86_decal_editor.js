@@ -82,11 +82,11 @@ function decalFileText() {
   const sets = DECAL_SETS.map((s) => `  { name: '${s.name.replace(/'/g, "\\'")}', decals: [${s.decals.length ? '\n' + s.decals.map((d) =>
     `    { img: '${d.img}', side: ${d.side}, z: ${dn2(d.z)}, y: ${dn2(d.y)}, rot: ${Math.round(d.rot)}, s: ${dn2(d.s)} },`).join('\n') + '\n  ' : ''}] },`).join('\n');
   return `// 데칼 셋: 내 탱크 포탑 좌우에 붙이는 그림 묶음. 타이틀에서 A/D(패드 방향키 ←→)로 고른다 (위장색 × 데칼 셋).
-// 게임의 설정 메뉴(\` 키) → 타이틀 화면에서 '데칼 편집 모드'로 고친 뒤 C를 누르면 이 파일 내용 전체가 복사된다. 그대로 덮어 붙여 넣으면 된다.
+// 게임의 설정 메뉴(~ 키) → 타이틀 화면에서 '데칼 편집 모드'로 고친 뒤 C를 누르면 이 파일 내용 전체가 복사된다. 그대로 덮어 붙여 넣으면 된다.
 //   name: 셋 이름 (타이틀에 보인다. 영어 대문자·숫자)
 //   img: 그림 이름 = images/decals/의 PNG 파일 이름 (확장자 빼고). 그림을 고치거나 더하면 python tools/build.py (decal_images.js를 다시 만든다)
 //   side: 1 = 왼쪽(탱크 기준) · -1 = 오른쪽     z: 앞뒤 위치 (m, 포탑 가운데 0, 앞이 +)     y: 높이 (m, 포탑 옆면 가운데 0)
-//   rot: 돌림 (°, 바깥에서 볼 때 시계 반대 방향 +)     s: 크기 (m)
+//   rot: 돌림 (°, 바깥에서 볼 때 시계 반대 방향 +)     s: 세로 크기 (m. 가로는 그림 비율대로)
 window.DECAL_SETS = [
 ${sets}
 ];
@@ -133,7 +133,8 @@ addEventListener('pointerup', (e) => {
   const moved = Math.hypot(e.clientX - decalDown.x, e.clientY - decalDown.y); decalDown = null;
   if (moved > 5) return;
   const r = renderer.domElement.getBoundingClientRect();
-  _dRay.setFromCamera({ x: (e.clientX - r.left) / r.width * 2 - 1, y: -((e.clientY - r.top) / r.height) * 2 + 1 }, camera);
+  const cp = crtPoint(e.clientX, e.clientY);   // CRT 화면 휨을 되짚어서
+  _dRay.setFromCamera({ x: (cp.x - r.left) / r.width * 2 - 1, y: -((cp.y - r.top) / r.height) * 2 + 1 }, camera);
   const hit = _dRay.intersectObjects(decalGroup.children, false)[0];
   decalSelect(hit ? hit.object : null);
 }, true);
@@ -157,7 +158,7 @@ const decalUI = {
       const hot = ui.hit('add' + i, x - 4, y - 2, lw + 8, rowH);
       const kw = ui.keyText(x, y + 2, `${i + 1}`, HC.color);
       const img = decalTex(n).image;
-      if (img && img.complete && img.naturalWidth) { ucx.imageSmoothingEnabled = false; ucx.drawImage(img, x + kw + 4, y - 1, 16, 16); }
+      if (img && img.complete && img.naturalWidth) { const a = img.naturalWidth / img.naturalHeight, tw = a >= 1 ? 16 : Math.round(16 * a), th = a >= 1 ? Math.round(16 / a) : 16; ucx.imageSmoothingEnabled = false; ucx.drawImage(img, x + kw + 4 + (16 - tw) / 2, y - 1 + (16 - th) / 2, tw, th); }   // 비율 그대로
       ui.text(n, x + kw + 24, y + 2, hot ? '#ffffff' : DEC_C);
       y += rowH;
     });

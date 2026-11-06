@@ -99,8 +99,13 @@ function ditherWipe(src, f, vOf) {
   g.globalCompositeOperation = 'source-over';
   return t;
 }
+// CRT 표현(41_crt.js)이 켜져 있으면 HUD·UI·타이틀 캔버스를 기기 픽셀이 아니라 게임 픽셀 크기로 그리고(layerScale = 게임 픽셀 ÷ CSS 픽셀),
+// 화면에는 숨긴 채 41_crt.js가 한 장으로 합쳐 3D 화면과 함께 CRT 셰이더를 거친다. crtDirty = 레이어가 바뀌었다 (다시 합친다)
+const CRT_LAYER = new Set();   // sharpBlit으로 그리는 레이어 캔버스 (타이틀 그림)
+let crtOn = false, layerScale = 0, crtDirty = true, crtLoadHook = null;   // crtLoadHook: 로딩 그림을 CRT로 (10a_crt.js)
 function sharpBlit(dst, src, cssW, cssH) {
-  const dpr = devicePixelRatio || 1, dw = Math.max(1, Math.round(cssW * dpr)), dh = Math.max(1, Math.round(cssH * dpr));
+  const lay = CRT_LAYER.has(dst); if (lay) crtDirty = true;
+  const dpr = (lay && layerScale) || devicePixelRatio || 1, dw = Math.max(1, Math.round(cssW * dpr)), dh = Math.max(1, Math.round(cssH * dpr));
   if (dst.width !== dw || dst.height !== dh) { dst.width = dw; dst.height = dh; }
   Object.assign(dst.style, { width: `${cssW}px`, height: `${cssH}px` });
   const g = dst.getContext('2d');
@@ -113,12 +118,16 @@ function sharpBlit(dst, src, cssW, cssH) {
 let loadLabel = 'LOADING...', loadK = 0;
 const loadImg0 = new Image();   // 로딩 그림 (그림이 없거나 못 읽어도 로딩은 그대로)
 loadImg0.onload = () => { if (document.getElementById('loading')) drawLoading(); };
-loadImg0.src = 'images/loading_tank.png';
+// images/*.png는 build.py가 title_images.js에 data URL로도 담는다: file://로 열면 PNG 파일을 그린 캔버스가 '오염'돼 WebGL(CRT 표현)로 못 올리기 때문
+const imgSrc = (p) => (window.TITLE_IMAGES || {})[p.replace(/^images\//, '').replace(/\.png$/, '')] || p;
+loadImg0.src = imgSrc('images/loading_tank.png');
 function drawLoading() {
   const cv = document.getElementById('loadCv');
   if (!cv || !innerWidth || !innerHeight) return;
-  let H = 300, W = Math.round(H * innerWidth / innerHeight);   // 세로 300줄. 창이 아주 좁으면 가로 200칸에 맞춰 세로를 늘린다 (픽셀은 늘 정사각형)
-  if (W < 200) { W = 200; H = Math.round(W * innerHeight / innerWidth); }
+  let cr = crtOn ? document.getElementById('c').getBoundingClientRect() : null;   // CRT면 게임 화면 자리에 맞춰
+  if (!cr || cr.width < 2 || cr.height < 2) cr = { width: innerWidth, height: innerHeight };
+  let H = 300, W = Math.round(H * cr.width / cr.height);   // 세로 300줄. 창이 아주 좁으면 가로 200칸에 맞춰 세로를 늘린다 (픽셀은 늘 정사각형)
+  if (W < 200) { W = 200; H = Math.round(W * cr.height / cr.width); }
   const src = cv._src || (cv._src = document.createElement('canvas'));
   src.width = W; src.height = H;
   const g = src.getContext('2d');
@@ -133,6 +142,7 @@ function drawLoading() {
   put(loadLabel, by + 7 + GAP);
   put(`VERSION ${VERSION}`, H - 18);
   sharpBlit(cv, src, innerWidth, innerHeight);
+  if (crtLoadHook) crtLoadHook(src);
 }
 addEventListener('resize', drawLoading);
 function loadStep(k, label) {
@@ -144,6 +154,17 @@ function loadStep(k, label) {
 // ---------------------------------------------------------------- 기본 설정
 // 세부 설정은 config.js (window.CONFIG). 숫자를 바꿔 가며 테스트하는 값은 모두 그쪽에
 const CFG = window.CONFIG;
+// 설정 탭 켜기/끄기 값 읽기: 설정에서 바꾸면 기억하지만, config의 처음 값이 바뀌었으면 config를 따른다 (기억해 둔 값을 버린다)
+function loadOpt(k, d) {
+  try {
+    const K = 'littleIron.' + k, D = d ? '1' : '0';
+    if (localStorage.getItem(K + '.cfg') !== D) { localStorage.setItem(K + '.cfg', D); localStorage.removeItem(K); return d; }
+    const v = localStorage.getItem(K);
+    return v === null ? d : v === '1';
+  } catch (_) { return d; }
+}
+crtOn = loadOpt('crt', !!(CFG && CFG.crt && CFG.crt.enabled));   // CRT 표현
+document.body.classList.toggle('crt', crtOn);
 // 맵 셋팅: config map.presets 중 하나 (빠진 값은 첫 번째 셋팅 값). 설정 메뉴 '맵 셋팅' 버튼으로 돌아가며 바꾼다
 const MAP_PRESETS = (CFG.map.presets?.length ? CFG.map.presets : [CFG.map]).map((p, i, all) => ({
   wind: 1, windDir: 215, debris: 0.3, fog: 0.0105, fogColor: '#414a5e', moon: 1.5, moonColor: '#9aaad0', sky: 1.5, skyColor: '#7d8aac', groundColor: '#4a3a2a',

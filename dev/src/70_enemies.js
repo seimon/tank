@@ -59,6 +59,7 @@ const maxEnemies = () => Math.min(EC.concurrentMax, EC.concurrentStart + Math.fl
 const spgWanted = () => growLevel < SC.startLevel ? 0 : Math.min(4, 1 + Math.floor((growLevel - SC.startLevel) / SC.everyLevels));
 let enemyDrops = 0, enemyKills = 0, jeepKills = 0, missionClear = false;
 const dropTimers = [], spgTimers = [], jeepTimers = [];
+let deadEndAt = 0;   // 내 탱크가 터진 뒤 전투 불능 창을 띄울 게임 시각
 let endState = null;   // 'dead' 내 탱크 파괴 / 'clear' 적군 섬멸 / null. 이때는 HUD를 끄고 가운데 창 + 배경 회색조
 // 처음: 강 건너 본도로 위에서 나를 바라보며
 {
@@ -149,14 +150,15 @@ function faceAt(T, p) {
 // 탱크 대미지: 맞은 면의 방어력(쏜 탱크의 관통탄만큼 깎이고 0 아래로는 안 내려감)과 장갑 강화를 곱한 뒤 소수점 버림.
 // face가 없으면 방어력 무시 (충돌 공격)
 function damageTank(T, raw, face, src, kind) {
-  if (!T.solid) return 0;
+  if (!T.solid) { dmgFromP = null; return 0; }
   const pierce = (src && src.pierce) || 0, mgPierce = kind !== 'mg' || (src && src.apMg);   // 관통탄은 포탄만 (기관총은 '철갑 기관총' 조합이 있어야)
   const a = face ? Math.max(0, (T.armor[face] ?? 0) - (mgPierce ? pierce : 0)) : 0;
   const d = Math.floor(raw * (1 - a) * (T.armorM || 1) + 1e-6);
   if (aiShow) floatTank(T, d, raw, face, src, a, kind);
+  dmgTextHit(T, Math.max(0, d), dmgFromP || (src && src.pos) || null); dmgFromP = null;   // 대미지 숫자 (공격한 자리 반대쪽으로)
   if (d <= 0) return 0;
   T.hp -= d;
-  if (T === tank) { shake = Math.min(1.2, shake + Math.min(0.3, 0.05 + d * 0.005)); hudHit(d); }
+  if (T === tank) { shake = Math.min(1.2, shake + Math.min(0.3, 0.05 + d * 0.005)); hudHit(d); padRumble(Math.min(1, 0.25 + d * 0.02), Math.min(1, 0.4 + d * 0.02), kind === 'mg' ? 70 : 180); }   // 패드 진동: 맞은 만큼
   if (T.hp <= 0) destroyTankBody(T);
   return d;
 }
@@ -167,13 +169,13 @@ function blastDamage(p, r, dmg, src, except) {
     if (!T.solid || T === except) continue;
     const face = faceAt(T, p);
     const dx = Math.max(0, Math.abs(_spl.x) - (T.hx ?? HULL_HX)), dz = Math.max(0, Math.abs(_spl.z) - (T.hz ?? HULL_HZ)), dy = Math.max(0, -_spl.y, _spl.y - (T.ht ?? 2.8));
-    if (Math.hypot(dx, dy, dz) <= r) damageTank(T, dmg, face, src, 'blast');
+    if (Math.hypot(dx, dy, dz) <= r) { dmgFromP = p; damageTank(T, dmg, face, src, 'blast'); }   // (대미지 숫자는 폭발 자리 반대쪽으로)
   }
   for (const t of targets.slice()) if (t !== except && t.alive && !t.falling && t.mesh.position.distanceTo(p) < r + TARGET_S / 2) damageTarget(t, dmg, 'blast');
   for (const c of crates) if (c !== except && c.alive && Math.hypot(c.x - p.x, c.y - p.y, c.z - p.z) < r + c.s / 2) damageCrate(c, dmg);
   for (const w of WRECKS.slice()) if (w !== except && Math.hypot(w.x - p.x, w.y - 1 - p.y, w.z - p.z) < r + 1.8) damageWreck(w, dmg);
   for (const S of SANDBAGS.slice()) if (S !== except && Math.hypot(S.fp.x - p.x, S.fp.z - p.z) < r + S.fp.hx * 0.7 && Math.abs(S.y + 0.6 - p.y) < r + 1) damageSandbag(S, dmg);
-  for (const B of BUNKERS) if (B !== except && !B.ruin && Math.hypot(B.x - p.x, B.z - p.z) < r + BK_A + 0.2 && p.y < B.y + BK_H + 1 + r) damageBunker(B, dmg, src);
+  for (const B of BUNKERS) if (B !== except && !B.ruin && Math.hypot(B.x - p.x, B.z - p.z) < r + BK_A + 0.2 && p.y < B.y + BK_H + 1 + r) { dmgFromP = p; damageBunker(B, dmg, src); }
 }
 // 포탄 직격: 맞은 면의 방어력만큼 깎인 대미지, 쇳조각
 function hitTank(T, hit, b) {
@@ -217,7 +219,7 @@ function destroyTankBody(T) {
   else { n = Math.min(EC.goldDropMax, Math.max(EC.goldDropMin ?? 10, T.gold)); T.gold = 0; }
   if (n) spawnCoins(c, n, false, 1, vals);
   T.vel.set(0, 0, 0); T.w.set(0, 0, 0); T.sL = T.sR = T.yawCmd = 0; T.contacts = 0;
-  if (T === tank) { showEnd('dead'); return; }
+  if (T === tank) { deadEndAt = U.uTime.value + 2; return; }   // 터지는 모습을 보여 주고 2초 뒤에 창 (tick)
   removeEnemy(T);
   enemyKills++;   // 자주포도 20대에 들어간다
   if (T.spg && spgWanted() && enemyDrops < MAX_DROPS) { enemyDrops++; spgTimers.push(SC.respawnDelay); }   // 남은 자리가 있으면 10초 뒤 다시 (한 대로 센다)
@@ -750,6 +752,7 @@ let tankPosT = 0;
 function updateTankPos(dt) {
   if ((tankPosT -= dt) > 0 || hudEl.style.display !== 'block') return;
   tankPosT = 0.2;
+  dbgSync();
   _fwd.set(0, 0, 1).applyQuaternion(tank.q);
   const yaw = (Math.round(Math.atan2(_fwd.x, _fwd.z) / DEG) + 360) % 360;
   tankPosEl.textContent = `{ x: ${tank.pos.x.toFixed(1)}, z: ${tank.pos.z.toFixed(1)}, yaw: ${yaw} }`;

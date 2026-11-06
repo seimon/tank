@@ -45,6 +45,7 @@ function bunkerFire(B) {
   sparks(_bkT, _bkN.copy(_bkA).sub(_bkT).normalize());
   flashes.push({ p: _bkA.clone(), t: 0, dur: 0.07, I: 90, range: 10, color: 0xffd08a });
   sfx.mg(_bkA);
+  dmgFromP = _bkA;   // 대미지 숫자: 벙커 총구 반대쪽으로
   const hurt = damageTank(tank, BK.mg.damage, faceAt(tank, _bkA), BK_SRC, 'mg') > 0;
   if (hurt) sfx.mgHit(_bkT); else sfx.mgPing(_bkT);
 }
@@ -54,6 +55,7 @@ function damageBunker(B, raw, src) {
   const a = Math.max(0, BK.armor - ((src && src.pierce) || 0)), d = Math.floor(raw * (1 - a) + 1e-6);
   if (aiShow) addFloater(_bkT.set(B.x, B.y + BK_H, B.z), 2, `벙커 -${d} · 방어 ${Math.round(a * 100)}% · HP ${Math.max(0, B.hp - d)}`, '#ff8a5a', B);
   if (src === tank) B.alarmT = U.uTime.value + BK.alarm;   // 내가 공격하면 경보: 적이 지원하러 달려온다 (막혀 대미지가 0이어도)
+  dmgTextHitAt(_bkT.set(B.x, B.y + BK_H + 0.6, B.z), Math.max(0, d), dmgFromP || (src && src.pos) || null); dmgFromP = null;   // 대미지 숫자 (지붕 위)
   if (d <= 0) return 0;
   B.hp -= d;
   if (B.hp <= 0) ruinBunker(B); else bunkerCrack(B);   // 체력에 따라 금 간 무늬

@@ -10,15 +10,16 @@ function tick(dt) {
   const lockIn = titlePose() || winUp() || editMode;   // 타이틀·전환 동안, 그리고 가운데 창(정보·전투 불능·적군 섬멸·확인)이 떠 있으면 조작 막힘
   const auto = entranceDrive(dt);   // 타이틀 등장: 저절로 달려온다
   const thr = auto ? auto[0] : lockIn ? 0 : (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0) || touch.thr || pad.thr;
-  const steer = lockIn ? 0 : (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0) - (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) || touch.steer || pad.steer;
+  const steer = lockIn ? 0 : (keys.has('KeyA') ? 1 : 0) - (keys.has('KeyD') ? 1 : 0) || touch.steer || pad.steer;
   const turn = auto ? auto[1] : thr < 0 ? -steer : steer;   // 후진할 땐 자동차처럼 좌우가 반대
   const de = lockIn ? 0 : (keys.has('ArrowUp') || keys.has('KeyR') || touch.up ? 1 : 0) - (keys.has('ArrowDown') || keys.has('KeyF') || touch.down ? 1 : 0) || pad.de;   // 포각: R·↑ 올림, F·↓ 내림
   tank.elev = Math.max(-0.1, Math.min(0.96, tank.elev + de * 0.55 * dt));
-  const tq = (keys.has('KeyQ') || touch.tl ? 1 : 0) - (keys.has('KeyE') || touch.tr ? 1 : 0) || pad.tq;   // 포탑 회전: Q(◀) 왼쪽, E(▶) 오른쪽
+  const tq = (keys.has('KeyQ') || keys.has('ArrowLeft') || touch.tl ? 1 : 0) - (keys.has('KeyE') || keys.has('ArrowRight') || touch.tr ? 1 : 0) || pad.tq;   // 포탑 회전: Q·← 왼쪽, E·→ 오른쪽 (오른손만으로 포탑·포각도)
   if (tank.solid && !lockIn) turretStep(tank, tq, dt);
   tank.cool -= dt;
   if (tank.solid && !lockIn && (keys.has('Space') || touch.fire || pad.fire) && tank.cool <= 0) { fireCannon(); tank.cool = tank.reload; }
   if (tank.falling) updateFall(tank, dt);
+  if (deadEndAt && U.uTime.value >= deadEndAt) { deadEndAt = 0; if (!tank.solid) showEnd('dead'); }   // 내 탱크가 터지고 2초 뒤에 전투 불능 창
   perfMark('입력');
   if (titleState !== 'title' && !aiFrozen) updateEnemies(dt);
   else for (const E of ENEMIES) { if (E.falling && titleState !== 'title') updateFall(E, dt); E.thr = 0; E.turn = 0; }   // 타이틀·AI 정지 동안 적은 가만히 (주행 입력은 0으로. 비워 두면 물리가 NaN이 된다)
@@ -44,7 +45,8 @@ function tick(dt) {
   // 자동 수리: 10초(설정)마다 HP 1
   // '야전 정비' 조합: 주기 절반. ('광전사'도 자동 수리는 그대로: 한 번에 1이라 더 줄이지 않는다)
   const repEvery = PC.autoRepairEvery * (tank.fieldRepair ? 0.5 : 1);
-  if (tank.autoRepair && tank.solid && tank.hp < tank.maxHp && (tank.repairAcc += dt) >= repEvery) { tank.repairAcc -= repEvery; tank.hp = Math.min(tank.maxHp, tank.hp + 1); }
+  if (tank.regen > 0 && tank.solid && tank.hp < tank.maxHp) { tank.regenAcc = (tank.regenAcc || 0) + tank.regen * dt; const n = Math.floor(tank.regenAcc); if (n) { tank.regenAcc -= n; tank.hp = Math.min(tank.maxHp, tank.hp + n); } }   // 설정 메뉴 '초당 자동 회복' (시험용)
+  if (tank.autoRepair && tank.solid && tank.hp < tank.maxHp && (tank.repairAcc += dt) >= repEvery) { tank.repairAcc -= repEvery; tank.hp = Math.min(tank.maxHp, tank.hp + 1); dmgTextHeal(tank, 1); }
   perfMark('물리');
   if (tank.solid && tank.pos.y < BOTTOM - 20) spawnTank();
   for (const E of ENEMIES) {
@@ -143,6 +145,7 @@ function warmCompile() {
   scene.add(warm); warmCompile(); scene.remove(warm); warm.remove(ch.g);
   updateFadeIns(0);   // 장면에서 빠졌으니 바로 정리
 }
+setBright(brightness);   // 기억해 둔 화면 밝기
 warmCompile();   // 처음 보는 재질 때문에 게임 중에 멈칫하지 않게 미리 컴파일
 fadeLoading();
 // 로딩 화면은 바로 끄지 않고 1초 동안 4x4 디더링 무늬로 점점 비워 가며 사라진다 (게임 해상도 픽셀 단위)
@@ -170,12 +173,15 @@ const setPaused = (v) => {
   // 일시정지 창은 떠 있던 화면(성장 선택지·끝 창) 위에 잠깐 올렸다가, 계속하면 되돌린다
   // 다른 창(전투 불능·적군 섬멸)이 떠 있으면 일시정지 창은 띄우지 않는다. 확인 창에서 계속해도 일시정지 아래 화면으로
   const inPause = UI.closing ? UI.closing.next === pauseUI || UI.closing.next === confirmUI : UI.screen === pauseUI || UI.screen === confirmUI;   // 다른 창으로 넘어가는 중이면 그대로 둔다
-  if (v && titleState !== 'title' && !winUp()) {
+  const atTitle = titleState === 'title';   // 타이틀: 키를 받기 시작한 뒤부터 메뉴 창 (조종법·설정 탭만, 설정 탭으로). 편집 모드에서는 안 연다
+  if (v && (!atTitle || (titleWait >= TITLE_DELAY && !decalMode && !editMode)) && !winUp()) {
+    pauseUI.titleMode = atTitle;
     // 아래에 둘 화면: 사라지는 중이면 그다음 화면. 일시정지·확인 창 자신은 아래 화면이 될 수 없다 (ESC를 연타하면 닫히던 창을 다시 여는 경우)
     const under = UI.closing ? UI.closing.next : UI.screen;
     pauseUI.under = under === pauseUI || under === confirmUI ? null : under;
     pauseUI.open(); uiShow(pauseUI);   // 탱크 성능부터
   }
+  else if (v) { paused = false; return; }   // 열 수 없을 때 (타이틀 대기 중·편집 모드·다른 창)
   else if (!v && inPause) { uiShow(pauseUI.under || null); pauseUI.under = null; }
   if (!v) clock.getDelta();
 };
@@ -218,19 +224,21 @@ function overlayFrame() {
   postMat.uniforms.uGray.value = grayK;
   syncHud();
   uiUpdate();
+  dmgTextUpdate(paused ? 0 : uiDt);   // 대미지 숫자 (멈춘 동안은 그대로)
   if (paused) pausedDrawn = !(UI.closing || UI.glitchT > 0 || UI.dirty || grayK !== gT || hudOffAt || performance.now() < glitchUntil || (UI.screen && UI.screen.busy && UI.screen.busy()));   // busy: 화면이 움직이는 중 (강화 기록 넘기기)
 }
 function frame() {
+  const fj0 = performance.now();   // 이 프레임 JS 전체 시간 (끊김 기록용)
   // 일시정지(정보 창) 동안 게임 시간은 흐르지 않고 (재개 때 한꺼번에 몰아 계산하지 않음), 창·회색조 연출만 그린다
   const raw = clock.getDelta();
   uiDt = Math.min(raw, 0.05);   // 창·회색조 연출 시간: 멈춘 동안에도 흐른다
   sfx.game(!paused); sfx.keepAlive();   // 일시정지(정보·확인 창) 중에는 게임 소리를 끈다 (UI 소리만). 전투 불능·적군 섬멸 창에서는 그대로
   padPoll();   // 게임패드: 일시정지로 일찍 돌아가기 전에 (창 조작도 패드로)
-  if (paused && pausedDrawn) return;
+  if (paused && pausedDrawn) { crtPresent(); return; }   // CRT 표현은 멈춰 있어도 돈다 (게임 화면은 그대로)
   if (paused && pauseScene) {   // 멈춘 뒤에는 장면을 다시 그리지 않는다 (카메라·흔들림이 다시 계산돼 배경이 움찔이지 않게): HUD·창·회색조만
     drawHud(); overlayFrame();
     renderer.setRenderTarget(postRT); renderer.render(postScene, postCam);   // 회색조는 후처리라 마지막 장면(rt)에서 다시
-    renderer.setRenderTarget(null); renderer.render(upScene, postCam);
+    renderer.setRenderTarget(null); finalPass();
     return;
   }
   const rawDt = paused ? 0 : raw, dt = Math.min(rawDt, 0.05);
@@ -251,6 +259,7 @@ function frame() {
     _tmp.copy(_cf).sub(lastFollow);
     camera.position.add(_tmp); controls.target.add(_tmp); lastFollow.copy(_cf);
     followYaw(dt);
+    camBack(dt);   // 마우스로 돌린 카메라: 1초 뒤 기본 각도로
   }
   controls.update();
   camAboveGround();
@@ -261,7 +270,7 @@ function frame() {
   if (!decalMode) { titleCamEnd(); drawCallouts(); }
   updateHudReveal(dt);
   shake = Math.max(0, shake - dt * 2.5);
-  _shake.set(rr(-1, 1), rr(-1, 1), rr(-1, 1)).multiplyScalar(shake * 0.35);
+  _shake.set(rr(-1, 1), rr(-1, 1), rr(-1, 1)).multiplyScalar(shakeOn ? shake * 0.35 : 0);   // 화면 흔들림 (설정에서 끌 수 있다)
   camera.position.add(_shake);
   updateAiView();
   updateFloaters(dt);
@@ -278,13 +287,14 @@ function frame() {
     renderer.setRenderTarget(olRT); renderer.render(scene, camera);
     scene.overrideMaterial = null; camera.layers.set(0);
   }
+  vfStep(dt);   // 복셀 안개 흉내 유체 (멈추면 dt = 0)
   renderer.setRenderTarget(postRT);
   renderer.render(postScene, postCam);
   renderer.setRenderTarget(null);
-  renderer.render(upScene, postCam);   // 게임 해상도 → 화면 (샤프 바이리니어)
+  finalPass();   // 게임 해상도 → 화면 (샤프 바이리니어, CRT 표현이면 HUD·UI와 합쳐 CRT로)
   camera.position.sub(_shake);
   if (paused) pauseScene = true;   // 멈춘 장면을 한 번 그렸다
-  if (!paused) perfFrame(rawDt * 1000, performance.now() - tr0, renderer.info.programs.length - progs0);
+  if (!paused) perfFrame(rawDt * 1000, performance.now() - tr0, renderer.info.programs.length - progs0, performance.now() - fj0);
 
   frames++; acc += dt;
   if (acc > 0.5) {

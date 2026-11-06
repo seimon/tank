@@ -1,0 +1,69 @@
+// ---------------------------------------------------------------- 대미지 숫자 (설정 메뉴 '대미지 숫자' 버튼, config damageText)
+// 맞은 대상 머리 위에서 숫자가 뿅 튀어 오른다 (EaseOutExpo). 오르는 쪽은 화면에서 본 공격 방향의 반대쪽으로 기울고(↗), 각도는 조금씩 제각각.
+// 피해 = 빨강 '14' (bigDamage 이상은 bigScale배 크게), 막힘 = 회색 'NO DAMAGE', 회복 = 초록 '+20', 골드 = 금색 '1G'.
+// 금화·수리 도구는 날아온 쪽을 공격 방향처럼 본다. 픽셀 UI와 같은 배율(1칸 = 게임 화면 1픽셀 × hk)의 따로 된 캔버스에 HUD 글꼴(5x7)로 (블렌딩·그림자는 config)
+const DTC = Object.assign({ enabled: false, blend: 'normal', shadow: 0.3, letterSpacing: 1, bigDamage: 100, bigScale: 2, damageColor: '#ff4a3a', noDamageColor: '#9c9c9c', healColor: '#4ad86a', goldColor: '#ffd040',
+  noDamageText: 'NO DAMAGE', height: 3.2, rise: 26, moveTime: 0.6, time: 1.0, push: 0.55, spread: 18 }, CFG.damageText);
+let dmgTextOn = loadOpt('dmgText', !!DTC.enabled), dmgFromP = null;   // (설정에서 바꾸면 기억한다. 처음엔 config)   // dmgFromP: 다음 대미지의 공격 위치 (폭발 자리·벙커 총구처럼 쏜 탱크 자리가 아닐 때 부르는 쪽이 넣는다)
+const dmgCv = document.createElement('canvas'), dmgG = dmgCv.getContext('2d');
+dmgCv.id = 'pdmg'; Object.assign(dmgCv.style, { position: 'fixed', pointerEvents: 'none', zIndex: 3,   /* HUD(2) 위, 픽셀 UI·창(5) 아래 */ imageRendering: 'pixelated', mixBlendMode: DTC.blend });
+document.body.appendChild(dmgCv);
+const dmgTexts = [];
+const _dtA = new THREE.Vector3(), _dtB = new THREE.Vector3();
+const dtBtn = document.getElementById('dmgTextBtn');
+const dtLabel = () => { dtBtn.textContent = dmgTextOn ? '대미지 숫자 켜짐' : '대미지 숫자 꺼짐'; };
+dtLabel();
+function setDmgTextOn(v) { dmgTextOn = v; saveOpt('dmgText', v); if (!v) dmgTexts.length = 0; dtLabel(); }
+dtBtn.onclick = (e) => { setDmgTextOn(!dmgTextOn); e.target.blur(); };
+// 숫자 하나 띄우기. at = 머리 위 기준점 (월드), from = 공격한 자리 (월드, 없으면 바로 위로)
+function dmgText(at, text, color, from = null, scale = 1) {   // scale: 글자 배율
+  if (!dmgTextOn) return null;
+  at = at.clone();   // (기준점 벡터는 아래 계산에 다시 쓰이니 먼저 복사)
+  // 화면에서: 공격 자리 → 맞은 자리 방향으로 밀려난다 (위쪽은 늘 지킨다). 바로 위와 섞는 비율 = push
+  let dx = 0, dy = -1;
+  if (from) {
+    _dtA.copy(at).project(camera); _dtB.copy(from).project(camera);
+    let vx = (_dtA.x - _dtB.x) * camera.aspect, vy = -(_dtA.y - _dtB.y);   // 화면 좌표 (아래가 +), 가로세로 비율 맞춤
+    const L = Math.hypot(vx, vy);
+    if (L > 1e-4) { vx /= L; vy /= L; dx = vx * DTC.push; dy = -(1 - DTC.push) + vy * DTC.push; }
+  }
+  if (dy > -0.25) dy = -0.25 - Math.abs(dy) * 0.5;   // 아래로는 가지 않게
+  const a = (Math.random() * 2 - 1) * DTC.spread * DEG, ca = Math.cos(a), sa = Math.sin(a), L2 = Math.hypot(dx, dy);
+  const f = { at: at.clone(), text, color, scale, dx: (dx * ca - dy * sa) / L2, dy: (dx * sa + dy * ca) / L2, t: 0 };
+  dmgTexts.push(f);
+  if (dmgTexts.length > 60) dmgTexts.shift();
+  return f;
+}
+// 탱크·벙커 머리 위 자리
+const dtHead = (T) => _dtA.set(T.pos.x, T.pos.y + DTC.height, T.pos.z);
+function dmgTextHitAt(p, d, from) { if (dmgTextOn) dmgText(p, d > 0 ? `${d}` : DTC.noDamageText, d > 0 ? DTC.damageColor : DTC.noDamageColor, from, d >= DTC.bigDamage ? DTC.bigScale : 1); }   // 큰 피해는 크게
+function dmgTextHit(T, d, from) { dmgTextHitAt(dtHead(T), d, from); }
+// 회복·골드: from = 날아온 자리 (금화·수리 도구가 오던 쪽을 공격 방향처럼 본다)
+function dmgTextHeal(T, n, from = null) { if (dmgTextOn && n > 0) dmgText(dtHead(T), `+${n}`, DTC.healColor, from); }
+function dmgTextGold(v, from = null) { if (dmgTextOn) dmgText(dtHead(tank), `${v}G`, DTC.goldColor, from); }
+let dmgShown = false;
+// HUD 글꼴로 한 줄: 글자 사이를 letterSpacing칸 더 띄운다 (fontDraw는 간격을 못 바꿔 한 글자씩)
+const dtSp = () => Math.round(DTC.letterSpacing || 0);
+const dtWidth = (t) => fontWidth(t) + Math.max(0, [...String(t)].length - 1) * dtSp();
+function dtDraw(t, x, y, k, plot) { for (const ch of String(t).toUpperCase()) { fontDraw(ch, x, y, k, plot); x += (fontSpan(ch).adv + dtSp()) * k; } }   // k = 배율
+function dmgTextUpdate(dt) {
+  for (let i = dmgTexts.length - 1; i >= 0; i--) if ((dmgTexts[i].t += dt) >= DTC.time) dmgTexts.splice(i, 1);   // 시간이 다 되면 바로 사라진다
+  if (!dmgTexts.length) { if (dmgShown) { dmgG.clearRect(0, 0, dmgCv.width, dmgCv.height); dmgShown = false; crtDirty = true; } return; }
+  // 크기·자리: 픽셀 UI와 같은 배율
+  const H = rt.height, dpr = layerScale || devicePixelRatio || 1, DW = Math.max(1, Math.round(VR.w * dpr)), DH = Math.max(1, Math.round(VR.h * dpr));
+  const k = Math.max(1, Math.floor(H / 360)), w = Math.floor(rt.width / k), h = Math.floor(H / k), u = k * DH / H;
+  if (dmgCv.width !== DW || dmgCv.height !== DH) { dmgCv.width = DW; dmgCv.height = DH; }
+  Object.assign(dmgCv.style, { left: `${VR.x}px`, top: `${VR.y}px`, width: `${VR.w}px`, height: `${VR.h}px` });
+  dmgG.clearRect(0, 0, DW, DH); dmgShown = true; crtDirty = true;
+  for (const f of dmgTexts) {
+    _dtA.copy(f.at).project(camera);
+    if (_dtA.z > 1 || _dtA.z < -1) continue;
+    const e = easeOutExpo(Math.min(1, f.t / Math.max(0.01, DTC.moveTime))) * DTC.rise;
+    const k2 = f.scale || 1, x = Math.round((_dtA.x + 1) / 2 * w + f.dx * e - dtWidth(f.text) * k2 / 2), y = Math.round((1 - _dtA.y) / 2 * h + f.dy * e - 4 * k2);
+    const plot = (a, b, kk) => dmgG.fillRect(a * u, b * u, Math.ceil(kk * u), Math.ceil(kk * u));
+    if (DTC.shadow > 0) { dmgG.fillStyle = `rgba(0,0,0,${DTC.shadow})`; dtDraw(f.text, x + 1, y + 1, k2, plot); }   // 그림자: 오른쪽 아래 1칸
+    dmgG.fillStyle = f.color;
+    dtDraw(f.text, x, y, k2, plot);
+  }
+}
+Object.assign(window.dbg, { dmgText, dmgTexts, setDmgText: (v) => { dmgTextOn = v; dtLabel(); } });

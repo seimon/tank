@@ -6,7 +6,7 @@ const editKeys = new Set();
 const EDIT_ITEMS = [
   { name: '나무 상자 (소)', add: (x, z) => ({ kind: 'crate', o: addCrate(x, z, 0, 1.5) }) },
   { name: '나무 상자 (대)', add: (x, z) => ({ kind: 'crate', o: addCrate(x, z, 0, 2.2) }) },
-  { name: '탱크 잔해', add: (x, z) => { const w = placeWreck(x, z, 0); smokers.push({ x: w.x, y: w.y, z: w.z, t: 10, dur: Infinity, acc: 0, weak: true }); return { kind: 'wreck', o: w }; } },
+  { name: '탱크 잔해', add: (x, z) => { const w = placeWreck(x, z, 0); wreckScorch(w); smokers.push({ x: w.x, y: w.y, z: w.z, t: 10, dur: Infinity, acc: 0, weak: true }); return { kind: 'wreck', o: w }; } },
   { name: '벙커', add: (x, z) => ({ kind: 'bunker', o: placeBunker(x, z, 0, false) }) },
   { name: '부서진 벙커', add: (x, z) => ({ kind: 'bunker', o: placeBunker(x, z, 0, true) }) },
   { name: '드럼통', add: (x, z) => ({ kind: 'crate', o: addCrate(x, z, 0, DRUM_S, true) }) },
@@ -100,7 +100,7 @@ function mapFileText() {
     ...BUNKERS.map((o) => editLine({ kind: 'bunker', o })),
   ];
   return `// 지도 데이터: 나무 상자 · 드럼통 · 모래주머니 · 탱크 잔해 · 벙커의 자리.
-// 게임의 설정 메뉴(\` 키) → '맵 편집 모드'에서 고친 뒤, 선택한 물체가 없을 때 R을 누르면 이 파일 내용 전체가 복사된다. 그대로 덮어 붙여 넣으면 된다.
+// 게임의 설정 메뉴(~ 키) → '맵 편집 모드'에서 고친 뒤, 선택한 물체가 없을 때 R을 누르면 이 파일 내용 전체가 복사된다. 그대로 덮어 붙여 넣으면 된다.
 //   type: crate(나무 상자, s = 한 변 m. 2 이상이면 큰 상자) · drum(드럼통) · sandbag(모래주머니) · wreck(탱크 잔해) · bunker(벙커) · bunkerRuin(부서진 벙커)
 //   x·z: 위치 (m, 판 가운데가 0)   rot: 방향 (라디안)
 //   나무 상자·드럼통은 적힌 순서대로 놓으며, 다른 상자와 겹치면 그 위에 얹힌다
@@ -156,7 +156,8 @@ addEventListener('pointerup', (e) => {
   const moved = Math.hypot(e.clientX - editDown.x, e.clientY - editDown.y); editDown = null;
   if (moved > 5) return;   // 끌었으면 카메라 돌리기
   const r = renderer.domElement.getBoundingClientRect();
-  _eR.setFromCamera({ x: (e.clientX - r.left) / r.width * 2 - 1, y: -((e.clientY - r.top) / r.height) * 2 + 1 }, camera);
+  const cp = crtPoint(e.clientX, e.clientY);   // CRT 화면 휨을 되짚어서
+  _eR.setFromCamera({ x: (cp.x - r.left) / r.width * 2 - 1, y: -((cp.y - r.top) / r.height) * 2 + 1 }, camera);
   let best = null, bd = Infinity;
   const test = (kind, o, cx, cy, cz, hx, hy, hz, rot) => {
     const C = Math.cos(rot), S = Math.sin(rot), q = _eR.ray.origin, d = _eR.ray.direction, ox = q.x - cx, oz = q.z - cz;

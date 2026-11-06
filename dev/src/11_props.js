@@ -531,6 +531,7 @@ function place(g0, x, z, rotY, w, d, extra = 0, porchD = 0) {
   g.position.set(x, heightAt(x, z), z); g.rotation.y = rotY; scene.add(g);
   g.updateMatrixWorld(true);
   ray.position.copy(g.position); ray.rotation.copy(g.rotation); ray.updateMatrixWorld(true);   // 씬에는 넣지 않는다
+  g.userData.ray = ray;   // 그을음도 이 저해상도 사본에 투영한다 (모양·기울기가 같아 결과는 같고 훨씬 빠르다)
   const box = new THREE.Box3().setFromObject(g), c = Math.cos(rotY), s = Math.sin(rotY), off = porchD / 2;
   footprints.push({ x: x + s * off, z: z + c * off, hx: w / 2 + extra, hz: d / 2 + off + extra, c, s, y0: g.position.y, top: box.max.y, box, group: g, ray,
     aoBox: body && { b: body.b, inv: g.matrixWorld.clone().invert() } });

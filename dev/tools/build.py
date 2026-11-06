@@ -37,16 +37,28 @@ def build_decals():
     open(os.path.join(ROOT, 'decal_images.js'), 'w', encoding='utf-8', newline='\n').write('\n'.join(lines) + '\n')
     return len(files)
 
+# 타이틀·로딩 그림: images/*.png → title_images.js (window.TITLE_IMAGES). file://에서 PNG를 그린 캔버스는 WebGL로 못 올려서(CRT 표현) JS에 담는다
+def build_images():
+    import base64
+    files = sorted(glob.glob(os.path.join(ROOT, 'images', '*.png')))
+    lines = ['// 자동으로 만든 파일입니다. images/*.png를 고친 뒤 python tools/build.py 로 다시 만드세요.', 'window.TITLE_IMAGES = {']
+    for f in files:
+        name = os.path.splitext(os.path.basename(f))[0]
+        lines.append(f"  '{name}': 'data:image/png;base64,{base64.b64encode(open(f, 'rb').read()).decode()}',")
+    lines.append('};')
+    open(os.path.join(ROOT, 'title_images.js'), 'w', encoding='utf-8', newline='\n').write('\n'.join(lines) + '\n')
+    return len(files)
+
 def stamp():
     return max(os.path.getmtime(f) for f in glob.glob(os.path.join(SRC, '*')))
 
 if __name__ == '__main__':
-    print('index.html', build(), '줄 · 데칼 그림', build_decals(), '장')
+    print('index.html', build(), '줄 · 데칼 그림', build_decals(), '장 · 타이틀 그림', build_images(), '장')
     if '--watch' in sys.argv:
         last = stamp()
         while True:
             time.sleep(0.5)
             if stamp() != last:
                 last = stamp()
-                try: print(time.strftime('%H:%M:%S'), 'index.html', build(), '줄'); build_decals()
+                try: print(time.strftime('%H:%M:%S'), 'index.html', build(), '줄'); build_decals(); build_images()
                 except Exception as e: print('실패:', e)

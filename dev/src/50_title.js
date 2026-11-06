@@ -164,10 +164,11 @@ function updateTitle(dt) {
 }
 // 타이틀에서는 키·클릭이 게임에 가지 않는다 (설정 메뉴 ` 키와 메뉴 클릭은 그대로): SPACE(또는 클릭·터치)로 시작, Q/E로 위장색
 addEventListener('keydown', (e) => {
-  if (titleState !== 'title' || e.code === 'Backquote' || decalMode) return;   // 데칼 편집 중이면 그쪽 처리로
+  if (titleState !== 'title' || e.code === 'Backquote' || decalMode || paused) return;   // 데칼 편집 중이면 그쪽 처리로. 메뉴 창(ESC)이 떠 있으면 창으로
   if (!e.fromPad) setInputPad(false);   // 키보드를 누르면 키 글자도 키보드로 (아래에서 다른 처리를 막으니 여기서)
   sfx.unlock();
   if (e.ctrlKey || e.metaKey || e.altKey || /^F\d+$/.test(e.code)) return;   // 새로고침 등 브라우저 단축키는 그대로
+  if (e.code === 'Escape') return;   // ESC: 메뉴 창 (조종법·설정. 90_loop.js)
   e.stopImmediatePropagation();
   if (['Space', 'KeyQ', 'KeyE', 'KeyA', 'KeyD'].includes(e.code)) e.preventDefault();   // 소리는 첫 입력부터 (브라우저 규칙)
   if (titleWait < TITLE_DELAY) return;   // 그 전에는 눌러도 무시 (로딩 중에 눌러도 여기서 끝)
@@ -178,7 +179,7 @@ addEventListener('keydown', (e) => {
   startGame();
 }, true);
 addEventListener('pointerdown', (e) => {   // 클릭·터치는 게임에 가지 않고 소리만 켠다 (시작은 SPACE로만)
-  if (titleState !== 'title' || e.target.closest('#hud') || decalMode) return;   // 데칼 편집 중엔 카메라 돌리기·고르기로
+  if (titleState !== 'title' || e.target.closest('#hud') || decalMode || paused) return;   // 데칼 편집 중엔 카메라 돌리기·고르기로. 메뉴 창이 떠 있으면 창 클릭으로
   setInputPad(false);
   e.stopImmediatePropagation();
   sfx.unlock();
