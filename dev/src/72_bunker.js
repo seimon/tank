@@ -42,7 +42,7 @@ function bunkerFire(B) {
   B.tip.getWorldPosition(_bkA);
   _bkT.set(tank.pos.x + rr(-0.7, 0.7), tank.pos.y + rr(0.5, 1.7), tank.pos.z + rr(-0.7, 0.7));
   mgTracers.push({ a: _bkA.clone(), b: _bkT.clone(), t: 0 });
-  sparks(_bkT, _bkN.copy(_bkA).sub(_bkT).normalize());
+  sparks(_bkT, _bkN.copy(_bkA).sub(_bkT).normalize(), 0.35);   // (연사라 작게)
   flashes.push({ p: _bkA.clone(), t: 0, dur: 0.07, I: 90, range: 10, color: 0xffd08a });
   sfx.mg(_bkA);
   dmgFromP = _bkA;   // 대미지 숫자: 벙커 총구 반대쪽으로
@@ -50,12 +50,14 @@ function bunkerFire(B) {
   if (hurt) sfx.mgHit(_bkT); else sfx.mgPing(_bkT);
 }
 // 대미지: 방어력(관통탄만큼 덜)을 적용하고 소수점 버림
-function damageBunker(B, raw, src) {
-  if (B.ruin || editMode) return 0;
-  const a = Math.max(0, BK.armor - ((src && src.pierce) || 0)), d = Math.floor(raw * (1 - a) + 1e-6);
+function damageBunker(B, raw, src, kind) {   // kind 'mg': 기관총 (관통은 '철갑 기관총' 조합이 있을 때만, damageTank와 같다)
+  if (B.ruin || editMode || rulesLocked()) { dmgCrit = false; return 0; }   // 섬멸 창 동안은 값이 안 바뀐다
+  if (src === tank && tank.bunkerMul > 1) raw *= tank.bunkerMul;   // '벙커버스터'
+  const pierce = kind !== 'mg' || (src && src.apMg) ? (src && src.pierce) || 0 : 0;
+  const a = Math.max(0, BK.armor - pierce), d = Math.floor(raw * (1 - a) + 1e-6);
   if (aiShow) addFloater(_bkT.set(B.x, B.y + BK_H, B.z), 2, `벙커 -${d} · 방어 ${Math.round(a * 100)}% · HP ${Math.max(0, B.hp - d)}`, '#ff8a5a', B);
   if (src === tank) B.alarmT = U.uTime.value + BK.alarm;   // 내가 공격하면 경보: 적이 지원하러 달려온다 (막혀 대미지가 0이어도)
-  dmgTextHitAt(_bkT.set(B.x, B.y + BK_H + 0.6, B.z), Math.max(0, d), dmgFromP || (src && src.pos) || null); dmgFromP = null;   // 대미지 숫자 (지붕 위)
+  dmgTextHitAt(_bkT.set(B.x, B.y + BK_H + 0.6, B.z), Math.max(0, d), dmgFromP || (src && src.pos) || null, dmgCrit, d > 0 && B.hp - d <= 0); dmgFromP = null; dmgCrit = false;   // 대미지 숫자 (지붕 위. 치명타·파괴 표시)
   if (d <= 0) return 0;
   B.hp -= d;
   if (B.hp <= 0) ruinBunker(B); else bunkerCrack(B);   // 체력에 따라 금 간 무늬

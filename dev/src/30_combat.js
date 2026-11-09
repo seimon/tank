@@ -1,6 +1,11 @@
 // ---------------------------------------------------------------- 탱크 물리 (강체 + 접촉점 페널티)
 // 질량 1로 정규화. 궤도 접촉점은 벨트 속도만큼 지면을 밀어 추진하고, 마찰 한계를 넘으면 미끄러진다
-const G = 9.8, K = 300, C = 8, KT = 25, MU = 0.75, MU_LAT = 0.6;
+const G = 9.8, K = 300, C = 8, KT = 25;
+// config.js의 physics: 마찰·중력(탱크만)·후진 제동·충돌음. 설정이 없어도 이 값으로 돈다
+const PH = Object.assign({ friction: 0.9, sideFriction: 1.0, gravity: 1.5, airGravity: 1.3, slopePull: 0.5, wallSlip: 0.3, brake: 4, crashVolume: 1.8 }, CFG.physics);
+const MU = PH.friction, MU_LAT = PH.sideFriction, GT = G * PH.gravity;   // GT: 탱크가 받는 중력 (포탄·부스러기는 G 그대로)
+// 부딪히는 속도(m/s)에 따른 충돌음 세기: 빠를수록 크다
+const crashK = (v) => Math.min(3, (0.7 + v * 0.3) * PH.crashVolume);
 const PC = CFG.player, PM = CFG.playerMax;
 const INIT_ELEV = PC.initElev * DEG;   // 포각 처음 값
 const VMAX = PC.maxSpeed, ACC = PC.accel, PHYS_H = 1 / 480;   // 최고 속도·가속 (내 탱크 처음 값. 적은 배율로)
@@ -31,6 +36,7 @@ const _rw = new THREE.Vector3(), _pw = new THREE.Vector3(), _vp = new THREE.Vect
 const _vt = new THREE.Vector3(), _bd = new THREE.Vector3(), _lat = new THREE.Vector3(), _ft = new THREE.Vector3();
 const _f = new THREE.Vector3(), _F = new THREE.Vector3(), _T = new THREE.Vector3(), _tmp = new THREE.Vector3();
 const _fwd = new THREE.Vector3(), _loc = new THREE.Vector3(), _qi = new THREE.Quaternion(), _dq = new THREE.Quaternion();
+let _ws = 1;   // 이번 physStep에서 궤도 마찰에 곱할 배율 (벽에 붙어 멈춘 동안 줄어든다)
 function groundAt(x, z) {
   if (Math.abs(x) <= HALF && Math.abs(z) <= HALF) return Math.max(heightAt(x, z), bridgeDeckAt(x, z));
   return -1e9;
@@ -73,15 +79,16 @@ function applyAngularImpulse(L, body = tank) {
 function contactForce(cp, pen, n, wall) {
   const vn = _vp.dot(n), fn = K * pen - C * vn;
   if (fn <= 0) return;
+  if (wall) B.wallC++;   // 이번 스텝에 벽·물체·다른 탱크에 닿았다 (다음 스텝의 궤도 마찰 배율 _ws가 본다)
   _vt.copy(_vp).addScaledVector(n, -vn);
   if (cp.side && !wall) {
     _bd.copy(_fwd).addScaledVector(n, -_fwd.dot(n)).normalize();
     _vt.addScaledVector(_bd, -(cp.side > 0 ? B.sL : B.sR));
     const sl = _vt.dot(_bd);
     _lat.copy(_vt).addScaledVector(_bd, -sl);
-    const fl = Math.max(-MU * fn, Math.min(MU * fn, -sl * KT));
+    const fl = Math.max(-MU * _ws * fn, Math.min(MU * _ws * fn, -sl * KT));
     _ft.copy(_lat).multiplyScalar(-KT);
-    const lm = _ft.length(), lmax = MU_LAT * fn;
+    const lm = _ft.length(), lmax = MU_LAT * _ws * fn;
     if (lm > lmax) _ft.multiplyScalar(lmax / lm);
     _ft.addScaledVector(_bd, fl);
   } else {
@@ -98,18 +105,18 @@ function woodHit() {
   if (-_vp.dot(_n) < 1.0 || U.uTime.value - (B.woodAt || -9) < 0.35) return;
   B.woodAt = U.uTime.value;
   if (B === tank) padRumble(0.3, 0.45, 90);   // 패드 진동: 부딪힘
-  sfx.wood(_pw, Math.min(1.4, 0.5 - _vp.dot(_n) * 0.25));
+  sfx.wood(_pw, crashK(-_vp.dot(_n)));
 }
 function metalHit() {
   if (-_vp.dot(_n) < 1.2 || U.uTime.value - (B.sparkAt || -9) < 0.35) return;
   B.sparkAt = U.uTime.value;
   if (B === tank) padRumble(0.4, 0.55, 100);   // 패드 진동: 쇠끼리 부딪힘
-  sparks(_pw, _n);
+  sparks(_pw, _n, crashK(-_vp.dot(_n)));
 }
 // 불똥: 작고 밝은 점이 빠르게 사방으로 튀고, 날아가는 자리마다 더 작은 점을 흘려 선처럼 보이게 (뿌연 덩어리 없이)
 // 노랗게 시작해 붉게 식는다. 중력 없이 곧은 직선으로 팍 퍼졌다가 빠르게 느려지며 사라진다
 const SPARK_COL0 = [1, 0.92, 0.45, 1], SPARK_COL1 = [0.85, 0.08, 0.02, 0];
-function sparks(p, n) {
+function sparks(p, n, k = 1) {   // k: 부딪힌 소리 세기
   for (let k = 0; k < 46; k++) {
     _tmp.set(n.x * 0.9 + rr(-1, 1), rr(-0.2, 1), n.z * 0.9 + rr(-1, 1)).normalize();
     const s = rr(14, 30), vx = _tmp.x * s, vy = _tmp.y * s, vz = _tmp.z * s, ttl = rr(0.15, 0.38);
@@ -120,7 +127,7 @@ function sparks(p, n) {
     }
   }
   flashes.push({ p: p.clone(), t: 0, dur: 0.1, I: 70, range: 10, color: 0xffd890 });
-  sfx.metal(p);
+  sfx.metal(p, k);
 }
 function physStep(h, thr, turn, body = tank) {
   B = body;
@@ -128,12 +135,40 @@ function physStep(h, thr, turn, body = tank) {
   const vmax = VMAX * (B.spdM || 1) * (B.wet ? B.waterSpeed ?? PC.waterSpeed : 1), acc = ACC * (B.accM || 1), vturn = VTURN * (B.turnM || 1);
   // 빠를 때는 덜 꺾이게 (초속 7m를 넘으면 그만큼 선회를 줄인다): 고속 급선회로 차체가 뒤집히지 않게
   turn *= Math.min(1, 7 / Math.max(7, Math.abs(B.vel.dot(_fwd.set(0, 0, 1).applyQuaternion(B.q)))));
-  const tgtL = thr * vmax - turn * vturn, tgtR = thr * vmax + turn * vturn;
-  B.sL += Math.max(-acc * h, Math.min(acc * h, tgtL - B.sL));
-  B.sR += Math.max(-acc * h, Math.min(acc * h, tgtR - B.sR));
   _fwd.set(0, 0, 1).applyQuaternion(B.q);
+  // 두 궤도 속도를 '공통 속도'(전진·후진, W/S)와 '좌우 차이'(회전, A/D)로 나눠 각자 목표를 따라간다. 왼쪽 = 공통 − 차이, 오른쪽 = 공통 + 차이.
+  // (예전엔 궤도마다 '전진 목표 ∓ 회전 목표'를 따로 쫓아서, 달리다 W를 떼면 두 궤도가 같이 줄기만 해 좌우 차이가 약 1.1초 동안 안 생겼고 회전이 한참 느렸다)
+  const tm = thr * vmax, td = turn * vturn;
+  let sm = (B.sL + B.sR) / 2, sd = (B.sR - B.sL) / 2, da = acc * h;
+  // 달리던 방향과 반대로 가라는 명령(전진 ↔ 후진): 벽에 막혀 멈췄는데 궤도만 최고 속도로 헛돌고 있었다면, 그 궤도를 먼저 실제 차체 속도까지 낮추고
+  // (예전엔 +최고속도에서 0을 지나 반대로 가는 데 가속도로만 줄어 한참 걸렸다) 부호가 바뀔 때까지는 PH.brake배 빠르게 줄인다. 제자리 선회(thr 0)엔 영향 없다
+  if (tm * sm < 0) {
+    const along = B.vel.dot(_fwd);
+    sm = sm > 0 ? Math.min(sm, Math.max(0, along)) : Math.max(sm, Math.min(0, along));
+    da *= PH.brake;
+  }
+  sm += Math.max(-da, Math.min(da, tm - sm));
+  sd += Math.max(-acc * h, Math.min(acc * h, td - sd));
+  B.sL = sm - sd; B.sR = sm + sd;
   _qi.copy(B.q).invert();
-  _F.set(0, -G, 0); _T.set(0, 0, 0);
+  const gs = GT * (B.contacts > 0 ? 1 : PH.airGravity);   // 궤도가 땅에서 다 떨어진 동안은 더 세게 끌어내린다 (언덕에서 너무 뜨지 않게)
+  _F.set(0, -gs, 0); _T.set(0, 0, 0);
+  if (B.contacts > 0 && PH.slopePull < 1) {
+    // 경사면에서 아래로 끌리는 힘만 줄인다 (땅을 누르는 무게는 그대로): 중력 = 법선 성분 + 경사 방향 성분 × slopePull.
+    // 마찰이 낼 수 있는 힘은 그대로인데 내리막으로 끌리는 힘이 커서, 내려가다 멈추거나 반대로 오르려 할 때 쓸 힘이 모자랐다.
+    // 차체 위쪽을 경사면 법선으로 보고, 45° 넘게 기울었을 때(뒤집히는 중 등)는 줄이지 않는다
+    _n.set(0, 1, 0).applyQuaternion(B.q);
+    const uy = _n.y, k = 1 - (1 - PH.slopePull) * Math.min(1, Math.max(0, (uy - 0.6) / 0.25));
+    _F.set(0, -gs * k, 0).addScaledVector(_n, -gs * uy * (1 - k));
+  }
+  // 벽·물체에 붙어 멈춘 채 제자리에서 돌면, 차체 모서리가 벽을 파고들어 벽 반발력에 밀려나야 도는데 궤도가 땅을 너무 세게 잡아 못 빠져나가 아주 느려진다.
+  // 그래서 직전 스텝에 벽에 닿았고 느리고(4m/s 아래, 느릴수록 많이 줄인다) 평지(25° 아래)일 때만 궤도 마찰을 PH.wallSlip배로 줄인다. 빠르게 달리는 중이나 비탈에선 그대로
+  let ws = 1;
+  if ((B.wallC || 0) > 0 && PH.wallSlip < 1) {
+    const sp = Math.hypot(B.vel.x, B.vel.z), uy = 1 - 2 * (B.q.x * B.q.x + B.q.z * B.q.z);
+    ws = 1 - (1 - PH.wallSlip) * Math.min(1, Math.max(0, 1 - sp / 4)) * Math.min(1, Math.max(0, (uy - 0.85) / 0.07));
+  }
+  _ws = ws; B.wallC = 0;
   B.contacts = 0;
   for (const cp of B.cpts || CPTS) {
     _rw.copy(cp.r).applyQuaternion(B.q);
@@ -197,10 +232,11 @@ function physStep(h, thr, turn, body = tank) {
     _vp.crossVectors(B.w, _rw).add(B.vel);
     const fn = Math.max(0, 2 * K * pen - 2 * C * _vp.dot(_n));
     if (fn > 3) {
+      B.wallC++;
       const sp = Math.abs(_vp.dot(_n));
       shakePoleWires(pi, Math.min(1.3, 0.5 + sp * 0.3));   // 들이받으면 전선이 출렁
       // 전봇대는 밀린 방향(탱크가 받는 힘의 반대)으로 휘청. 한 번 부딪힐 때 한 번만
-      if (U.uTime.value - poleHit[pi] > 0.4) { kickPole(pi, -_n.x, -_n.z, Math.min(0.9, 0.35 + sp * 0.175)); sfx.wood(_tmp.set(pp.x, B.pos.y + 1, pp.z), Math.min(1.3, 0.5 + sp * 0.2)); }
+      if (U.uTime.value - poleHit[pi] > 0.4) { kickPole(pi, -_n.x, -_n.z, Math.min(0.9, 0.35 + sp * 0.175)); sfx.wood(_tmp.set(pp.x, B.pos.y + 1, pp.z), crashK(sp)); }
       poleHit[pi] = U.uTime.value;
     }
     _f.copy(_n).multiplyScalar(fn);
@@ -615,8 +651,10 @@ function destroyTarget(t, broken = false, rammed = false) {   // rammed: 내 탱
     for (let k = 0; k < 14; k++) smokeP.spawn(c.x + rr(-1.4, 1.4), c.y + rr(-1, 1), c.z + rr(-1.4, 1.4), rr(-2, 2), rr(0, 1.5), rr(-2, 2), rr(0.6, 1.1), [0.32, 0.28, 0.22, 0.6], [0.3, 0.27, 0.22, 0], 0.6, 1.8, 0, 2.5, 0.5);
   } else {
     // 폭발 세기·동전 퍼짐은 70%
-    explode(c, UP, false, 1.7, rammed);
-    blastDamage(c, CFG.box.explodeRadius, CFG.box.explodeDamage, null, t);   // 보급품 폭발: 둘레의 탱크·상자도 (방어력 적용)
+    const SB = tank.supplyBlast;   // '보급품 대폭발'(위험): 크게 터진다 (내 탱크도 똑같이 맞는다)
+    explode(c, UP, !!SB, SB ? 3.2 : 1.7, rammed);
+    if (SB) { blastDamage(c, SB.r, SB.d, tank, t); shake = Math.min(1.4, shake + Math.max(0, 0.9 - camera.position.distanceTo(c) / 90)); }
+    else blastDamage(c, CFG.box.explodeRadius, CFG.box.explodeDamage, null, t);   // 보급품 폭발: 둘레의 탱크·상자도 (방어력 적용)
     spawnShards(c, 36, cols, 3, 13, null, 0.25, 0.6, 1);
     smokers.push({ x: t.x, y: t.y - TARGET_S / 2 + 0.3, z: t.z, t: 0, dur: 9, acc: 0 });
   }
@@ -690,16 +728,17 @@ function updateCoins(dt) {
     if (c.pull > 0 || (c.rest && c.to)) {
       // 탱크에 끌려가며 점점 빨라진다
       c.pull += dt * 30;
+      if (!c.p0) c.p0 = c.p.clone();   // 끌려오기 시작한 자리 (먹을 때 대미지 숫자 방향)
       c.p.addScaledVector(_ct.sub(c.p).normalize(), Math.min(dist, c.pull * dt));
       c.spin += dt * 14;
       c.q.setFromAxisAngle(_cu, c.spin);
       if (dist < PICK_R) {
         const v = c.val || (TK === tank ? tank.goldMul || 1 : 1);   // 뱉은 골드는 값 그대로, 새 골드는 골드 배수만큼
         const hp0 = TK.hp;
-        if (c.kit) TK.hp = Math.min(TK.maxHp, TK.hp + (TK === tank && tank.berserk ? Math.max(1, Math.floor(KIT_HEAL / 2)) : KIT_HEAL));   // '광전사': 수리 절반 (최소 1)
-        else if (TK === tank) { goldGain(v); dmgTextGold(v, c.p); if (tank.scrap) tank.hp = Math.min(tank.maxHp, tank.hp + tank.scrap); }   // '고물상': 금화 하나에 HP (골드 배수와 무관)
+        if (c.kit) { const kh = KIT_HEAL * (TK === tank ? tank.kitMul || 1 : 1); TK.hp = Math.min(TK.maxHp, TK.hp + (TK === tank && tank.berserk ? Math.max(1, Math.floor(kh / 2)) : kh)); }   // '정비 키트': 회복 x2, '광전사': 수리 절반 (최소 1)
+        else if (TK === tank) { goldGain(v); dmgTextGold(v, c.p0); if (tank.scrap) tank.hp = Math.min(tank.maxHp, tank.hp + tank.scrap); }   // '고물상': 금화 하나에 HP (골드 배수와 무관)
         else TK.gold += v;
-        dmgTextHeal(TK, TK.hp - hp0, c.p);   // 대미지 숫자: 회복 (+). 날아온 쪽 반대로
+        dmgTextHeal(TK, TK.hp - hp0, c.p0);   // 대미지 숫자: 회복 (+). 날아온 쪽 반대로
         if (TK === tank) { if (c.kit) { sfx.kit(); padRumble(0.1, 0.4, 60); } else { sfx.coin(); padRumble(0, 0.22, 35); } }   // 패드 진동: 줍기 (톡)
         for (let k = 0; k < 10; k++)
           glowP.spawn(c.p.x, c.p.y, c.p.z, rr(-2, 2), rr(1, 4), rr(-2, 2), rr(0.3, 0.6), c.kit ? [0.6, 1, 0.65, 1] : [1, 0.9, 0.4, 1], c.kit ? [0.1, 0.6, 0.2, 0] : [1, 0.6, 0.1, 0], 0.18, 0.05, 4, 1);
@@ -944,7 +983,7 @@ function updateBalls(dt) {
     for (let s = 0; s < 4 && !hit; s++) {
       _prev.copy(b.p);
       b.v.y -= G * h; b.p.addScaledVector(b.v, h); b.age += h;
-      hit = ballHit(_prev, b.p, b);
+      hit = b.clearShot ? null : ballHit(_prev, b.p, b);   // 임무 완료 화면의 포탄은 아무것에도 맞지 않는다 (52_clear.js)
       if (hit && hit.wall && (b.bounce || 0) < 3) { glassBounce(b, hit); hit = null; }   // 사방 유리벽: 퉁 튕겨 나온다 (세 번까지)
       // 하얀 연기 꼬리: 궤적을 가늠할 수 있게
       for (b.trail += h; b.trail > 0.05; b.trail -= 0.05)
@@ -952,7 +991,7 @@ function updateBalls(dt) {
           rr(1.8, 2.6), [0.8, 0.8, 0.77, 0.55], [0.62, 0.62, 0.62, 0], 0.55, 1.8, -0.2, 1);
     }
     b.mesh.position.copy(b.p);
-    if (b.p.y - groundAt(b.p.x, b.p.z) < 1.8) forCells(b.p.x, b.p.z, 0.8, (k) => { fTr[k] = 1; });
+    if (!b.clearShot && b.p.y - groundAt(b.p.x, b.p.z) < 1.8) forCells(b.p.x, b.p.z, 0.8, (k) => { fTr[k] = 1; });
     // '저격수': 쏜 자리에서 멀리 맞힐수록 대미지 (15m부터 1m에 2%씩, 최대 설정값)
     if (hit && b.owner && b.owner.sniper && b.from) b.dmg *= 1 + Math.min(b.owner.sniper, Math.max(0, b.p.distanceTo(b.from) - 15) * 0.02);
     if (hit) {
@@ -960,8 +999,8 @@ function updateBalls(dt) {
       const wreck = hit.group && hit.group.userData.wreck;
       if (b.harmless) { if (hit.water) splash(hit.p); else explode(hit.p, hit.n || UP, false, pw); }   // 타이틀 포탄: 터지기만 한다
       else if (hit.target) { damageTarget(hit.target, b.dmg); if (hit.target.alive) explode(hit.p, hit.n, false, pw); }
-      else if (hit.enemy) hitTank(hit.enemy, hit, b);
-      else if (hit.bunker) { explode(hit.p, hit.n, false, pw); spawnShards(hit.p, 14, CONCRETE_COLS, 4, 12, hit.n, 0.15, 0.45); damageBunker(hit.bunker, b.dmg, b.owner); }
+      else if (hit.enemy) { dmgCrit = !!b.crit; hitTank(hit.enemy, hit, b); }
+      else if (hit.bunker) { explode(hit.p, hit.n, false, pw); spawnShards(hit.p, 14, CONCRETE_COLS, 4, 12, hit.n, 0.15, 0.45); dmgCrit = !!b.crit; damageBunker(hit.bunker, b.dmg, b.owner); }
       else if (hit.crate) { explode(hit.p, UP, false, pw); const cc = crateCols(hit.crate); spawnShards(hit.p, 14, cc, 7, 22, null, 0.18, 0.48); spawnShards(hit.p, 16, cc, 8, 26, null, 0.035, 0.08); damageCrate(hit.crate, b.dmg); }   // 폭발은 지면과 같고 조각(+잔 부스러기)만 더
       else if (hit.sandbag) { explode(hit.p, UP, false, pw); damageSandbag(hit.sandbag, b.dmg); }
       else if (hit.water) splash(hit.p);
@@ -1007,6 +1046,7 @@ function turretStep(T, tq, dt) {
   if (T.tsnap && (Math.abs(na) < 0.003 || na * a < 0)) { a = 0; v = 0; T.tsnap = false; } else a = na;
   T.tyaw = a; T.tvel = v;
 }
+let dmgCrit = false;   // 다음 대미지가 '치명적인 명중'인가 (대미지 숫자 'CRITICAL'. 포탄 직격을 부르는 쪽이 넣는다)
 const VEL_INHERIT = 0.5;   // 포탄은 탱크 속도의 절반만 이어받는다
 // spread: 일부러 흩뜨리는 각도 (적 탱크 명중률 조절용)
 function fireCannon(T = tank, spread = 0) {
@@ -1017,6 +1057,7 @@ function fireCannon(T = tank, spread = 0) {
   const berserk = T.berserk ? 1 + T.berserk * Math.max(0, 1 - T.hp / T.maxHp) : 1;   // '광전사': HP가 낮을수록
   const ball = { mesh, p: _tip.clone(), v: dir.clone().multiplyScalar(T.muzzle || MUZZLE).addScaledVector(T.vel, VEL_INHERIT), age: 0, trail: 0, owner: T,
     dmg: T.shellDmg * berserk, blast: T.blastR || 0, blastRatio: T.blastRatio || 0, from: _tip.clone() };
+  if (T.crit && Math.random() < T.crit) { ball.crit = true; ball.dmg *= T.critMul || 2; }   // '치명적인 명중'
   balls.push(ball);
   if (T === tank && titleState === 'play') for (const E of ENEMIES) if (E.solid && !E.spg && E.pos.distanceTo(T.pos) < HEAR_SHOT_R) { E.seenX = T.pos.x; E.seenZ = T.pos.z; E.lost = Math.min(E.lost || 0, 1); }   // 포성: 가까운 적이 소리 난 곳으로 온다
   // 반동: 몸통이 뒤로 밀리고 앞이 들린다
@@ -1026,7 +1067,7 @@ function fireCannon(T = tank, spread = 0) {
   T.recoil = 1;
   // 포구를 중심으로 풀이 바깥으로 확 눕고 (범위 9.6m), 땅에서 흙먼지 고리가 퍼진다 (탱크·상자 착지와 같은 먼지, 2배 빠르게)
   addBlast(_tip.x, _tip.y, _tip.z, 9.6);
-  const mgy = groundAt(_tip.x, _tip.z);
+  const mgy = clearHold() ? clrFloor.position.y : groundAt(_tip.x, _tip.z);   // 임무 완료 화면: 먼지는 바닥 평면에서 (보이지 않는 지형 높이 말고)
   if (_tip.y - mgy < 4) for (let k = 0; k < 26; k++) {
     const a = k / 26 * 6.283, s = rr(12, 24);   // 처음 속도만 1.5배: 감속은 같으니 1.5배 멀리 퍼진다
     smokeP.spawn(_tip.x + Math.cos(a) * 1.2, mgy + 0.2, _tip.z + Math.sin(a) * 1.2, Math.cos(a) * s, rr(0.2, 0.8), Math.sin(a) * s, rr(0.8, 1.3), [0.32, 0.27, 0.2, 0.6], [0.3, 0.27, 0.22, 0], 0.7, 2.4, 0, 3.5, 0.5);
@@ -1310,7 +1351,7 @@ function updateAim() {
 
 // ---------------------------------------------------------------- 기관총 (내 탱크: 성장 '기관총' 최대 2정 / 적 탱크: 레벨 2는 1정, 레벨 3은 2정)
 // 1정은 포탑 지붕 오른쪽, 2정은 지붕 왼쪽 (대칭). 사거리 안에서 땅·건물에 가리지 않은 가장 가까운 표적을 자동으로 쏜다.
-// 내 기관총: 지프 → 적 탱크(자주포 포함) → 보급품 순서. 나무 상자는 쏘지 않는다. 적 기관총(탱크·지프): 내 탱크만.
+// 내 기관총: 지프 → 적 탱크(자주포 포함) → 보급품 → 적 벙커 순서 (벙커가 가장 나중). 나무 상자는 쏘지 않는다. 적 기관총(탱크·지프): 내 탱크만.
 // 전봇대는 무시 (총알이 뚫고 지나간다). 맞히는 데는 한 발에 바로 (탄도 없음)
 const gunDark = lambert({ color: 0x2c2c28 }), gunBody = lambert({ color: 0x4e4e44 });
 function buildGuns(turret, n) {
@@ -1331,8 +1372,17 @@ function buildGuns(turret, n) {
 const MG_GUNS = buildGuns(parts.turret, 2);
 const showGuns = (n) => MG_GUNS.forEach((g, i) => { g.group.visible = i < n; });
 const _mgW = new THREE.Vector3(), _mgL = new THREE.Vector3(), _mgT = new THREE.Vector3(), _mgN = new THREE.Vector3(), _mgP = new THREE.Vector3();
-const mgTargetPos = (g, out) => g.E ? out.set(g.E.pos.x, g.E.pos.y + 0.9, g.E.pos.z) : out.copy(g.t.mesh.position);
-const mgAlive = (g) => g && (g.E ? g.E.solid : g.t.alive && !g.t.falling);
+// 벙커는 크니까 쏘는 쪽 면(가운데에서 반폭만큼 이쪽)의 몸통 높이를 겨눈다. from = 총 위치
+function mgTargetPos(g, out, from) {
+  if (g.E) return out.set(g.E.pos.x, g.E.pos.y + 0.9, g.E.pos.z);
+  if (g.B) {
+    out.set(g.B.x, g.B.y + BK_H * 0.5, g.B.z);
+    if (from) { const dx = from.x - g.B.x, dz = from.z - g.B.z, L = Math.hypot(dx, dz) || 1, k = Math.min(BK_A, L) / L; out.x += dx * k; out.z += dz * k; }
+    return out;
+  }
+  return out.copy(g.t.mesh.position);
+}
+const mgAlive = (g) => g && (g.E ? g.E.solid : g.B ? !g.B.ruin : g.t.alive && !g.t.falling);
 // 총구에서 표적까지 0.6m 간격으로 짚어 가며 땅·건물(충돌 상자)에 막히는지. skip = 표적 자신의 충돌 상자
 function mgClear(a, b, skip) {
   const n = Math.ceil(a.distanceTo(b) / 0.6);
@@ -1349,14 +1399,15 @@ function mgClear(a, b, skip) {
 }
 // 내 기관총의 표적: 가까운 순으로 보며 처음으로 가리지 않은 것. avoid = 다른 총의 표적 (다른 게 있으면 피한다)
 function mgPick(from, range, avoid) {
-  const list = [];   // pr: 먼저 쏠 순서 (0 지프, 1 적 탱크·자주포, 2 보급품). 같은 순서끼리는 가까운 것부터, 가려진 것은 건너뛴다
+  const list = [];   // pr: 먼저 쏠 순서 (0 지프, 1 적 탱크·자주포, 2 보급품, 3 벙커). 같은 순서끼리는 가까운 것부터, 가려진 것은 건너뛴다
   for (const E of ENEMIES) if (E.solid) { const d = E.pos.distanceTo(from); if (d < range) list.push({ E, d, pr: E.jeep ? 0 : 1 }); }
   for (const t of targets) if (t.alive && !t.falling) { const d = t.mesh.position.distanceTo(from); if (d < range) list.push({ t, d, pr: 2 }); }
+  for (const B of BUNKERS) if (!B.ruin) { const d = Math.hypot(B.x - from.x, B.z - from.z) - BK_A; if (d < range) list.push({ B, d, pr: 3 }); }   // 벙커는 가장 나중. 거리는 가까운 면까지
   list.sort((a, b) => a.pr - b.pr || a.d - b.d);
   let first = null;
   for (const g of list) {
-    if (!mgClear(from, mgTargetPos(g, _mgP), g.t ? g.t.fp : null)) continue;
-    if (!avoid || (g.E || g.t) !== (avoid.E || avoid.t)) return g;
+    if (!mgClear(from, mgTargetPos(g, _mgP, from), g.t ? g.t.fp : g.B ? g.B.fp : null)) continue;
+    if (!avoid || (g.E || g.t || g.B) !== (avoid.E || avoid.t || avoid.B)) return g;
     first = first || g;
   }
   return first;
@@ -1395,7 +1446,7 @@ function runGuns(T, guns, count, st, pick, dt) {
     // 총을 표적 쪽으로 돌린다 (포탑 좌표에서). 표적이 없으면 앞으로
     let wy = 0, wp = 0;
     if (G.tgt) {
-      mgTargetPos(G.tgt, _mgT);
+      mgTargetPos(G.tgt, _mgT, _mgW);
       _mgL.copy(_mgT); T.P.turret.worldToLocal(_mgL); _mgL.sub(G.group.position); _mgL.y -= G.pitch.position.y;
       wy = Math.atan2(_mgL.x, _mgL.z); wp = -Math.atan2(_mgL.y, Math.hypot(_mgL.x, _mgL.z));
     }
@@ -1408,21 +1459,23 @@ function runGuns(T, guns, count, st, pick, dt) {
     G.tip.getWorldPosition(_mgW);
     // 예광탄 선 + 맞은 자리 불똥 + 총구 섬광
     mgTracers.push({ a: _mgW.clone(), b: _mgT.clone(), t: 0 });
-    sparks(_mgT, _mgN.copy(_mgW).sub(_mgT).normalize());   // 맞은 자리: 쇠끼리 부딪힐 때와 같은 불똥·소리
+    sparks(_mgT, _mgN.copy(_mgW).sub(_mgT).normalize(), 0.35);   // 맞은 자리: 쇠끼리 부딪힐 때와 같은 불똥·소리 (연사라 작게)
     flashes.push({ p: _mgW.clone(), t: 0, dur: 0.07, I: 90, range: 10, color: 0xffd08a });   // 총구 섬광 (광원)
     glowP.spawn(_mgW.x, _mgW.y, _mgW.z, 0, 0, 0, 0.05, [1, 0.95, 0.7, 1], [1, 0.6, 0.2, 0], 0.5, 0.2, 0, 0);
     sfx.mg(_mgW);
     // 맞은 소리: 대미지가 들어가면 쇳소리, 장갑에 막혀 0이면 튕기는 도탄음
     let hurt;
     if (G.tgt.E) hurt = damageTank(G.tgt.E, st.damage, faceAt(G.tgt.E, _mgW), T, 'mg') > 0;
+    else if (G.tgt.B) { dmgFromP = _mgW; hurt = damageBunker(G.tgt.B, st.damage, T, 'mg') > 0; }   // 벙커: 방어력 적용 (관통은 '철갑 기관총'이 있어야), 내가 쏘면 경보
     else { hurt = boxDmg(st.damage) > 0; damageTarget(G.tgt.t, st.damage, 'mg'); }
     if (hurt) sfx.mgHit(_mgT); else sfx.mgPing(_mgT);
   }
 }
 function updateMG(dt) {
   updateTracers(dt);
-  if (tank.mg && tank.solid) runGuns(tank, MG_GUNS, tank.mg.count, tank.mg, mgPick, dt);
-  if (!aiFrozen) for (const E of ENEMIES) if (E.solid && E.guns.length) runGuns(E, E.guns, E.guns.length, E.mgSt || EC.mg, enemyMgPick, dt);
+  if (rulesLocked()) for (const G of MG_GUNS) G.tgt = null;   // 섬멸 창: 내 기관총은 바로 쏘기를 멈추고 앞으로
+  if (tank.mg && tank.solid) runGuns(tank, MG_GUNS, tank.mg.count, tank.mg, rulesLocked() ? () => null : mgPick, dt);   // 섬멸 창: 자동 사격 멈춤
+  if (!enemyAiOff()) for (const E of ENEMIES) if (E.solid && E.guns.length) runGuns(E, E.guns, E.guns.length, E.mgSt || EC.mg, enemyMgPick, dt);
 }
 
 // ---------------------------------------------------------------- 충돌 박스 표시 (HUD 토글): 녹색 선

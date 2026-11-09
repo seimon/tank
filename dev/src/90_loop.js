@@ -1,5 +1,6 @@
 function tick(dt) {
   perfT.length = 0; perfLast = performance.now();
+  if (clearHold()) { clearTick(dt); return; }   // 임무 완료: 배경을 다 지운 뒤로는 월드를 멈추고 탱크 포즈만 (52_clear.js)
   U.uTime.value += dt;
   // 바람 방향이 windDir 둘레(±23도)로 천천히 바뀐다
   const a = windDir * DEG + Math.sin(U.uTime.value * 0.05) * 0.4;
@@ -17,18 +18,20 @@ function tick(dt) {
   const tq = (keys.has('KeyQ') || keys.has('ArrowLeft') || touch.tl ? 1 : 0) - (keys.has('KeyE') || keys.has('ArrowRight') || touch.tr ? 1 : 0) || pad.tq;   // 포탑 회전: Q·← 왼쪽, E·→ 오른쪽 (오른손만으로 포탑·포각도)
   if (tank.solid && !lockIn) turretStep(tank, tq, dt);
   tank.cool -= dt;
-  if (tank.solid && !lockIn && (keys.has('Space') || touch.fire || pad.fire) && tank.cool <= 0) { fireCannon(); tank.cool = tank.reload; }
+  if (tank.solid && !lockIn && (keys.has('Space') || touch.fire || pad.fire) && tank.cool <= 0) { fireCannon(); tank.cool = tank.reload; if (tank.twin) tank.twinT = tank.twin; }
+  if (tank.twinT > 0 && (tank.twinT -= dt) <= 0) { tank.twinT = 0; if (tank.solid && !lockIn) fireCannon(); }   // '쌍열포': 조금 뒤 한 발 더
   if (tank.falling) updateFall(tank, dt);
   if (deadEndAt && U.uTime.value >= deadEndAt) { deadEndAt = 0; if (!tank.solid) showEnd('dead'); }   // 내 탱크가 터지고 2초 뒤에 전투 불능 창
   perfMark('입력');
-  if (titleState !== 'title' && !aiFrozen) updateEnemies(dt);
+  stormTick(dt);   // 남은 적이 적으면 폭풍우로 (40_input_post.js)
+  if (titleState !== 'title' && !enemyAiOff()) updateEnemies(dt);
   else for (const E of ENEMIES) { if (E.falling && titleState !== 'title') updateFall(E, dt); E.thr = 0; E.turn = 0; }   // 타이틀·AI 정지 동안 적은 가만히 (주행 입력은 0으로. 비워 두면 물리가 NaN이 된다)
   updateBunkers(dt);
   perfMark('적 AI');
   for (const T of TANKS) T.wet = T.pos.y - COM.y < waterAt(T.pos.x, T.pos.z) + 0.1;   // 차체 바닥이 물에 잠기면 감속
   const spd0 = Math.hypot(tank.vel.x, tank.vel.z);
   for (physAcc += dt; physAcc >= PHYS_H; physAcc -= PHYS_H) {
-    if (tank.solid) physStep(PHYS_H, thr, turn);
+    if (tank.solid && !clearSeq) physStep(PHYS_H, thr, turn);   // (임무 완료: 내 탱크는 52_clear.js가 세운다)
     for (const E of ENEMIES) if (E.solid) physStep(PHYS_H, E.thr, E.turn, E);
   }
   // 충돌 공격: 10km/h(설정) 이상으로 적 탱크나 보급품에 부딪히면 대미지 (같은 대상은 0.6초에 한 번)
@@ -84,7 +87,7 @@ function tick(dt) {
   perfMark('보급품·동전·기타');
   updateLights(dt);
   if (titleState !== 'title') { updateRings(); updateMG(dt); }
-  if (titleState === 'play') updateAim(); else { aimGeo.setDrawRange(0, 0); aimRing.visible = false; aimHitP = null; }   // 조준선은 타이틀 → 플레이 전환이 끝나면
+  if (titleState === 'play' && endState !== 'clear') updateAim(); else { aimGeo.setDrawRange(0, 0); aimRing.visible = false; aimHitP = null; }   // 조준선은 타이틀 → 플레이 전환이 끝나면 (적군 섬멸 창 동안은 숨김)
   perfMark('조명·조준');
   updateCollisionView();
 }
@@ -101,7 +104,7 @@ Object.assign(window.dbg, {
     curOffer = { choices: list.map((o) => ({ u: { id: 'test', rarity: o.rarity }, label: o.name, desc: o.desc })), picked: -1, showT: 9 }; drawOffer();
   },
   offerPad(v) { inputPad = v; uiDirty(); },
-  showClear(info) { Object.assign(clearUI.info, info); uiShow(clearUI); },   // 시안용 (게임 상태는 그대로)
+  showClear(info) { Object.assign(clearUI.info, info); clearUI.reset(); uiShow(clearUI); },   // 시안용 (게임 상태는 그대로)
   showPause() { pauseUI.under = UI.screen; pauseUI.open(); uiShow(pauseUI); },
   fillPickLog(n) { tank.pickLog.length = 0; for (let i = 0; i < n; i++) { const c = rollChoices()[0]; if (c) tank.pickLog.push(c); } },   // 시안용: 강화 기록을 아무거나 n개로
   hideUI() { uiShow(null); },
@@ -143,10 +146,25 @@ function warmCompile() {
   for (const r of [tankGroup.clone(), enemyTemplate.clone(), spgTemplate.clone(), buildJeep().root, safeModel.clone(), repairModel.clone()]) { warm.add(r); fadeIn(r); }
   const ch = makeChute(); ch.g.position.set(0, -200, 0); warm.add(ch.g); chutePool.push(ch);   // 낙하산도
   scene.add(warm); warmCompile(); scene.remove(warm); warm.remove(ch.g);
-  updateFadeIns(0);   // 장면에서 빠졌으니 바로 정리
+  // 미리 컴파일한 디더 재질(복제본)은 버리지 않고 계속 쥐고 있는다. three.js는 재질을 dispose할 때 그 재질만 쓰던 셰이더 프로그램도 지운다(usedTimes 0).
+  // 정리해 버리면(예전 updateFadeIns(0)) 로딩 때 컴파일해 둔 낙하용 셰이더가 곧바로 사라져서, 재출격·적 낙하 때마다 셰이더를 처음부터 다시 컴파일해 크게 멈칫한다.
+  // 같은 셰이더(customProgramCacheKey)를 쓰는 진짜 낙하 재질이 끝나며 dispose돼도, 이 복제본이 쥐고 있어 프로그램이 남는다
+  fadeKeep.push(...fadeIns.splice(0));
 }
 setBright(brightness);   // 기억해 둔 화면 밝기
 warmCompile();   // 처음 보는 재질 때문에 게임 중에 멈칫하지 않게 미리 컴파일
+{ // 궤도 자국 마스크(trackRT)를 찍고 지우는 두 장면(stampScene·fadeScene)은 scene 밖이라 위 warmCompile에 안 들어 있다: 게임을 시작하는 순간(타이틀이 끝나 지우기가 처음 돌 때)
+  // 처음 쓰이며 컴파일·링크가 끝나길 기다리느라 1.5초나 멈췄다. 그려질 렌더 타깃을 맞춰 미리 컴파일하고, 끝날 때까지 로딩 화면에서 기다린다
+  // (병렬 컴파일 때문에 compile()은 시작만 하고 돌아온다. 끝나지 않은 프로그램을 처음 그리는 순간 거기서 멈춘다)
+  const pending = [];
+  if (renderer.compileAsync) {
+    renderer.setRenderTarget(rt); pending.push(renderer.compileAsync(scene, camera));
+    renderer.setRenderTarget(trackRT); pending.push(renderer.compileAsync(stampScene, stampCam), renderer.compileAsync(fadeScene, stampCam));
+    renderer.setRenderTarget(null);
+  } else { renderer.setRenderTarget(trackRT); renderer.compile(stampScene, stampCam); renderer.compile(fadeScene, stampCam); renderer.setRenderTarget(null); }
+  await Promise.race([Promise.all(pending), new Promise((r) => setTimeout(r, 8000))]);   // (끝나지 않아도 8초 뒤엔 넘어간다)
+  clrFloor.visible = false;   // 임무 완료 바닥: 위에서 함께 미리 컴파일하고 숨긴다 (52_clear.js)
+}
 fadeLoading();
 // 로딩 화면은 바로 끄지 않고 1초 동안 4x4 디더링 무늬로 점점 비워 가며 사라진다 (게임 해상도 픽셀 단위)
 function fadeLoading() {
@@ -166,6 +184,9 @@ function fadeLoading() {
   };
   requestAnimationFrame(step);
 }
+// 월드가 멈춘 상태: 지금은 일시정지(ESC)뿐. 게임 시간이 흐르지 않고, 연출이 끝나면 멈춘 화면으로 고정한다.
+// (적군 섬멸 창은 월드를 멈추지 않는다: 월드는 계속 돌고 값만 잠근다 — rulesLocked, 70_enemies.js)
+const worldFrozen = () => paused;
 // 일시정지 (ESC): 정보 창을 띄우고 게임 진행을 멈춘다. 창·회색조 연출은 계속 그린다
 const setPaused = (v) => {
   if (paused === v) return;
@@ -219,13 +240,14 @@ addEventListener('pointerdown', (e) => { if (suspended) { e.stopImmediatePropaga
 // 회색조 · HUD 켜고 끄기 · 픽셀 UI (멈춘 동안에도 돈다). 연출이 다 끝나면 멈춘 화면으로 고정 (pausedDrawn)
 function overlayFrame() {
   // 회색조: 가운데 창이 떠 있으면 popup.grayTime초에 걸쳐 회색조로, 닫히면 같은 시간에 걸쳐 원래대로
-  const gT = winUp() ? 1 : 0;
+  const gT = winUp() && !rulesLocked() ? 1 : 0;   // (적군 섬멸 창은 배경 색을 그대로 둔다)
   grayK += Math.sign(gT - grayK) * Math.min(Math.abs(gT - grayK), uiDt / Math.max(0.01, POP.grayTime));
   postMat.uniforms.uGray.value = grayK;
   syncHud();
   uiUpdate();
-  dmgTextUpdate(paused ? 0 : uiDt);   // 대미지 숫자 (멈춘 동안은 그대로)
-  if (paused) pausedDrawn = !(UI.closing || UI.glitchT > 0 || UI.dirty || grayK !== gT || hudOffAt || performance.now() < glitchUntil || (UI.screen && UI.screen.busy && UI.screen.busy()));   // busy: 화면이 움직이는 중 (강화 기록 넘기기)
+  dmgTextUpdate(worldFrozen() ? 0 : uiDt);   // 대미지 숫자 (멈춘 동안은 그대로)
+  leaveUpdate(uiDt);   // 화면 나가기 덮개 (52_clear.js)
+  if (worldFrozen()) pausedDrawn = !leaving && !(UI.closing || UI.glitchT > 0 || UI.dirty || grayK !== gT || hudOffAt || performance.now() < glitchUntil || (UI.screen && UI.screen.busy && UI.screen.busy()));   // busy: 화면이 움직이는 중 (강화 기록 넘기기)
 }
 function frame() {
   const fj0 = performance.now();   // 이 프레임 JS 전체 시간 (끊김 기록용)
@@ -234,14 +256,16 @@ function frame() {
   uiDt = Math.min(raw, 0.05);   // 창·회색조 연출 시간: 멈춘 동안에도 흐른다
   sfx.game(!paused); sfx.keepAlive();   // 일시정지(정보·확인 창) 중에는 게임 소리를 끈다 (UI 소리만). 전투 불능·적군 섬멸 창에서는 그대로
   padPoll();   // 게임패드: 일시정지로 일찍 돌아가기 전에 (창 조작도 패드로)
-  if (paused && pausedDrawn) { crtPresent(); return; }   // CRT 표현은 멈춰 있어도 돈다 (게임 화면은 그대로)
-  if (paused && pauseScene) {   // 멈춘 뒤에는 장면을 다시 그리지 않는다 (카메라·흔들림이 다시 계산돼 배경이 움찔이지 않게): HUD·창·회색조만
+  if (paused) pauseUI.wake();   // 설정 탭 커서 깜빡임: 멈춰 쉬는 화면도 깨운다
+  const frozen = worldFrozen();
+  if (frozen && pausedDrawn) { crtPresent(); return; }   // CRT 표현은 멈춰 있어도 돈다 (게임 화면은 그대로)
+  if (frozen && pauseScene) {   // 멈춘 뒤에는 장면을 다시 그리지 않는다 (카메라·흔들림이 다시 계산돼 배경이 움찔이지 않게): HUD·창·회색조만
     drawHud(); overlayFrame();
     renderer.setRenderTarget(postRT); renderer.render(postScene, postCam);   // 회색조는 후처리라 마지막 장면(rt)에서 다시
     renderer.setRenderTarget(null); finalPass();
     return;
   }
-  const rawDt = paused ? 0 : raw, dt = Math.min(rawDt, 0.05);
+  const rawDt = frozen ? 0 : raw, dt = Math.min(rawDt, 0.05);
   lastDt = dt;
   if (!missionClear) playTime += Math.min(rawDt, 2);   // 혹시 모를 아주 큰 간격(창이 멈췄다 돌아옴)만 빼고
   const progs0 = renderer.info.programs.length;
@@ -252,6 +276,7 @@ function frame() {
   if (!decalMode) titleCamBegin();
   if (decalMode) decalUpdate(uiDt);   // 데칼 편집: 카메라는 마우스로 (타이틀 카메라를 섞지 않는다)
   else if (editMode) editUpdate(uiDt);   // 맵 편집: 카메라는 탱크를 따라가지 않는다
+  else if (clearSeq) clearUpdate(dt);   // 임무 완료 카메라·포즈·조명 (52_clear.js)
   else if (titleState === 'trans') playRestCam();   // 타이틀 → 플레이 전환: 섞을 플레이 카메라는 끝났을 때 자리에 고정 (움직이는 카메라와 섞으면 출렁인다)
   else {
     updateCamLead(dt);
@@ -263,7 +288,7 @@ function frame() {
   }
   controls.update();
   camAboveGround();
-  U.uOccR.value = titleK >= 1 && tank.solid ? CC.seeThrough ?? 3.2 : 0; U.uOccP.value.set(tank.pos.x, tank.pos.y + 0.6, tank.pos.z);   // 가리는 물체 비춰 보기 (플레이 중에만)
+  U.uOccR.value = titleK >= 1 && tank.solid && !clearSeq ? CC.seeThrough ?? 3.2 : 0; U.uOccP.value.set(tank.pos.x, tank.pos.y + 0.6, tank.pos.z);   // 가리는 물체 비춰 보기 (플레이 중에만)
   updateTitle(dt);
   updateWeather(dt);
   missionCheck();
@@ -278,23 +303,27 @@ function frame() {
   drawHud();
   overlayFrame();
 
-  renderer.setRenderTarget(rt);
   const tr0 = performance.now();
-  renderer.render(scene, camera);
-  const calls = renderer.info.render.calls, tris = renderer.info.render.triangles;
-  if (outlineOn) {   // 외곽선: 레이어 1 물체만 깊이로 한 번 더
-    camera.layers.set(OUTLINE_LAYER); scene.overrideMaterial = olMat;
-    renderer.setRenderTarget(olRT); renderer.render(scene, camera);
-    scene.overrideMaterial = null; camera.layers.set(0);
+  if (!clearHold()) {   // (임무 완료로 배경을 다 지웠으면 장면은 그리지 않고 탱크만)
+    renderer.setRenderTarget(rt);
+    renderer.render(scene, camera);
+    if (outlineOn) {   // 외곽선: 레이어 1 물체만 깊이로 한 번 더
+      camera.layers.set(OUTLINE_LAYER); scene.overrideMaterial = olMat;
+      renderer.setRenderTarget(olRT); renderer.render(scene, camera);
+      scene.overrideMaterial = null; camera.layers.set(0);
+    }
   }
+  if (clearSeq && clearSeq.cut > 0) clearRenderCut();   // 임무 완료: 탱크만 따로 (후처리가 디더링으로 바꿔 간다)
+  postMat.uniforms.uCut.value = clearSeq ? clearSeq.cut : 0;
+  const calls = renderer.info.render.calls, tris = renderer.info.render.triangles;
   vfStep(dt);   // 복셀 안개 흉내 유체 (멈추면 dt = 0)
   renderer.setRenderTarget(postRT);
   renderer.render(postScene, postCam);
   renderer.setRenderTarget(null);
   finalPass();   // 게임 해상도 → 화면 (샤프 바이리니어, CRT 표현이면 HUD·UI와 합쳐 CRT로)
   camera.position.sub(_shake);
-  if (paused) pauseScene = true;   // 멈춘 장면을 한 번 그렸다
-  if (!paused) perfFrame(rawDt * 1000, performance.now() - tr0, renderer.info.programs.length - progs0, performance.now() - fj0);
+  if (frozen) pauseScene = true;   // 멈춘 장면을 한 번 그렸다
+  if (!frozen) perfFrame(rawDt * 1000, performance.now() - tr0, renderer.info.programs.length - progs0, performance.now() - fj0);
 
   frames++; acc += dt;
   if (acc > 0.5) {
@@ -305,4 +334,3 @@ function frame() {
 }
 renderer.setAnimationLoop(frame);
 if (!document.hasFocus()) suspendAfterFrame = true;   // 포커스 없이 열렸으면: 로딩·첫 화면까지는 그리고 정지
-

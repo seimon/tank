@@ -71,8 +71,8 @@ const sfx = (() => {
   function setAmb() {
     if (!amb) return;
     const t = ctx.currentTime, [rain, wind, sand] = ambWant, gust = 0.75 + 0.25 * Math.sin(t * 0.7) * Math.sin(t * 0.23);
-    amb.hi.g.gain.setTargetAtTime(rain * 0.05, t, 0.5);
-    amb.lo.g.gain.setTargetAtTime(rain * 0.05, t, 0.5);
+    amb.hi.g.gain.setTargetAtTime(rain * 0.025, t, 0.5);   // 빗소리 (0.05의 절반)
+    amb.lo.g.gain.setTargetAtTime(rain * 0.025, t, 0.5);
     amb.wind.g.gain.setTargetAtTime((Math.max(0, wind - 0.6) * 0.03 + sand * 0.05) * gust, t, 0.4);
     amb.wind.b.frequency.setTargetAtTime(260 + 260 * gust * (0.5 + wind * 0.3) + sand * 120, t, 0.4);
   }
@@ -168,11 +168,12 @@ const sfx = (() => {
       bell(p, [210, 540, 980, 1530], 0.9, 0.35 * k);
       sub(p, 90, 40, 0.3, 0.5 * k);
     },
-    metal(p) {   // 두꺼운 쇠끼리 부딪힘: 둔한 충격 + 좁은 대역 잡음 여러 개가 짧게 울림 (맑은 종소리 대신 탁한 쇳소리). 볼륨 절반
-      noise(p, 0.04, 6000, 2500, 0.12, { type: 'highpass', q: 0.6, rv: 0.15 });
-      noise(p, 0.16, 600, 90, 0.2, { q: 1.1, rv: 0.2 });
-      for (const [f, d, g] of [[310, 0.32, 0.12], [780, 0.24, 0.1], [1240, 0.18, 0.08], [1930, 0.12, 0.06], [2870, 0.08, 0.05]])
-        noise(p, d * srr(0.8, 1.2), f * srr(0.95, 1.05), f * 0.97, g, { type: 'bandpass', q: 28, rv: 0.25, atk: 0.002 });
+    metal(p, k = 1) {   // 두꺼운 쇠끼리 부딪힘 (k: 세기, 부딪히는 속도에 따라): 몸통을 울리는 쿵 + 둔한 충격 + 좁은 대역 잡음 여러 개가 짧게 울림 (맑은 종소리 대신 탁한 쇳소리)
+      noise(p, 0.05, 6000, 2500, 0.2 * k, { type: 'highpass', q: 0.6, rv: 0.2 });
+      noise(p, 0.22, 600, 80, 0.45 * k, { q: 1.1, rv: 0.25 });
+      sub(p, 110, 42, 0.28, 0.45 * k);
+      for (const [f, d, g] of [[310, 0.4, 0.2], [780, 0.3, 0.16], [1240, 0.22, 0.13], [1930, 0.15, 0.1], [2870, 0.1, 0.08]])
+        noise(p, d * srr(0.8, 1.2), f * srr(0.95, 1.05), f * 0.97, g * k, { type: 'bandpass', q: 28, rv: 0.3, atk: 0.002 });
     },
     wood(p, k = 1) {   // 나무(집·전봇대)에 부딪힘: 둔탁한 퍽 + 짧은 나무 울림
       noise(p, 0.18, 700, 120, 0.55 * k, { q: 1.4, rv: 0.25 });

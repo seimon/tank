@@ -7,7 +7,7 @@ const DECAL_NAMES = Object.keys(DECAL_IMG).sort();
 const DECAL_SETS = (Array.isArray(window.DECAL_SETS) && window.DECAL_SETS.length ? window.DECAL_SETS : [{ name: 'NONE', decals: [] }])
   .map((s) => ({ name: String(s.name || 'SET'), decals: (s.decals || []).map((d) => ({ img: d.img, side: d.side < 0 ? -1 : 1, z: +d.z || 0, y: +d.y || 0, rot: +d.rot || 0, s: +d.s || 0.6 })) }));
 let decalIdx = 0;
-try { decalIdx = Math.max(0, DECAL_SETS.findIndex((s) => s.name === localStorage.getItem('littleIron.decalSet'))); } catch (_) {}   // 이름으로 기억
+try { decalIdx = Math.max(0, DECAL_SETS.findIndex((s) => s.name === localStorage.getItem('MightyMolly.decalSet'))); } catch (_) {}   // 이름으로 기억
 const decalTexs = new Map(), tankDecalMats = new Map();
 function decalTex(name) {
   if (!decalTexs.has(name)) {
@@ -55,7 +55,7 @@ function applyDecals() {
 }
 function setDecalSet(i) {
   decalIdx = (i + DECAL_SETS.length) % DECAL_SETS.length;
-  try { localStorage.setItem('littleIron.decalSet', DECAL_SETS[decalIdx].name); } catch (_) {}
+  try { localStorage.setItem('MightyMolly.decalSet', DECAL_SETS[decalIdx].name); } catch (_) {}
   applyDecals();
 }
 applyDecals();

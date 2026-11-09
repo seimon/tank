@@ -170,6 +170,7 @@ const crtLoadCv = document.getElementById('loadCv');
 if (crtLoadCv) CRT_LAYER.add(crtLoadCv);   // 로딩 화면이 사라지는 동안 (fadeLoading)
 const _crtRes = new THREE.Vector2();
 let crtKey = '', crtReady = false;
+let crtLeave = null;   // 화면 나가기 검정 디더링 덮개 (게임 픽셀 크기 캔버스, 52_clear.js). 맨 위에 얹는다
 const crtVis = (el) => !!el && el.style.visibility !== 'hidden' && el.style.display !== 'none' && el.width !== 0;   // (#title은 div라 width가 없다)
 // 레이어 캔버스 크기: 바뀌면 텍스처도 새로 만든다 (three.js는 처음 올린 크기로 GPU 자리를 잡아 두고 그 뒤로는 덮어쓰기만 해서,
 // 크기가 바뀐 그림은 올라가지 않는다. 로딩 그림 → 게임 화면처럼 크기가 바뀌면 옛 그림이 남는다)
@@ -184,6 +185,7 @@ function crtLayers(W, H) {
   let key = `${W},${H},${pui.style.mixBlendMode},${showT}`;
   for (const el of [phudS, phud, puiS, pui, pdmg, ...CRT_TITLE]) key += crtVis(el) ? 1 : 0;
   const ld = document.getElementById('loading'); key += ld ? 'L' : '';
+  if (crtLeave) key += 'X';
   if (!crtDirty && key === crtKey) return;
   crtDirty = false; crtKey = key;
   crtSize(W, H);
@@ -200,6 +202,10 @@ function crtLayers(W, H) {
   if (ld && crtLoadCv && crtLoadCv._src) {   // 로딩 화면 (맨 위). 사라지는 중이면 디더링으로 비운 사본
     const img = ld.style.background === 'transparent' ? crtLoadCv._src._dw : crtLoadCv._src;
     if (img) crtCg.drawImage(img, 0, 0, W, H);
+  }
+  if (crtLeave) {   // 화면 나가기 덮개 (맨 위). 더하기 레이어(UI 글자)는 보통 레이어 위에 더해지니, 덮인 칸은 거기서 지운다
+    crtCg.drawImage(crtLeave, 0, 0, W, H);
+    crtDg.globalCompositeOperation = 'destination-out'; crtDg.drawImage(crtLeave, 0, 0, W, H); crtDg.globalCompositeOperation = 'lighter';
   }
   for (const t of CRT_TX) t.needsUpdate = true;
 }

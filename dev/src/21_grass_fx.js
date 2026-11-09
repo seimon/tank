@@ -200,9 +200,11 @@ const burning = [];    // 이번 틱에 타고 있는 칸
 let fireBins = [];     // 화재 광원 배치용 (10x10 구역별 합)
 const fireGlow = new Map();   // 구역 번호 → 지금 비추는 불빛 { x, z, I } (updateLights가 부드럽게 따라간다)
 const NB = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 0.7], [1, -1, 0.7], [-1, 1, 0.7], [-1, -1, 0.7]];
+// 비가 오면 풀이 잘 안 탄다: 젖은 정도 0~1 (config map.fireRain = 보통 비(rain 1)일 때 줄이는 정도. 폭우는 더 줄인다)
+const fireWet = () => Math.min(1, (CFG.map.fireRain ?? 0.8) * Math.min(1.25, WEATHER.rain) );
 function fieldTick(dt) {
   burning.length = 0;
-  const wd = U.uWindDir.value;
+  const wd = U.uWindDir.value, wet = fireWet(), wetSpread = 1 - wet, wetPower = 0.72 * (1 - 0.35 * wet);   // 젖으면 덜 번지고, 번져도 금방 힘이 빠진다
   for (let k = 0; k < FN * FN; k++) {
     if (fTr[k] > 0) fTr[k] = Math.max(0, fTr[k] - dt / CFG.map.grassTrampleTime);   // 밟혀 눌린 풀은 30초(설정)에 걸쳐 일어선다
     if (fFire[k] > 0) {
@@ -220,7 +222,7 @@ function fieldTick(dt) {
             const n = nj * FN + ni;
             if (fFire[n] > 0 || fFuel[n] < 0.15) continue;
             const wb = Math.max(0.15, 1 + 1.8 * (di * wd.x + dj * wd.y) / Math.hypot(di, dj));
-            if (rand() < 1.9 * dt * w * wb * fFire[k] * fFuel[n]) { fFire[n] = 0.05; fPower[n] = fPower[k] * 0.72; }   // 세대마다 0.72배: 번지는 범위 약 85%
+            if (rand() < 1.9 * dt * w * wb * fFire[k] * fFuel[n] * wetSpread) { fFire[n] = 0.05; fPower[n] = fPower[k] * wetPower; }   // 세대마다 0.72배: 번지는 범위 약 85% (비 오면 더 빨리 약해진다)
           }
         }
         if (fFuel[k] <= 0) { fFuel[k] = 0; fGrow[k] = 0.08; fChar[k] = 1; fRegrow[k] = rr(20, 35); }
@@ -248,10 +250,11 @@ function fieldTick(dt) {
   fireBins = [...bins].map(([b, e]) => ({ b, x: e.x / e.s, z: e.z / e.s, s: e.s })).sort((a, b) => b.s - a.s);
 }
 function scorchField(x, z, r) {
+  const wet = fireWet();   // 비 오면 폭발 둘레 풀에 불이 덜 붙는다
   forCells(x, z, r * 2, (k, d) => { fTr[k] = Math.max(fTr[k], 1 - d / (r * 4)); });   // 폭풍에 풀이 눕는다
   forCells(x, z, r, (k, d) => {
     if (d < r * 0.55) { fFuel[k] = 0; fFire[k] = Math.max(fFire[k], 0.6); fGrow[k] = 0.08; fChar[k] = 1; fRegrow[k] = rr(20, 35); }
-    else if (fFuel[k] > 0.15) { fFire[k] = 1; fPower[k] = 1; }
+    else if (fFuel[k] > 0.15 && rand() >= wet * 0.7) { fFire[k] = 1; fPower[k] = 1 - wet * 0.5; }
     else fChar[k] = Math.max(fChar[k], 0.6);
   });
 }
@@ -344,6 +347,10 @@ class Particles {
     this.life[i] = 0; this.ttl[i] = ttl; this.s0[i] = s0; this.s1[i] = s1; this.grav[i] = grav; this.drag[i] = drag; this.fade[i] = fade;
     this.bobA[i] = 0;
     return i;
+  }
+  clearAll() {   // 모두 없앤다 (임무 완료: 배경을 다 지운 순간)
+    for (let i = 0; i < this.n; i++) if (this.ttl[i] > 0) { this.ttl[i] = 0; this.pos[i * 3 + 1] = -1e4; this.col[i * 4 + 3] = 0; }
+    this.aPos.needsUpdate = this.aCol.needsUpdate = true;
   }
   // 바람 먼지처럼 지면을 따라 둥실둥실 떠가는 입자: 높이 = 그 자리 지면 + h + a·sin(f·t + 위상)
   float(i, h, a, f) { this.bobA[i] = a; this.bobH[i] = h; this.bobF[i] = f; }

@@ -130,13 +130,14 @@ function rainTop(x, z) {
 }
 function updateWeather(dt) {
   const show = titleK > 0.5;   // 타이틀(밝은 낮)에서는 날씨 없음. 시작하면 나타난다
-  updateStreaks(rainFx, WEATHER.rain, dt, show);
+  const wk = clearSeq ? 1 - clearSeq.k : 1;   // 임무 완료: 카메라가 넘어가는 동안 날씨를 서서히 끈다
+  updateStreaks(rainFx, WEATHER.rain * wk, dt, show);
   // 모래바람: 바닥 가까이 낮게 깔려 바람 따라 흘러가는 큼직한 모래 연기 (바람 먼지와 같은 식, 더 크고 많이)
-  if (show && WEATHER.sand > 0 && dt > 0) {
+  if (show && WEATHER.sand * wk > 0 && dt > 0) {
     const wd = U.uWindDir.value, ws = U.uWind.value, c = controls.target, sc = WEATHER.sandCol;
     const lk = Math.min(1.6, Math.max(0.35, lightLum(moon.intensity, moon.color, hemi.intensity, hemi.color) / WX_LREF)) * 0.55;   // 조명만큼 (밤엔 어둡게)
     const c0 = [sc.r * lk, sc.g * lk, sc.b * lk, 0.34], c1 = [sc.r * lk * 0.9, sc.g * lk * 0.9, sc.b * lk * 0.9, 0];
-    for (WEATHER.sandAcc += dt * WEATHER.sand * 26 * (0.3 + ws); WEATHER.sandAcc >= 1; WEATHER.sandAcc--) {
+    for (WEATHER.sandAcc += dt * WEATHER.sand * wk * 26 * (0.3 + ws); WEATHER.sandAcc >= 1; WEATHER.sandAcc--) {
       const x = c.x + rr(-34, 34) - wd.x * 14, z = c.z + rr(-34, 34) - wd.y * 14;   // 바람 위쪽에서 생겨 화면을 가로질러 간다
       if (Math.abs(x) > HALF - 1 || Math.abs(z) > HALF - 1) continue;
       const sp = rr(3, 6) * (0.4 + ws);
@@ -144,10 +145,10 @@ function updateWeather(dt) {
     }
   }
   // 빗방울이 튀는 물보라 (카메라가 보는 곳 둘레. 맨 위 표면에서. 빗줄기와 따로, 빗줄기 수에 비례): 납작하게 퍼지는 물방울 + 사방으로 튀는 작은 방울 둘
-  if (show && WEATHER.rain > 0 && dt > 0) {
+  if (show && WEATHER.rain * wk > 0 && dt > 0) {
     const c = controls.target, rc = rainFx.u.uColor.value, lk = rainFx.u.uLight.value * 1.4;   // 빗줄기와 같은 색·조명
     const c0 = [rc.r * lk, rc.g * lk, rc.b * lk, 0.75], c1 = [rc.r * lk, rc.g * lk, rc.b * lk, 0];
-    for (WEATHER.splashAcc += dt * WEATHER.rain * (CFG.map.rainCount ?? 1600) * 0.1; WEATHER.splashAcc >= 1; WEATHER.splashAcc--) {
+    for (WEATHER.splashAcc += dt * WEATHER.rain * wk * (CFG.map.rainCount ?? 1600) * 0.1; WEATHER.splashAcc >= 1; WEATHER.splashAcc--) {
       const x = c.x + rr(-24, 24), z = c.z + rr(-24, 24);
       if (Math.abs(x) > HALF - 1 || Math.abs(z) > HALF - 1) continue;
       const y = rainTop(x, z) + 0.04;   // 탱크·상자·건물·풀 위에서도 튄다
@@ -156,7 +157,7 @@ function updateWeather(dt) {
     }
   }
   // 번개: 하늘 전체가 번쩍 (주광·하늘빛을 잠깐 크게), 조금 뒤 천둥
-  if (show && WEATHER.lightning > 0 && dt > 0 && (WEATHER.nextBolt -= dt) <= 0) {
+  if (show && !clearSeq && WEATHER.lightning > 0 && dt > 0 && (WEATHER.nextBolt -= dt) <= 0) {   // (임무 완료 화면에서는 번개 없음)
     WEATHER.nextBolt = rr(4, 16) / WEATHER.lightning;
     WEATHER.flashT = 0; WEATHER.flash = 1;
     sfx.thunder(rr(0.4, 2.2));
@@ -172,7 +173,7 @@ function updateWeather(dt) {
   // 빗소리·바람 소리 (0.25초마다 맞춘다)
   if ((WEATHER.sndT -= dt) <= 0) {
     WEATHER.sndT = 0.25;
-    const on = show ? 1 : 0;
+    const on = show ? wk : 0;   // 임무 완료 화면: 빗소리·바람 소리도 서서히 끈다
     sfx.weather(WEATHER.rain * on, U.uWind.value * on, WEATHER.sand * on);
   }
 }

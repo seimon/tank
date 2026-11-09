@@ -61,6 +61,10 @@ let enemyDrops = 0, enemyKills = 0, jeepKills = 0, missionClear = false;
 const dropTimers = [], spgTimers = [], jeepTimers = [];
 let deadEndAt = 0;   // 내 탱크가 터진 뒤 전투 불능 창을 띄울 게임 시각
 let endState = null;   // 'dead' 내 탱크 파괴 / 'clear' 적군 섬멸 / null. 이때는 HUD를 끄고 가운데 창 + 배경 회색조
+// 적군 섬멸 창이 떠 있는 동안: 월드는 계속 돌아 생동감(폭발·날아가는 골드)은 그대로지만, 결과에 영향을 주는 값은 잠근다 (골드·대미지·처치 수·성장 선택지).
+// 그래서 대미지(damageTank·damageBunker)와 골드(goldGain)는 이 값을 보고 아무것도 바꾸지 않고, 남은 적 지프의 AI(이동·사격)는 끈다. 벙커는 missionClear라 이미 쏘지 않는다
+const rulesLocked = () => endState === 'clear';
+const enemyAiOff = () => aiFrozen || rulesLocked();   // 적 AI를 끈다: 개발 버튼(적 AI 정지) 또는 섬멸 창
 // 처음: 강 건너 본도로 위에서 나를 바라보며
 {
   const E = newEnemy(false, 1), z = Math.min(HALF - 10, XB_Z + 26), x = mainRoadX(z);
@@ -116,7 +120,13 @@ function updateFall(T, dt) {
   if (T.hop) {   // 자세 리셋: 꼭대기에 닿을 때까지 바른 자세·제자리로 돌아간다
     const h = T.hop, f = Math.min(1, (h.t += dt) / h.up), e = f * f * (3 - 2 * f);
     T.q.slerpQuaternions(h.q0, h.q1, e);
-    T.pos.x = lerp(h.p0.x, h.p1.x, e); T.pos.z = lerp(h.p0.z, h.p1.z, e);
+    if (h.fly) {   // 45도 포물선: 수평은 일정한 속도로, 높이는 식 그대로 (끝에서 딱 내려앉을 자리 높이)
+      const s = Math.min(h.t, h.fly);
+      T.pos.x = h.p0.x + h.vx * s; T.pos.z = h.p0.z + h.vz * s;
+      T.pos.y = h.p0.y + h.vy0 * s - 11 * s * s; T.vy = h.vy0 - 22 * s;
+      if (h.t >= h.fly) { T.pos.y = Math.min(T.pos.y, T.landY); T.vy = Math.min(T.vy, -0.01); }
+    }
+    else { T.pos.x = lerp(h.p0.x, h.p1.x, e); T.pos.z = lerp(h.p0.z, h.p1.z, e); }
   }
   // 떨어지다 밑의 탱크·보급품을 밟으면 밟힌 쪽은 바로 부서진다 (충돌 공격과 같은 처리. 보급품 폭풍은 떨어진 탱크를 밀지 않음)
   const bottom = T.pos.y - COM.y;
@@ -129,17 +139,21 @@ function updateFall(T, dt) {
     if (T === tank) { hudWaitLand = false; landOffer(); }   // 착지: 접어 둔 선택지 (자세 리셋 점프 중에 모인 골드도 여기서)
     _tmp.set(rand() < 0.5 ? 1 : 0, 0, 0); if (!_tmp.x) _tmp.z = 1;
     T.w.copy(_tmp.multiplyScalar((rand() < 0.5 ? -1 : 1) * rr(0.8, 1.1))).applyQuaternion(T.q);
-    const gy = groundAt(T.pos.x, T.pos.z);
-    for (let k = 0; k < 26; k++) {
-      const a = k / 26 * 6.283, s = rr(4, 8);
-      smokeP.spawn(T.pos.x + Math.cos(a) * 2.2, gy + 0.2, T.pos.z + Math.sin(a) * 2.2, Math.cos(a) * s, rr(0.2, 0.8), Math.sin(a) * s, rr(0.8, 1.3), [0.32, 0.27, 0.2, 0.6], [0.3, 0.27, 0.22, 0], 0.7, 2.4, 0, 3.5, 0.5);
-    }
-    addBlast(T.pos.x, gy, T.pos.z, 12);
+    landFx(T, !!hop);
     for (const c of crates) if (c.alive && Math.hypot(c.x - T.pos.x, c.z - T.pos.z) < 3) breakCrate(c, false);
-    shake = Math.min(1.2, shake + Math.max(0, (hop ? 0.35 : 0.7) - camera.position.distanceTo(T.pos) / 110));
-    sfx.thud(T.pos, hop ? 0.7 : 1);
   }
   syncBody(T);
+}
+// 쿵 연출: 흙먼지 고리·풀 눕힘·화면 흔들림·소리 (착지, 자세 리셋으로 떠오르는 순간도)
+function landFx(T, hop) {
+  const gy = groundAt(T.pos.x, T.pos.z);
+  for (let k = 0; k < 26; k++) {
+    const a = k / 26 * 6.283, s = rr(4, 8);
+    smokeP.spawn(T.pos.x + Math.cos(a) * 2.2, gy + 0.2, T.pos.z + Math.sin(a) * 2.2, Math.cos(a) * s, rr(0.2, 0.8), Math.sin(a) * s, rr(0.8, 1.3), [0.32, 0.27, 0.2, 0.6], [0.3, 0.27, 0.22, 0], 0.7, 2.4, 0, 3.5, 0.5);
+  }
+  addBlast(T.pos.x, gy, T.pos.z, 12);
+  shake = Math.min(1.2, shake + Math.max(0, (hop ? 0.35 : 0.7) - camera.position.distanceTo(T.pos) / 110));
+  sfx.thud(T.pos, hop ? 0.7 : 1);
 }
 // 그 점이 탱크의 어느 면 쪽인가 (탱크 좌표에서 앞/뒤/옆). _spl에 탱크 좌표를 남긴다
 function faceAt(T, p) {
@@ -150,12 +164,12 @@ function faceAt(T, p) {
 // 탱크 대미지: 맞은 면의 방어력(쏜 탱크의 관통탄만큼 깎이고 0 아래로는 안 내려감)과 장갑 강화를 곱한 뒤 소수점 버림.
 // face가 없으면 방어력 무시 (충돌 공격)
 function damageTank(T, raw, face, src, kind) {
-  if (!T.solid) { dmgFromP = null; return 0; }
+  if (!T.solid || rulesLocked()) { dmgFromP = null; dmgCrit = false; return 0; }   // 섬멸 창 동안은 맞아도 폭발·소리만 나고 체력은 그대로
   const pierce = (src && src.pierce) || 0, mgPierce = kind !== 'mg' || (src && src.apMg);   // 관통탄은 포탄만 (기관총은 '철갑 기관총' 조합이 있어야)
   const a = face ? Math.max(0, (T.armor[face] ?? 0) - (mgPierce ? pierce : 0)) : 0;
   const d = Math.floor(raw * (1 - a) * (T.armorM || 1) + 1e-6);
   if (aiShow) floatTank(T, d, raw, face, src, a, kind);
-  dmgTextHit(T, Math.max(0, d), dmgFromP || (src && src.pos) || null); dmgFromP = null;   // 대미지 숫자 (공격한 자리 반대쪽으로)
+  dmgTextHit(T, Math.max(0, d), dmgFromP || (src && src.pos) || null, dmgCrit, d > 0 && T.hp - d <= 0); dmgFromP = null; dmgCrit = false;   // 대미지 숫자 (공격한 자리 반대쪽으로. 치명타·파괴 표시)
   if (d <= 0) return 0;
   T.hp -= d;
   if (T === tank) { shake = Math.min(1.2, shake + Math.min(0.3, 0.05 + d * 0.005)); hudHit(d); padRumble(Math.min(1, 0.25 + d * 0.02), Math.min(1, 0.4 + d * 0.02), kind === 'mg' ? 70 : 180); }   // 패드 진동: 맞은 만큼
@@ -167,9 +181,10 @@ function blastDamage(p, r, dmg, src, except) {
   if (r <= 0 || dmg <= 0) return;
   for (const T of TANKS.slice()) {
     if (!T.solid || T === except) continue;
+    const own = T === src, br = r, bd = dmg;   // 내 폭발에 내가 맞으면 내 관통탄은 빼고
     const face = faceAt(T, p);
     const dx = Math.max(0, Math.abs(_spl.x) - (T.hx ?? HULL_HX)), dz = Math.max(0, Math.abs(_spl.z) - (T.hz ?? HULL_HZ)), dy = Math.max(0, -_spl.y, _spl.y - (T.ht ?? 2.8));
-    if (Math.hypot(dx, dy, dz) <= r) { dmgFromP = p; damageTank(T, dmg, face, src, 'blast'); }   // (대미지 숫자는 폭발 자리 반대쪽으로)
+    if (Math.hypot(dx, dy, dz) <= br) { dmgFromP = p; damageTank(T, bd, face, own ? null : src, 'blast'); }   // (대미지 숫자는 폭발 자리 반대쪽으로)
   }
   for (const t of targets.slice()) if (t !== except && t.alive && !t.falling && t.mesh.position.distanceTo(p) < r + TARGET_S / 2) damageTarget(t, dmg, 'blast');
   for (const c of crates) if (c !== except && c.alive && Math.hypot(c.x - p.x, c.y - p.y, c.z - p.z) < r + c.s / 2) damageCrate(c, dmg);
@@ -252,8 +267,8 @@ function checkMissionClear() {
 function showEnd(kind) {
   if (endState === 'clear') return;   // 섬멸 창이 떠 있으면 그대로
   endState = kind;
-  if (kind === 'clear') cancelOffer();
-  if (kind === 'clear') Object.assign(clearUI.info, { kills: EC.clearKills, jeeps: jeepKills, time: playTime, lv: growLevel });
+  if (kind === 'clear') cancelOffer();   // 월드는 계속 돌지만 값은 잠긴다 (rulesLocked): 남은 골드를 주워도 레벨업하지 않는다
+  if (kind === 'clear') { Object.assign(clearUI.info, { kills: EC.clearKills, jeeps: jeepKills, time: playTime, lv: growLevel, bunkers: BUNKERS.filter((B) => B.ruin).length, bunkerAll: BUNKERS.length }); clearUI.reset(); clearBegin(); }   // 임무 완료 카메라·배경 (52_clear.js)
   uiShow(kind === 'dead' ? deadUI : clearUI);   // HUD는 syncHud가 끈다
 }
 // 재출격: 처음부터가 아니라 내 탱크만 새로 떨어뜨린다 (착지하면 접어 둔 성장 선택지가 다시 뜬다)
@@ -267,8 +282,8 @@ function respawn() {
 }
 // 새로 시작: 다시 읽되 타이틀은 건너뛴다 / 첫 화면으로: 그냥 다시 읽는다 (타이틀부터)
 function restartGame(toTitle) {
-  try { if (!toTitle) sessionStorage.setItem('littleIron.skipTitle', '1'); } catch (_) {}
-  location.reload();
+  try { if (!toTitle) sessionStorage.setItem('MightyMolly.skipTitle', '1'); } catch (_) {}
+  leaveBegin();   // 검정 4x4 디더링으로 위에서 아래로 덮은 뒤 다시 읽는다 (52_clear.js)
 }
 // 적 AI
 const _eAim = { thr: 0, turn: 0 }, _eT = new THREE.Vector3();
@@ -640,7 +655,9 @@ function jeepVisual(E, dt, thr) {
       rr(1.5, 2.5), [0.02, 0.02, 0.02, 0.9], [0.05, 0.05, 0.05, 0], rr(0.5, 0.8), rr(1.6, 2.4), -0.1, 0.4);
 }
 // 하늘에서 비추는 원형 빛: 0번 = 내 조준의 폭발 범위 (폭발 범위가 0보다 클 때), 1~4번 = 자주포 포격 예고 (먼저 떨어질 것부터).
-// 포격 예고 원은 쏜 직후 폭발 범위의 2.5배(설정)였다가 탄착 순간 실제 폭발 범위로 줄어들고, 가까워질수록 빠르게 깜빡인다
+// 포격 예고 원은 쏜 직후 폭발 범위의 2.5배(설정)였다가 탄착 순간 실제 폭발 범위로 줄어든다.
+// 밝기: 처음엔 천천히(주기 spg.warnBlink초) 환했다가 깊게 어두워지기(spg.warnDark)를 되풀이해 '아직 시간이 남았다'를 알리고, 탄착이 가까워질수록 조금 빨라지다가
+// 경과 spg.warnSteady 비율부터는 어두워지는 깊이가 서서히 줄어 탄착 순간엔 점멸 없이 환하게 켜진 채로 이어진다 (밝기 0이면 원이 꺼지므로 항상 0보다 크게)
 function updateRings() {
   const r0 = U.uRing0.value[0];
   if (aimHitP && tank.solid && tank.blastR > 0) { r0.set(aimHitP.x, aimHitP.z, tank.blastR, tank.cool > 0 ? 0.35 : 0.85); U.uRing1.value[0].set(1, 0.6, 0.16, 0); }
@@ -652,7 +669,12 @@ function updateRings() {
     if (!w) { v.w = 0; continue; }
     const f = Math.min(1, (U.uTime.value - w.t0) / w.T);
     const grow = easeOutBack(Math.min(1, (U.uTime.value - w.t0) / 0.4));   // 처음 나타날 때 0에서 톡 튀어나오듯 커진다
-    v.set(w.x, w.z, SC.blastRadius * lerp(SC.warnStart, 1, f) * Math.max(0, grow), 0.7 + 0.5 * f + 0.3 * Math.sin(U.uTime.value * (3 + f * 9)));
+    const tt = U.uTime.value - w.t0, P = Math.max(0.2, SC.warnBlink ?? 2.6), dk = Math.max(0.02, Math.min(1, SC.warnDark ?? 0.12));
+    const phase = (tt + 0.6 * tt * tt / (2 * w.T)) * 6.2832 / P + 1.5708;   // 환한 데서 시작, 주기는 탄착 순간 60% 빨라진다 (위상이 끊기지 않게 적분한 식)
+    const sOn = 0.5 + 0.5 * Math.sin(phase), st = Math.min(0.95, SC.warnSteady ?? 0.7);
+    const tp = Math.max(0, Math.min(1, (f - st) / (0.98 - st))), taper = tp * tp * (3 - 2 * tp);   // 0 → 1: 점멸이 줄어드는 정도
+    const dark = lerp(dk, 1, taper), hi = 0.9 + 0.5 * f;
+    v.set(w.x, w.z, SC.blastRadius * lerp(SC.warnStart, 1, f) * Math.max(0, grow), hi * (dark + (1 - dark) * Math.pow(sOn, 1.6)));   // 어두운 쪽에 오래 머물러 점멸이 또렷하게
     U.uRing1.value[k].set(1, 0.2, 0.06, 0);
   }
 }

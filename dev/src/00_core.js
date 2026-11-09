@@ -55,6 +55,23 @@ function sharpDraw(g, src, dx, dy, dw, dh, sx = 0, sy = 0, sw = src.width, sh = 
   g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'low';
   g.drawImage(_sbT, 0, 0, tw, th, dx, dy, dw, dh);
 }
+// 치지직 띠 합성 (HUD·UI 공통). 띠마다 sharpDraw를 부르면 작업 캔버스를 지우고·그리고·옮기는 일이 띠 수(100개 넘게) × 그림 수만큼
+// 매 프레임 일어나 크게 느려진다. 그래서 그림 전체를 샤프하게 한 번만 키워 두고(sharpScaled), 띠마다는 그대로 오려 붙인다(bandBlit).
+// bands = [[시작 줄, 줄 수, 좌우로 민 칸 수], ...] (src 칸 단위), u = 한 칸의 화면 픽셀 수, o = 그림자처럼 오른쪽 아래로 밀 칸 수
+function sharpScaled(src, u) {
+  const dw = Math.max(1, Math.round(src.width * u)), dh = Math.max(1, Math.round(src.height * u));
+  const s = src._gs || (src._gs = document.createElement('canvas'));
+  sharpDraw(reuseCanvas(s, dw, dh), src, 0, 0, dw, dh);
+  s._cw = src.width; s._ch = src.height;
+  return s;
+}
+function bandBlit(g, sc, bands, u, o = 0) {
+  const k = sc.height / sc._ch, oy = Math.round(o * u);
+  for (const [sy, sh, dx] of bands) {
+    const y0 = Math.round(sy * k), y1 = Math.round((sy + sh) * k);
+    if (y1 > y0) g.drawImage(sc, 0, y0, sc.width, y1 - y0, Math.round((dx + o) * u), y0 + oy, sc.width, y1 - y0);
+  }
+}
 // 화면에 보이는 캔버스(dst)를 CSS 크기 × 기기 픽셀로 맞추고 src 전체를 꽉 채워 그린다
 // 4x4 디더링으로 지우기: 무늬값(0~15)이 th보다 작은 칸을 비운 사본 (th 16이면 전부 빈다). 그림마다 사본 캔버스 하나를 다시 쓴다.
 // 픽셀을 읽지 않고 '지우개 무늬'를 덮어 그려 비운다 (destination-out): 파일로 열어(file://) 그림 픽셀을 읽을 수 없어도 똑같이 된다
@@ -68,10 +85,15 @@ function ditherPattern(g, th) {   // th단계 지우개: 4x4 칸 중 무늬값�
   }
   return g.createPattern(_ditherPat[th], 'repeat');
 }
+// 사본 캔버스는 크기가 같으면 width를 다시 대입하지 않고 지우기만 한다 (width 대입은 GPU 버퍼를 새로 잡아 프레임마다 하면 크게 느려진다)
+function reuseCanvas(t, w, h) {
+  const g = t.getContext('2d');
+  if (t.width !== w || t.height !== h) { t.width = w; t.height = h; } else g.clearRect(0, 0, w, h);
+  return g;
+}
 function ditherMask(src, th) {
   const t = src._dm || (src._dm = document.createElement('canvas'));
-  t.width = src.width; t.height = src.height;
-  const g = t.getContext('2d');
+  const g = reuseCanvas(t, src.width, src.height);
   if (th >= 16) return t;
   g.drawImage(src, 0, 0);
   if (th > 0) { g.globalCompositeOperation = 'destination-out'; g.fillStyle = ditherPattern(g, th); g.fillRect(0, 0, t.width, t.height); g.globalCompositeOperation = 'source-over'; }
@@ -82,8 +104,7 @@ function ditherMask(src, th) {
 const WIPE_SPAN = 0.55;
 function ditherWipe(src, f, vOf) {
   const t = src._dw || (src._dw = document.createElement('canvas'));
-  t.width = src.width; t.height = src.height;
-  const g = t.getContext('2d');
+  const g = reuseCanvas(t, src.width, src.height);
   if (f >= 1) return t;
   g.drawImage(src, 0, 0);
   if (f <= 0) return t;
@@ -154,10 +175,18 @@ function loadStep(k, label) {
 // ---------------------------------------------------------------- 기본 설정
 // 세부 설정은 config.js (window.CONFIG). 숫자를 바꿔 가며 테스트하는 값은 모두 그쪽에
 const CFG = window.CONFIG;
+// 저장 키 이름이 바뀌었다 (littleIron. → MightyMolly.): 예전 값을 한 번 옮긴다 (새 키가 비어 있을 때만)
+try {
+  for (const k of Object.keys(localStorage)) if (k.startsWith('littleIron.')) {
+    const n = 'MightyMolly.' + k.slice(11);
+    if (localStorage.getItem(n) === null) localStorage.setItem(n, localStorage.getItem(k));
+    localStorage.removeItem(k);
+  }
+} catch (_) {}
 // 설정 탭 켜기/끄기 값 읽기: 설정에서 바꾸면 기억하지만, config의 처음 값이 바뀌었으면 config를 따른다 (기억해 둔 값을 버린다)
 function loadOpt(k, d) {
   try {
-    const K = 'littleIron.' + k, D = d ? '1' : '0';
+    const K = 'MightyMolly.' + k, D = d ? '1' : '0';
     if (localStorage.getItem(K + '.cfg') !== D) { localStorage.setItem(K + '.cfg', D); localStorage.removeItem(K); return d; }
     const v = localStorage.getItem(K);
     return v === null ? d : v === '1';
@@ -339,6 +368,7 @@ function fadeMat(src, u) {
   return m;
 }
 const fadeIns = [];   // { root, u, t, swaps: [[mesh, 원래 재질, 복제본, 외곽선이었나]] }
+const fadeKeep = [];   // 로딩 때 미리 컴파일하려고 만든 디더 복제본: 셰이더 프로그램이 지워지지 않게 계속 쥐어 둔다 (90_loop.js)
 // 하늘에 나타나자마자 dropFadeIn초 동안 디더링으로 나타난다
 // 떨어질 높이: dropFade초 만에 땅에 닿도록 (떨어지는 가속도 22m/s²)
 const DROP_H = 0.5 * 22 * (CFG.screen?.dropFade ?? 2) ** 2;

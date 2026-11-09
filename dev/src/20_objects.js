@@ -334,10 +334,10 @@ const camoMats = new Map();   // 재질 → 부품 이름 (TC의 키)
   }
 }
 let camoIdx = 0;
-try { camoIdx = Math.max(0, CAMO_LIST.findIndex((c) => c.name === localStorage.getItem('littleIron.camoName'))); } catch (_) {}   // 이름으로 기억 (목록 순서가 바뀌어도)
+try { camoIdx = Math.max(0, CAMO_LIST.findIndex((c) => c.name === localStorage.getItem('MightyMolly.camoName'))); } catch (_) {}   // 이름으로 기억 (목록 순서가 바뀌어도)
 function setCamo(i) {
   camoIdx = (i + CAMO_LIST.length) % CAMO_LIST.length;
-  try { localStorage.setItem('littleIron.camoName', CAMO_LIST[camoIdx].name); } catch (_) {}
+  try { localStorage.setItem('MightyMolly.camoName', CAMO_LIST[camoIdx].name); } catch (_) {}
   const C = CAMO_LIST[camoIdx], hsl = (c) => { const o = {}; new THREE.Color(c).getHSL(o, THREE.SRGBColorSpace); return o; };
   const H0 = hsl(TC.hull), base = C.pattern ? C.pattern[0] : C.color;
   for (const [mat, k] of camoMats) {

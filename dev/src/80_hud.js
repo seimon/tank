@@ -19,6 +19,30 @@ function hbar(x, y, w, f, dots) {
   if (!dots) { if (fw > 0) px(x, y, fw, 7); }
   else for (let yy = y + 1; yy < y + 6; yy++) for (let xx = x + 1; xx < x + fw; xx++) if ((xx + yy) % 2 === 0) px(xx, yy);
 }
+// 타이틀 우하단 키 안내 (한글, 갈무리11 장체: gfDraw·gfWidth는 81_ui.js): 줄마다 [키 칸]들 + 설명. 오른쪽 끝을 맞춘다.
+// 키 칸은 흰 칸에 검은 글자 (일시정지 창의 키 칸과 같은 모양: 글자 줄 위아래 1칸·좌우 2칸 여유, 칸 사이 2칸), 줄 높이는 한글 줄 높이(15칸), 오른쪽 아래 1칸 검은 그림자
+// rows = [[[키, ...], '설명'], ...]
+function titleKeyRows(cv, rows) {
+  const src = cv._src || (cv._src = document.createElement('canvas'));   // 1칸 = 1픽셀. 화면에는 layoutTitle이 늘려 그린다
+  const kw = (k) => gfWidth(k) + 4, rowW = (r) => r[0].reduce((n, k) => n + kw(k) + 2, 0) - 2 + 6 + gfWidth(r[1]);
+  const W = Math.max(...rows.map(rowW));
+  src.width = W + 1; src.height = rows.length * GF_LINE - 2;   // (width를 다시 대입하면 비워진다)
+  const g = src.getContext('2d');
+  for (const [col, d] of [['rgba(0,0,0,.75)', 1], ['#ffffff', 0]]) {   // 검은 그림자 → 흰색
+    g.fillStyle = col;
+    rows.forEach((r, li) => {
+      const y = li * GF_LINE + 1;
+      let x = W - rowW(r) + d;
+      for (const k of r[0]) { g.fillRect(x, y - 1 + d, kw(k), 12); x += kw(k) + 2; }
+      gfDraw(r[1], x + 4, y + d, (a, b) => g.fillRect(a, b, 1, 1));
+    });
+  }
+  g.fillStyle = '#000000';   // 키 칸 안의 글자는 검게
+  rows.forEach((r, li) => {
+    let x = W - rowW(r);
+    for (const k of r[0]) { gfDraw(k, x + 2, li * GF_LINE + 1, (a, b) => g.fillRect(a, b, 1, 1)); x += kw(k) + 2; }
+  });
+}
 // 타이틀 화면 글자: HUD와 같은 5x7 글꼴 (흰색)에 검은 그림자, 1칸 = 1픽셀 캔버스 (줄 높이 7, 줄 간격 4)
 function pixelText(cv, lines, col = '#ffffff', align = 'left') {   // align 'right': 줄마다 오른쪽 끝을 맞춘다
   const src = cv._src || (cv._src = document.createElement('canvas'));   // 1칸 = 1픽셀. 화면에는 layoutTitle이 늘려 그린다
@@ -65,7 +89,7 @@ async function drawTitleArt() {
 }
 let titlePad = false;   // 타이틀 키 안내가 게임패드 글자인가
 if (document.getElementById('tPress')) {
-  drawTitleKeys(false);
+  // (타이틀 우하단 키 안내는 한글 글꼴이 있는 81_ui.js 맨 끝에서 처음 그린다)
   pixelText(document.getElementById('tVer'), [`VERSION ${VERSION}`, `BUILD ${BUILD}`]);
   drawTitleArt();
   layoutTitle();
@@ -75,7 +99,7 @@ function drawTitleKeys(pad) {
   titlePad = pad;
   const c = document.getElementById('tPress');
   if (!c) return;
-  pixelText(c, [pad ? 'PRESS A TO PLAY' : 'PRESS SPACE TO PLAY'], '#ffffff', 'right');
+  titleKeyRows(c, [[[pad ? 'A' : 'SPACE'], '게임 시작']]);
   drawCamoText();
   if (c._css) layoutTitle();
 }
@@ -83,7 +107,11 @@ function drawTitleKeys(pad) {
 function drawCamoText() {
   const c = document.getElementById('tCamo');
   if (!c) return;
-  pixelText(c, [`${titlePad ? 'LB / RB' : 'Q / E'}  CHANGE CAMO: ${CAMO_LIST[camoIdx].name}`, `${titlePad ? '<  /  >' : 'A / D'}  DECALS: ${DECAL_SETS[decalIdx].name}`, `${titlePad ? 'START' : 'ESC'}  SETTINGS`], '#ffffff', 'right');   // 우하단 키 안내: 오른쪽 정렬
+  titleKeyRows(c, [   // 우하단 키 안내: 오른쪽 정렬
+    [titlePad ? ['LB', 'RB'] : ['Q', 'E'], `위장색 변경: ${CAMO_LIST[camoIdx].name}`],
+    [titlePad ? ['←', '→'] : ['A', 'D'], `데칼 변경: ${DECAL_SETS[decalIdx].name}`],
+    [[titlePad ? 'START' : 'ESC'], '설정'],
+  ]);
   if (c._css) layoutTitle();
 }
 // 타이틀 부품 설명: 부품 한 점에서 비스듬한 지시선 → 글자 밑줄. 글자는 짙은 먹색에 흰 테두리 (게임 해상도 그대로 그려 늘린다)
@@ -126,6 +154,62 @@ function hline(x0, y0, x1, y1) {   // 1칸 굵기 직선
   const n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0), 1);
   for (let i = 0; i <= n; i++) px(Math.round(x0 + (x1 - x0) * i / n), Math.round(y0 + (y1 - y0) * i / n));
 }
+// ---- 상단 가운데 나침반: 호 하나 + 호 바깥에 카메라 방향 기준 N·E·W·S, 그 사이에 호에서 1칸 안쪽 점들.
+// 호 위의 자리 = 원 위에서 그 방향의 각도 (가운데 = 카메라가 보는 쪽). 글자·표시는 좌우 끝에서 잘리지 않게 다 들어갈 때만 그린다.
+// 카메라 앞 range도(180) 안의 것을 보이는 호 길이 안에 모아 보인다 (각도를 같은 비율로 줄인다).
+// 호 안쪽에 적 (늘 표시) (탱크·자주포 3x3 ■ · 지프 2x2 ■ · 벙커 4x4 그림)
+// 화면에서 보이는 대로: 카메라가 +z(북)를 보면 오른쪽이 -x → 동 = -x
+const CMP = Object.assign({ radius: 90, width: 120, top: 6, dots: 3, range: 180, scoutRange: 0 }, HC.compass);
+const BUNKER_ICON = ['.##.', '####', '#..#', '####'];   // 벙커 표시 (4x4)
+const CMP_DIRS = [['N', 0, 1], ['E', -1, 0], ['S', 0, -1], ['W', 1, 0]];
+const _cmpF = new THREE.Vector3();
+const pxC = (x, y, w = 1, h = 1) => { hc.fillRect(x, y, w, h); kc.fillRect(x, y, w, h); };   // (hudRight에 넣지 않는다: 성장 선택지 자리와 상관없게)
+function compassState(cw) {
+  camera.getWorldDirection(_cmpF);
+  const fl = Math.hypot(_cmpF.x, _cmpF.z) || 1, fx = _cmpF.x / fl, fz = _cmpF.z / fl, rx = -fz, rz = fx;   // 앞·오른쪽 (땅 위)
+  const R = CMP.radius, hw = Math.min(Math.floor(CMP.width / 2), R - 1), cx = Math.floor(cw / 2), cy = CMP.top + 9 + R;
+  const half = Math.min(179.9, (CMP.range || 180) / 2) * DEG, K = Math.asin(hw / R) / half;   // 앞 range도 → 보이는 호 각도로
+  const ang = (dx, dz) => { const a = Math.atan2(dx * rx + dz * rz, dx * fx + dz * fz); return Math.abs(a) > half ? 9 : a * K; };   // + = 오른쪽. 범위 밖이면 9 (안 그림)
+  const fits = (l, w) => Math.abs(l - cx) <= hw && Math.abs(l + w - 1 - cx) <= hw;   // 좌우로 다 들어가는가
+  const marks = [];   // [종류, x, y]
+  const at = (a, r) => [Math.round(cx + Math.sin(a) * r), Math.round(cy - Math.cos(a) * r)];
+  for (const [ch, dx, dz] of CMP_DIRS) {   // 글자: 호에서 2칸 띄워 바깥 (가운데 기준)
+    const a = ang(dx, dz); if (Math.abs(a) >= Math.PI / 2) continue;
+    const [x, y] = at(a, R + 6); if (fits(x - 2, 5)) marks.push([ch, x - 2, y - 3]);
+  }
+  const n = Math.max(0, CMP.dots | 0);
+  for (let q = 0; q < 4; q++) for (let i = 1; i <= n; i++) {   // 점: 호에서 1칸 띄워 바깥
+    const t = (q + i / (n + 1)) * Math.PI / 2, a = ang(Math.sin(-t) * 1, Math.cos(t));   // N(0,1)에서 E(-1,0) 쪽으로 돈다
+    if (Math.abs(a) >= Math.PI / 2) continue;
+    const [x, y] = at(a, R + 2); if (fits(x, 1)) marks.push(['.', x, y]);
+  }
+  if (titleState === 'play') {
+    const add = (kind, px, pz, w) => {   // w: 표시 폭 (가운데 = x, 짝수 폭은 왼쪽으로 한 칸 더)
+      const dx = px - tank.pos.x, dz = pz - tank.pos.z;
+      if (CMP.scoutRange > 0 && Math.hypot(dx, dz) > CMP.scoutRange) return;
+      const a = ang(dx, dz); if (Math.abs(a) >= Math.PI / 2) return;
+      const [x, y] = at(a, R - 7);
+      if (fits(x - (w >> 1), w)) marks.push([kind, x, y]);
+    };
+    for (const B of BUNKERS) if (!B.ruin) add('b', B.x, B.z, 4);   // 벙커 먼저 (적이 겹치면 적이 위에)
+    for (const E of ENEMIES) if (E.solid) add(E.jeep ? 'j' : 't', E.pos.x, E.pos.z, E.jeep ? 2 : 3);   // 탱크·자주포 3x3, 지프 2x2
+  }
+  return { cx, cy, R, hw, marks, key: cx + ',' + marks.map((m) => m.join(':')).join(',') };
+}
+function drawCompass(c) {
+  const yAt = (dx) => Math.round(c.cy - Math.sqrt(c.R * c.R - dx * dx));
+  for (let dx = -c.hw; dx <= c.hw; dx++) {   // 호 (1칸 굵기. 가파른 곳은 가운데 쪽 옆 칸까지 세로로 이어 칠한다)
+    const y = yAt(dx), yi = dx === 0 ? y : yAt(dx - Math.sign(dx));
+    pxC(c.cx + dx, Math.min(y, yi + 1), 1, Math.max(1, y - yi));
+  }
+  for (const [k, x, y] of c.marks) {
+    if (k === '.') pxC(x, y);
+    else if (k === 't') pxC(x - 1, y - 1, 3, 3);   // 적 탱크·자주포 3x3
+    else if (k === 'j') pxC(x - 1, y - 1, 2, 2);   // 지프 2x2
+    else if (k === 'b') { for (let r = 0; r < 4; r++) for (let q = 0; q < 4; q++) if (BUNKER_ICON[r][q] === '#') pxC(x - 2 + q, y - 2 + r); }   // 벙커 4x4
+    else fontDraw(k, x, y, 1, (a, b) => pxC(a, b));
+  }
+}
 // 내 탱크가 피해를 입었을 때: 클수록 세게, glitchTime 동안 HUD가 치지직
 function hudHit(d) {
   glitchUntil = performance.now() + HC.glitchTime * 1000;
@@ -135,6 +219,8 @@ function drawHud() {
   const W = rt.width, H = rt.height, now = performance.now(), dpr = layerScale || devicePixelRatio || 1, DW = Math.max(1, Math.round(VR.w * dpr)), DH = Math.max(1, Math.round(VR.h * dpr));
   if (phud.width !== DW || phud.height !== DH) { phud.width = phudS.width = DW; phud.height = phudS.height = DH; hudKey = ''; }   // 화면에 보이는 크기 그대로 (늘리지 않음)
   hk = Math.max(1, Math.floor(H / 360));
+  const CWn = Math.ceil(W / hk) + 2;   // 화면 폭만큼 (상단 가운데 나침반)
+  if (hudC.width !== CWn) { hudC.width = hudK.width = CWn; hudKey = ''; }
   const alive = tank.solid || tank.falling;
   const hp = alive ? Math.max(0, Math.round(tank.hp)) : 0;
   const elev = Math.round(THREE.MathUtils.radToDeg(tank.elev));
@@ -142,16 +228,18 @@ function drawHud() {
   const ta = Math.round(THREE.MathUtils.radToDeg(Math.atan2(Math.sin(tank.tyaw || 0), Math.cos(tank.tyaw || 0))));   // + = 왼쪽
   const rl = tank.cool > 0 ? Math.round((1 - tank.cool / tank.reload) * 40) : 40;
   const blink = rl < 40 ? Math.floor(now / 250) % 2 : 0;   // RELOAD 글자 깜빡임
+  const hpBlink = alive && hp > 0 && hp <= 10 ? Math.floor(now / 250) % 2 : 0;   // HP 10 이하: 숫자 깜빡임 (RELOAD와 같은 빠르기)
   const bkAll = BUNKERS.length, bkLeft = BUNKERS.reduce((n, B) => n + (B.ruin ? 0 : 1), 0);
-  const key = [hp, tank.maxHp, alive, gold, offerCost(), tank.goldMul, rl, blink, spd, Math.round(spdMax), elev, ta, growLevel, enemyLeft(), bkLeft, bkAll].join('|');
+  const cmp = compassState(Math.ceil(W / hk));
+  const key = [hp, tank.maxHp, alive, gold, offerCost(), tank.goldMul, rl, blink, hpBlink, spd, Math.round(spdMax), elev, ta, growLevel, enemyLeft(), bkLeft, bkAll, cmp.key].join('|');
   const glitch = now < glitchUntil;
   if (key !== hudKey) {
     hudKey = key;
     hc.clearRect(0, 0, hudC.width, hudC.height); kc.clearRect(0, 0, hudK.width, hudK.height); hudRight = 0;
     hc.fillStyle = HC.color; kc.fillStyle = '#000';
-    const x0 = 6, L = 11, vx = 40, bw = 60, tx = vx + bw + 4;   // 이름 칸(화면 가장자리에서 6칸), 줄 간격(7 + 4), 값·게이지 칸
+    const x0 = 6, L = 11, vx = 34, bw = 48, tx = vx + bw + 4;   // 이름 칸(화면 가장자리에서 6칸), 줄 간격(7 + 4), 값·게이지 칸 (가장 긴 이름 4글자 + 5칸)
     let y = 6;
-    htext('HP', x0, y); hbar(vx, y, bw, hp / tank.maxHp); htext(alive ? hp : 'KO', tx, y); y += L;
+    htext('HP', x0, y); hbar(vx, y, bw, hp / tank.maxHp); htext(alive ? (hpBlink ? '' : hp) : 'KO', tx, y); y += L;
     htext('GOLD', x0, y); hbar(vx, y, bw, gold / offerCost()); htext(`${gold}/${offerCost()}${tank.goldMul > 1 ? ' X' + tank.goldMul : ''}`, tx, y); y += L;
     htext('AMMO', x0, y); hbar(vx, y, bw, rl / 40, rl < 40); htext(rl < 40 ? (blink ? '' : 'RELOAD') : 'READY', tx, y); y += L;
     htext('SPD', x0, y); hbar(vx, y, bw, spd / spdMax); htext(`${spd}KM/H`, tx, y); y += L;
@@ -174,7 +262,8 @@ function drawHud() {
     }
     y += 2 * L;
     htext('LV', x0, y); htext(growLevel, vx, y); y += L;
-    htext('ENEMY', x0, y); htext(enemyLeft(), vx, y); y += L;
+    htext('TGT', x0, y); htext(enemyLeft(), vx, y); y += L;
+    drawCompass(cmp);
   } else if (!glitch && !hudGlitched && !hudOffAt) return;
   hudGlitched = glitch;
   // 꺼지는 중이면 (syncHud의 hudOffAt) 4x4 디더링으로 점점 비운다
@@ -185,15 +274,26 @@ function drawHud() {
   const u = hk * DH / H;   // HUD 한 칸의 화면 픽셀 수 (정수 배는 또렷하게, 나머지만 부드럽게: sharpDraw)
   const k = glitch ? glitchPow * Math.min(1, (glitchUntil - now) / (HC.glitchTime * 1000) * 1.5) : 0;
   const CW = hudC.width, CH = hudC.height;
-  for (let sy = 0; sy < CH;) {
-    const sh = glitch ? Math.min(CH - sy, 1 + (Math.random() * 4 | 0)) : CH;
-    const dx = glitch && Math.random() < 0.2 + 0.5 * k ? Math.round((Math.random() * 2 - 1) * HC.glitchPx * k) : 0;
-    sharpDraw(pg, srcC, dx * u, sy * u, CW * u, sh * u, 0, sy, CW, sh);
+  if (!glitch) {   // 평소: 통째로 한 번
+    sharpDraw(pg, srcC, 0, 0, CW * u, CH * u, 0, 0, CW, CH);
     if (HC.shadow > 0) {
-      sg.globalAlpha = HC.shadow * 0.5; sharpDraw(sg, srcK, dx * u, sy * u, CW * u, sh * u, 0, sy, CW, sh);
-      sg.globalAlpha = HC.shadow; sharpDraw(sg, srcK, (dx + 1) * u, (sy + 1) * u, CW * u, sh * u, 0, sy, CW, sh);
+      sg.globalAlpha = HC.shadow * 0.5; sharpDraw(sg, srcK, 0, 0, CW * u, CH * u, 0, 0, CW, CH);
+      sg.globalAlpha = HC.shadow; sharpDraw(sg, srcK, u, u, CW * u, CH * u, 0, 0, CW, CH);
     }
+    return;
+  }
+  // 치지직: 띠를 먼저 정하고, 그림은 한 번만 키워 띠마다 오려 붙인다 (sharpScaled·bandBlit: 00_core.js)
+  const bands = [];
+  for (let sy = 0; sy < CH;) {
+    const sh = Math.min(CH - sy, 1 + (Math.random() * 4 | 0));
+    bands.push([sy, sh, Math.random() < 0.2 + 0.5 * k ? Math.round((Math.random() * 2 - 1) * HC.glitchPx * k) : 0]);
     sy += sh;
+  }
+  bandBlit(pg, sharpScaled(srcC, u), bands, u, 0);
+  if (HC.shadow > 0) {
+    const sK = sharpScaled(srcK, u);
+    sg.globalAlpha = HC.shadow * 0.5; bandBlit(sg, sK, bands, u, 0);
+    sg.globalAlpha = HC.shadow; bandBlit(sg, sK, bands, u, 1);
   }
 }
 
