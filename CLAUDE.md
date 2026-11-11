@@ -8,7 +8,7 @@
 - **버전:** 작업할 때마다 `src/template.html`의 `VERSION`을 0.0.001씩 올리고(끝자리 세 자리, 예 0.5.016 → 0.5.017), `BUILD`는 그날 날짜(YYYY-MM-DD)만. 큰 단계는 사용자가 정한다 (예 0.5.000).
 - **성능 목표:** PC·맥·아이패드에서 60fps. CPU·GPU를 최대한 적게 쓴다. 기능을 넣을 때마다 비용을 따진다.
 - **config.js는 사용자가 직접 고친다.** 사용자가 바꾼 값은 그대로 두고, 새 설정만 주석과 함께 추가한다.
-- 탱크 물리 메모: 탱크 중력은 `GT = G × physics.gravity`(포탄·부스러기는 `G` 그대로). 벽·물체에 붙어 거의 멈춘 평지에서는 궤도 마찰을 `physics.wallSlip`배로 줄인다(`physStep`의 `_ws`, 벽에 붙어 제자리 회전이 느린 문제). 경사면 아래로 끌리는 힘은 `physics.slopePull`배(법선 성분은 그대로, `physStep`). 마찰 한계는 땅을 누르는 힘에 비례해서 중력 배율을 올리면 마찰도 같이 세진다. 궤도 속도는 '공통 속도(W/S)'와 '좌우 차이(A/D)'로 나눠 따로 따라간다(달리다 W를 떼고 돌아도 회전이 바로 시작되도록). 달리던 반대 방향 키를 누르면 헛돌던 궤도를 실제 속도로 맞춘 뒤 `physics.brake`배로 줄인다(`physStep`). G키(`uprightTank` → `openHopSpot`): 주변 16방향 중 6m 넘게 열린 방향이 8개 미만이면 가장 트인 쪽으로 고른 자리까지의 절반만큼 45도 포물선으로 쏘아 올려(`hopUpright(.., move)`, 수평은 일정 속도·높이는 식 그대로, `updateFall`) 차체 방향 그대로 내려앉고, 이미 트여 있으면 제자리에서 위로. 떠오르는 순간에도 착지 연출(`landFx`), 세우면 남은 HP가 1이 된다.
+- 탱크 물리 메모: 탱크 중력은 `GT = G × physics.gravity`(포탄·부스러기는 `G` 그대로). 벽·물체에 붙어 거의 멈춘 평지에서는 궤도 마찰을 `physics.wallSlip`배로 줄인다(`physStep`의 `_ws`, 벽에 붙어 제자리 회전이 느린 문제). 경사면 아래로 끌리는 힘은 `physics.slopePull`배(법선 성분은 그대로, `physStep`). 마찰 한계는 땅을 누르는 힘에 비례해서 중력 배율을 올리면 마찰도 같이 세진다. 궤도 속도는 '공통 속도(W/S)'와 '좌우 차이(A/D)'로 나눠 따로 따라간다(달리다 W를 떼고 돌아도 회전이 바로 시작되도록). 달리던 반대 방향 키를 누르면 헛돌던 궤도를 실제 속도로 맞춘 뒤 `physics.brake`배로 줄인다(`physStep`). G키(`uprightTank` → `openHopSpot`): 주변 16방향 중 6m 넘게 열린 방향이 8개 미만이면 가장 트인 쪽으로 고른 자리까지의 절반만큼 45도 포물선으로 쏘아 올려(`hopUpright(.., move)`, 수평은 일정 속도·높이는 식 그대로, `updateFall`) 차체 방향 그대로 내려앉고, 이미 트여 있으면 제자리에서 위로. 떠오르는 순간에도 착지 연출(`landFx`), 세우면 남은 HP가 1이 된다. 후진할 때 A/D 반대는 S를 누르고 실제로도 뒤로 가거나 거의 멈췄을 때만(tick의 `tAlong`). 회전 방향이 뒤집히면 좌우 차이도 `physics.brake`배로 빨리 바꾸고, 궤도가 땅을 미끄러지는 만큼(궤도 공통 속도와 차체 앞뒤 속도의 차이, `TURN_SLIP` m/s면 최대) 조향 돕는 힘의 상한과 세기를 `physics.brakeTurn`배까지 올린다(`B.ya`, 줄 때는 `TURN_ASSIST_FALL`초에 걸쳐 서서히). 가속·감속·멈추는 순간 두 궤도가 땅을 잡는 힘을 앞뒤로 써 버려 회전이 약해지던 문제. 빠를수록 회전 목표를 올린다(최고 속도에서 `physics.turnAtSpeed`배, 최고 속도 1.3배 넘으면 다시 줄임). 탱크끼리 충돌은 파고든 깊이를 `physics.tankHitPen`까지만 힘으로 쓰고 넘친 만큼은 위치를 떼어 내며, 힘은 무게중심 높이에 건다 (가볍게 튕겨 날아가던 문제). 보급품은 들이받으면 `pushTarget`/`slideTarget`(30_combat.js)으로 미끄러지며 기운다 (`physics.boxPush`·`boxFriction`·`boxTilt`, 기울기는 그림만).
 - **file://로 열어도 동작해야 한다.** 그래서 로컬 ES 모듈(import)로 나누지 않는다 (아래 '구조').
 - **index.html은 직접 고치지 않는다.** `src/`를 고치고 `python tools/build.py`로 합친다.
 - 사용자에게 시안을 보여 줄 때는 `mockups/`에 `YYYYMMDD_` 접두어로 저장한다.
@@ -75,7 +75,7 @@ mockups/            ← 사용자에게 보여 준 시안 그림
 ## 맵 셋팅·날씨
 - config `map.presets` = 맵 셋팅 여러 벌 (안개·주광·하늘빛·바람·비·모래·번개). 코드에서는 `MAP_PRESETS`/`mapIdx`, 처음 값은 `MAP0`. 바꾸기는 `applyMapPreset(i)` (설정 메뉴 '맵 셋팅' 버튼). `ao`·`grassTrampleTime`은 공통 값이라 presets 밖.
 - 날씨는 타이틀에서는 안 보이고 플레이로 넘어가면 나타난다 (`titleK`).
-- 하늘에서 떨어지는 물체: `screen.dropFade`초 만에 땅에 닿는 높이(`DROP_H`)에서 떨어지고, `fadeIn(root)`로 나타나자마자 `screen.dropFadeIn`초 동안 재질을 디더 복제본(`fadeMat`)으로 바꿔 끼워 4x4 디더링으로 나타난다. 낙하산은 `attachChute`(착지하면 접히며 디더링으로 사라짐). 셰이더는 로딩 때 미리 컴파일.
+- 하늘에서 떨어지는 물체: `screen.dropFade`초 만에 땅에 닿는 높이(`DROP_H`)에서 떨어지고, `fadeIn(root)`로 나타나자마자 `screen.dropFadeIn`초 동안 재질을 디더 복제본(`fadeMat`)으로 바꿔 끼워 4x4 디더링으로 나타난다. 낙하산은 `attachChute`(착지하면 접히며 디더링으로 사라짐. 덮개는 꼭대기에 작은 구멍, 떨어지는 동안 b1 ↔ b2(`CHUTE_B2`, 넓고 낮게) 모양을 EaseInOutSine으로 오가며 줄 끝도 따라간다 `chuteLines`). 셰이더는 로딩 때 미리 컴파일.
 - 내 탱크를 가리는 물체: `ps1()` 셰이더가 탱크 둘레 화면 원 안의 앞쪽 조각을 디더링으로 비운다 (`U.uOccP/uOccR`, config `camera.seeThrough`). 땅은 `userData.noOcc`로 뺀다.
 - 새로 시작·첫 화면으로(`restartGame`): 바로 다시 읽지 않고 `leaveBegin()`(52_clear.js)이 검정 4x4 디더링으로 위에서 아래로 덮은 뒤 다시 읽는다 (`clear.leaveTime`. 게임 픽셀 캔버스 하나를 보통 화면에서는 맨 위에, CRT면 맨 위 레이어 `crtLeave`로. 일시정지 중에도 돈다).
 - 화면에 맺히는 빗방울 (`22_weather.js` `updateLensDrops`, config `map.lensDrops`): JS가 게임 해상도(rt와 같은 크기, `fitDropTex`) 물방울 지도(`LDROP_TEX`, 움직임·크기는 '방울 단위' = 화면 높이 100, rg = 굴절, b = 밝기, a = 진하기. 방울 안은 모두 같은 값(납작한 PS1 느낌), 가장자리(`lensDrops.rim` 범위, 각도마다 다름)(둘레 띠)에만 음영(`stampDrop`, 주광 방향 `ldLight`): 주광 쪽으로 갈수록 점점 밝은 하이라이트(가는 곳은 더 밝게), 반대쪽은 초승달, 옆은 어둡게 (약간의 두께. 밝기는 config `rimDark`·`highlight`·`crescent`). 흘러내리는 동안 테두리 모양·두께가 바뀐다. 안쪽에는 음영·반짝 점 없음. 모양은 원에 2·3·5번 꺾이는 물결을 얹어 조금 불규칙(`p.h`), 크기는 `lensDrops.size`. 가장자리가 1픽셀 이내로 가까워지면 합쳐진다(넓이 보존). 흘러내리는 방울은 조금씩 작아진다 (물 자국은 남기지 않는다))를 그리고 후처리(`uDrop`)가 그만큼 어긋나게 읽는다. 비 양 × 카메라가 비 오는 쪽을 볼수록 많이, 큰 방울은 중력·카메라 기준 바람으로 흘러내린다. 방울이 없으면 아무 일도 안 한다.
@@ -94,6 +94,10 @@ mockups/            ← 사용자에게 보여 준 시안 그림
 - 섬멸 창 동안은 내 기관총 자동 사격도 멈춘다 (`updateMG`).
 - 내 기관총 자동 조준 우선순위(`mgPick`): 지프 → 적 탱크·자주포 → 보급품 → 적 벙커(가장 나중). 벙커는 방어력이 적용되고 관통은 '철갑 기관총'이 있어야 하며, 쏘면 경보가 울린다.
 - 공격 대상 상자는 **보급품** (골드 보급품 = 붉은 금고, 수리 보급품 = 초록 띠 상자). 코드 이름은 `targets`, `safeModel/repairModel`.
+
+## 적 탱크 레벨·사격 (70_enemies.js)
+- 레벨은 config `enemy.levels` (`enemyLevel(level)`: 빠진 값은 `enemy` 기본값, armor는 면마다 덮어씀. `levelForIdx(idx)`: last가 있는 칸 중 끝에서 그 대수 안. 없으면 레벨 1). `color`가 있는 레벨은 로딩 때 색을 바꾼 모델을 따로 만든다(`LV_TEMPLATES`, 나머지 부위는 기본 도장의 밝기 비율대로). 설정 메뉴 '적 탱크 레벨1~3'은 `newEnemy(false, idx, level)`.
+- 내 탱크를 쏠 때는 포탄 비행 시간 × 내 속도 × `E.lead`만큼 앞질러 겨누고, 예상 탄착이 그 자리 2.5m 안이면 쏜다. 움직이는 나를 놓친 것은 '막힘'(자리 옮기기)으로 세지 않는다.
 
 ## 대미지 숫자 덧붙임
 - 대상이 이 대미지로 터지면 숫자 아래에 `DESTROYED`(같은 색, 같은 방향, `f.oy`). '치명적인 명중'은 `CRITICAL 100`: 포탄을 쏠 때 정하고(`ball.crit`), 직격을 부르는 쪽이 `dmgCrit = true`를 넣는다 (dmgFromP와 같은 방식, 30_combat.js).
@@ -146,7 +150,7 @@ mockups/            ← 사용자에게 보여 준 시안 그림
 
 ## 게임패드
 - `81_ui.js` `padPoll()`이 매 프레임(frame 맨 앞, 일시정지 중에도) 표준 배치 패드를 읽어 `pad`(40_input_post.js)에 아날로그 값을 채운다 (tick이 키보드·터치 값과 함께 쓴다). 버튼 하나짜리 동작은 `padKey(code)`로 키 입력을 만들어 보낸다 (`e.fromPad`, 누르고 있는 동작은 `padHold`). 창마다 버튼 배치는 padPoll 위 주석. 화면의 키 글자는 마지막 입력(`inputPad`, `setInputPad`)에 따라 `PK(키보드, 패드)`로 바로 바뀐다 (타이틀은 `drawTitleKeys`). 버튼 이름은 Xbox 기준 (PS 패드도 브라우저가 같은 자리로).
-- 왼쪽 스틱은 디지털처럼: 조금이라도(0.2 넘게) 기울이면 W/S·A/D를 누른 것과 같다.
+- 왼쪽 스틱은 전진·후진·선회마다 config `gamepad`의 [데드존, 최대] (`padRamp`, 81_ui.js): 데드존까지 0, 최대부터 키를 누른 것과 같은 1.
 - 패드로 조작하면 시점은 늘 차체 방향(`camTurret()`). 진동은 `padRumble(strong, weak, ms)` (패드로 조작할 때만, 마지막에 만진 패드로): 폭발·피격·충돌·줍기·내 대포 발사(타이틀·임무 완료 화면 빼고)에서 부른다. 실제로 울리는 건 `padRumbleNow`: `vibrationActuator.playEffect`('dual-rumble'/'trigger-rumble') → 없으면 `hapticActuators[0].pulse`, 안 되면 콘솔 `[진동]`에 이유를 한 번. 설정에서 진동을 켜면 한 번 울린다.
 
 ## 남은 일 / 생각해 둔 것

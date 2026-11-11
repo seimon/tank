@@ -12,7 +12,9 @@ function tick(dt) {
   const auto = entranceDrive(dt);   // 타이틀 등장: 저절로 달려온다
   const thr = auto ? auto[0] : lockIn ? 0 : (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0) || touch.thr || pad.thr;
   const steer = lockIn ? 0 : (keys.has('KeyA') ? 1 : 0) - (keys.has('KeyD') ? 1 : 0) || touch.steer || pad.steer;
-  const turn = auto ? auto[1] : thr < 0 ? -steer : steer;   // 후진할 땐 자동차처럼 좌우가 반대
+  // 후진할 땐 자동차처럼 좌우가 반대: 후진 입력이 있고 실제로도 뒤로 가거나 거의 멈췄을 때만 (아직 앞으로 굴러가는 동안 뒤집으면 엉뚱한 쪽으로 돌았다)
+  const tq0 = tank.q, tAlong = tank.vel.x * 2 * (tq0.x * tq0.z + tq0.w * tq0.y) + tank.vel.z * (1 - 2 * (tq0.x * tq0.x + tq0.y * tq0.y));
+  const turn = auto ? auto[1] : thr < 0 && tAlong < 0.5 ? -steer : steer;
   const de = lockIn ? 0 : (keys.has('ArrowUp') || keys.has('KeyR') || touch.up ? 1 : 0) - (keys.has('ArrowDown') || keys.has('KeyF') || touch.down ? 1 : 0) || pad.de;   // 포각: R·↑ 올림, F·↓ 내림
   tank.elev = Math.max(-0.1, Math.min(0.96, tank.elev + de * 0.55 * dt));
   const tq = (keys.has('KeyQ') || keys.has('ArrowLeft') || touch.tl ? 1 : 0) - (keys.has('KeyE') || keys.has('ArrowRight') || touch.tr ? 1 : 0) || pad.tq;   // 포탑 회전: Q·← 왼쪽, E·→ 오른쪽 (오른손만으로 포탑·포각도)

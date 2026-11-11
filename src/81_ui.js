@@ -724,6 +724,8 @@ function padHold(code, on) {   // 누르고 있는 동안 키를 누른 채로 (
   else if (!on && padHeld.has(code)) { padHeld.delete(code); padSend('keyup', code); }
 }
 const padDz = (v) => Math.abs(v || 0) < 0.2 ? 0 : (v - Math.sign(v) * 0.2) / 0.8;   // 스틱 가운데 흔들림은 무시
+const GPAD = Object.assign({ forward: [0.2, 0.5], back: [0.2, 0.5], turn: [0.2, 0.7] }, CFG.gamepad);
+const padRamp = (v, r) => { const a = Math.abs(v); return a <= r[0] ? 0 : r[1] <= r[0] ? 1 : Math.min(1, (a - r[0]) / (r[1] - r[0])); };
 function padPoll() {
   pad.thr = pad.steer = pad.tq = pad.de = 0; pad.fire = false;
   if (!navigator.getGamepads) return;
@@ -746,9 +748,9 @@ function padPoll() {
       continue;
     }
     if (winUp()) { if (E[3]) padKey('KeyG'); if (E[8]) padKey('KeyT'); continue; }   // 전투 불능·적군 섬멸 창
-    // 플레이 (왼쪽 스틱: 위쪽으로 데드존을 넘기면 각도와 상관없이 전진 100%, 좌우는 아날로그 그대로. 뒤쪽은 아날로그)
-    const dg = (v) => v < -0.2 ? 1 : v > 0.2 ? -1 : 0;   // 왼쪽 스틱은 디지털처럼: 조금이라도 기울이면 W/S·A/D를 누른 것과 같다 (가운데 흔들림 0.2는 무시)
-    pad.thr = pad.thr || dg(gp.axes[1]); pad.steer = pad.steer || dg(gp.axes[0]);
+    // 플레이: 왼쪽 스틱은 전진·후진·선회마다 config gamepad의 [데드존, 최대] (데드존까지 0, 최대부터 W/S·A/D를 누른 것과 같은 1, 사이는 고르게)
+    const ax = gp.axes[1] || 0, ay = gp.axes[0] || 0;
+    pad.thr = pad.thr || (ax < 0 ? padRamp(ax, GPAD.forward) : -padRamp(ax, GPAD.back)); pad.steer = pad.steer || -Math.sign(ay) * padRamp(ay, GPAD.turn);
     pad.tq = pad.tq || -padDz(gp.axes[2]) || (B(4) ? 1 : 0) - (B(5) ? 1 : 0); pad.de = pad.de || -padDz(gp.axes[3]);
     pad.fire = pad.fire || B(7) || B(0);
     if (scr === offerUI) [14, 12, 15, 13].forEach((b, i) => { if (E[b]) pickOffer(i); });   // ←·↑·→·↓ (↓ = 4번째, '폭넓은 선택')

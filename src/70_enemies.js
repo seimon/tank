@@ -6,6 +6,28 @@ const _spl = new THREE.Vector3(), _splQ = new THREE.Quaternion();
 // 같은 모델에 모래색 도장. 모델은 한 번만 만들고(AO 굽기 포함) 적마다 복제한다
 const ETC = { hull: 0x8a6c3e, low: 0x6e5836, turret: 0x9e7c48, wheel: 0x3c3a34, barrel: 0x7c6038, plate: 0x6e5432, top: 0xae8c56, muzzle: 0x64502e };
 const enemyTemplate = buildTank(false, ETC).root;
+// 레벨: config enemy.levels. 빠진 값은 enemy의 기본값 (armor는 면마다 따로 덮어쓴다). color = 차체 색 하나 → 나머지 부위는 기본 도장의 밝기 비율대로
+function enemyLevel(level) {
+  const l = EC.levels.find((x) => x.level === level) || {};
+  return Object.assign({ hp: EC.hp, speedMul: EC.speedMul, turnMul: EC.turnMul, reload: EC.reload, muzzle: EC.muzzle, shellDamage: EC.shellDamage,
+    blastRadius: EC.blastRadius, blastRatio: EC.blastRatio, spread: EC.spread, lead: EC.lead ?? 1, mg: 0 }, l, { armor: Object.assign({}, EC.armor, l.armor), level });
+}
+// 몇 번째 적이 어느 레벨인가: last가 있는 칸 중 끝에서 그 대수 안에 드는 가장 작은 last. 아무 데도 안 들면 레벨 1
+function levelForIdx(idx) {
+  const fromEnd = EC.clearKills - idx + 1;
+  const l = EC.levels.filter((x) => x.last != null).sort((a, b) => a.last - b.last).find((x) => fromEnd <= x.last);
+  return l ? l.level : 1;
+}
+const LV_TEMPLATES = new Map();   // 레벨 → 색을 바꾼 모델 (색이 있는 레벨만, 로딩 때 한 번)
+for (const l of EC.levels) if (l.color && !LV_TEMPLATES.has(l.level)) {
+  const base = new THREE.Color(ETC.hull), want = new THREE.Color(l.color), tc = {};
+  for (const k in ETC) {
+    if (k === 'wheel') { tc[k] = ETC[k]; continue; }
+    const c = new THREE.Color(ETC[k]);
+    tc[k] = new THREE.Color(Math.min(1, want.r * c.r / base.r), Math.min(1, want.g * c.g / base.g), Math.min(1, want.b * c.b / base.b)).getHex();
+  }
+  LV_TEMPLATES.set(l.level, buildTank(false, tc).root);
+}
 // 자주포: 회색빛 국방색. 포탑이 뒤에 있고 포신이 3배
 const STC = { hull: 0x5e6252, low: 0x52554a, turret: 0x6c705e, wheel: 0x3a3a34, barrel: 0x585c4c, plate: 0x4e5244, top: 0x7a7e6a, muzzle: 0x4a4e40 };
 const spgTemplate = buildTank(false, STC, true).root;
@@ -18,9 +40,10 @@ function cloneMat(m) {
   return c;
 }
 const ENEMIES = [];
-// idx = 몇 번째로 나온 적 탱크인가 (레벨: config enemy.levels)
-function newEnemy(spg = false, idx = 1) {
-  const root = markOutline((spg ? spgTemplate : enemyTemplate).clone(true)), P = { belts: [] };
+// idx = 몇 번째로 나온 적 탱크인가 (레벨: config enemy.levels). level을 주면 그 레벨로 (설정 메뉴 버튼)
+function newEnemy(spg = false, idx = 1, level = 0) {
+  const lvNo = spg ? 0 : level || levelForIdx(idx), LV = spg ? null : enemyLevel(lvNo);
+  const root = markOutline((spg ? spgTemplate : LV_TEMPLATES.get(lvNo) || enemyTemplate).clone(true)), P = { belts: [] };
   for (const k of ['pivot', 'barrel', 'turret', 'tip', 'stack']) P[k] = root.getObjectByName(k);
   let brake = null, halo = null;
   root.traverse((o) => {
@@ -36,12 +59,10 @@ function newEnemy(spg = false, idx = 1) {
     gold: 0, falling: false, vy: 0, landY: 0, group: root, P, thr: 0,
     stuck: 0, rev: 0, revTurn: 1, puff: 0, wx: 0, wz: 0, detour: 0, dx: 0, dz: 0, spg,
   };
-  // 레벨: 전체 20대(자주포 포함) 중 끝에서 몇 번째인가로 정한다 (마지막 2대 = 레벨 3, 그 앞 4대 = 레벨 2, 나머지 레벨 1. 설정)
-  const fromEnd = EC.clearKills - idx + 1;
-  const lv = spg ? { level: 0, mg: 0 } : EC.levels.find(l => fromEnd <= l.last) || { level: 1, mg: 0 };
-  E.level = lv.level; E.guns = buildGuns(P.turret, lv.mg);   // 레벨 2는 기관총 1정, 레벨 3은 2정
+  // 레벨: 전체 20대(자주포 포함) 중 끝에서 몇 번째인가로 정한다 (config enemy.levels)
+  E.level = lvNo; E.guns = buildGuns(P.turret, spg ? 0 : LV.mg);
   if (spg) Object.assign(E, { hp: SC.hp, maxHp: SC.hp, armor: SC.armor, turnM: SC.turnMul, muzzle: 30, shellDmg: SC.shellDamage, blastR: SC.blastRadius, blastRatio: SC.blastRatio, reload: SC.reload, elev: SC.elev * DEG });
-  else Object.assign(E, { hp: EC.hp, maxHp: EC.hp, armor: EC.armor, spdM: EC.speedMul, accM: EC.speedMul, turnM: EC.turnMul, muzzle: EC.muzzle, shellDmg: EC.shellDamage, blastR: EC.blastRadius, blastRatio: EC.blastRatio, reload: EC.reload });
+  else Object.assign(E, { hp: LV.hp, maxHp: LV.hp, armor: LV.armor, spdM: LV.speedMul, accM: LV.speedMul, turnM: LV.turnMul, muzzle: LV.muzzle, shellDmg: LV.shellDamage, blastR: LV.blastRadius, blastRatio: LV.blastRatio, reload: LV.reload, spread: LV.spread, lead: LV.lead });
   ENEMIES.push(E); TANKS.push(E);
   return E;
 }
@@ -396,6 +417,16 @@ function enemyAI(E, dt) {
   if (aim) {
     da = near(aim.x, aim.z);
     if (da < FIRE_R - 4 && !E.wet) hold = true; else { gx = aim.x; gz = aim.z; }   // 물속에서는 멈추지 않고 빠져나온다
+    // 내 탱크를 겨눌 때는 포탄이 날아가는 동안 갈 자리를 앞질러 겨눈다 (E.lead: 0 = 지금 자리, 1 = 정확히). 멈춰 서서 쏠 때만
+    if (hold && !aimObj && E.lead > 0 && P) {
+      const mv0 = E.muzzle || MUZZLE;
+      let t = da / mv0;
+      for (let k = 0; k < 2; k++) {
+        _lead.set(P.pos.x + P.vel.x * t * E.lead, P.pos.y, P.pos.z + P.vel.z * t * E.lead);
+        t = near(_lead.x, _lead.z) / mv0;
+      }
+      aim = _lead; da = near(aim.x, aim.z);
+    }
   }
   // 가려는 곳은 늘 지도 안쪽으로 자른다 (내가 가장자리에 있을 때 옆으로 돌아 들어갈 자리 등이 지도 밖이면 벽을 향해 계속 버둥댔다)
   if (gx !== null) { gx = Math.max(-GOAL_LIM, Math.min(GOAL_LIM, gx)); gz = Math.max(-GOAL_LIM, Math.min(GOAL_LIM, gz)); }
@@ -433,9 +464,10 @@ function enemyAI(E, dt) {
   // 겨눈 대상에 맞을 때만 쏘고, 짧거나 길면 포각을 고치고, 잔해·건물·둑에 막히면 옆으로 자리를 옮긴다
   if (hold && E.cool <= 0 && Math.abs(diff) < 0.06 && Math.abs(want - E.elev) < 0.03 && (E.predT = (E.predT || 0) - dt) <= 0) {
     E.predT = 0.25;
-    const h = predictShot(E), ok = h && (aimObj ? h.target === aimObj : h.enemy === tank);
+    // 내 탱크: 지금 맞거나, 앞질러 겨눈 자리 2.5m 안에 떨어지면 쏜다 (사이에 건물·잔해·다른 적이 막고 있으면 그 앞에 떨어지므로 안 쏜다)
+    const h = predictShot(E), ok = h && (aimObj ? h.target === aimObj : h.enemy === tank || (!h.enemy && !h.target && Math.hypot(h.p.x - aim.x, h.p.z - aim.z) < 2.5));
     if (ok) {
-      fireCannon(E, ENEMY_SPREAD); E.cool = E.reload * AI.fireWait * rr(0.9, 1.2); E.blocked = 0;   // 맞을 각도라도 아주 조금 흩뜨린다
+      fireCannon(E, E.spread ?? ENEMY_SPREAD); E.cool = E.reload * AI.fireWait * rr(0.9, 1.2); E.blocked = 0;   // 맞을 각도라도 아주 조금 흩뜨린다
       if (aimObj) {
         E.shots = E.shotAt === aimObj ? (E.shots || 0) + 1 : 1; E.shotAt = aimObj;
         if (E.shots >= 3) { (E.skip = E.skip || new Map()).set(aimObj, U.uTime.value + 20); E.shots = 0; }
@@ -444,7 +476,8 @@ function enemyAI(E, dt) {
       const land = h ? Math.hypot(h.p.x - E.pos.x, h.p.z - E.pos.z) : Infinity;
       if (land < da - 1.5 && !h.enemy && !h.target) E.elevBias = Math.min(0.3, (E.elevBias || 0) + 0.03);   // 앞에 떨어짐: 더 높이
       else if (land > da + 1.5) E.elevBias = Math.max(-0.3, (E.elevBias || 0) - 0.03);                     // 넘어감: 더 낮게
-      if (++E.blocked >= 8) {   // 2초 동안 못 쏘면 옆으로 10m쯤 비켜 선 자리로
+      // 2초 동안 막혀 못 쏘면 옆으로 10m쯤 비켜 선 자리로. 움직이는 내 탱크를 놓친 것(목표 근처나 너머에 떨어짐)은 막힘으로 세지 않는다
+      if ((!h || land < da - 4 || (h.enemy && h.enemy !== tank)) && ++E.blocked >= 8) {
         E.blocked = 0; E.elevBias = 0;
         const side = rand() < 0.5 ? -1 : 1;
         E.dx = Math.max(-GOAL_LIM, Math.min(GOAL_LIM, E.pos.x + _fwd.z * side * 10));
@@ -474,7 +507,7 @@ function enemyAI(E, dt) {
   return _eAim;
 }
 // 지금 포신 방향으로 쏘면 처음 맞는 것 (실제 포탄과 같은 판정)
-const _pp = new THREE.Vector3(), _pv = new THREE.Vector3(), _pa = new THREE.Vector3(), _pb = { age: 0, owner: null, v: null };
+const _lead = new THREE.Vector3(), _pp = new THREE.Vector3(), _pv = new THREE.Vector3(), _pa = new THREE.Vector3(), _pb = { age: 0, owner: null, v: null };
 function predictShot(E) {
   const dir = muzzle(E);
   _pp.copy(_tip); _pa.copy(_tip); _pv.copy(dir).multiplyScalar(E.muzzle || MUZZLE).addScaledVector(E.vel, VEL_INHERIT);

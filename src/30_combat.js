@@ -2,7 +2,7 @@
 // 질량 1로 정규화. 궤도 접촉점은 벨트 속도만큼 지면을 밀어 추진하고, 마찰 한계를 넘으면 미끄러진다
 const G = 9.8, K = 300, C = 8, KT = 25;
 // config.js의 physics: 마찰·중력(탱크만)·후진 제동·충돌음. 설정이 없어도 이 값으로 돈다
-const PH = Object.assign({ friction: 0.9, sideFriction: 1.0, gravity: 1.5, airGravity: 1.3, slopePull: 0.5, wallSlip: 0.3, brake: 4, crashVolume: 1.8 }, CFG.physics);
+const PH = Object.assign({ friction: 0.9, sideFriction: 1.0, gravity: 1.5, airGravity: 1.3, slopePull: 0.5, wallSlip: 0.3, brake: 4, crashVolume: 1.8, brakeTurn: 3, turnAtSpeed: 1.4, tankHitPen: 0.12, boxPush: 1.1, boxFriction: 14, boxTilt: 8 }, CFG.physics);
 const MU = PH.friction, MU_LAT = PH.sideFriction, GT = G * PH.gravity;   // GT: 탱크가 받는 중력 (포탄·부스러기는 G 그대로)
 // 부딪히는 속도(m/s)에 따른 충돌음 세기: 빠를수록 크다
 const crashK = (v) => Math.min(3, (0.7 + v * 0.3) * PH.crashVolume);
@@ -129,13 +129,17 @@ function sparks(p, n, k = 1) {   // k: 부딪힌 소리 세기
   flashes.push({ p: p.clone(), t: 0, dur: 0.1, I: 70, range: 10, color: 0xffd890 });
   sfx.metal(p, k);
 }
+const _sepN = new THREE.Vector3(); let _sepK = 1;
+const TURN_SLIP = 0.6, TURN_ASSIST_FALL = 0.25;
 function physStep(h, thr, turn, body = tank) {
   B = body;
   // 몸체마다 성능 배율 (성장 테스트 슬라이더: 내 탱크만). 시냇물 안에서는 절반 속도
   const vmax = VMAX * (B.spdM || 1) * (B.wet ? B.waterSpeed ?? PC.waterSpeed : 1), acc = ACC * (B.accM || 1), vturn = VTURN * (B.turnM || 1);
-  // 빠를 때는 덜 꺾이게 (초속 7m를 넘으면 그만큼 선회를 줄인다): 고속 급선회로 차체가 뒤집히지 않게
-  turn *= Math.min(1, 7 / Math.max(7, Math.abs(B.vel.dot(_fwd.set(0, 0, 1).applyQuaternion(B.q)))));
+  // 같은 회전 속도면 빠를수록 큰 원을 그려 덜 꺾이는 느낌이라, 빠를수록 회전 목표를 올린다 (최고 속도에서 PH.turnAtSpeed배).
+  // 최고 속도의 1.3배를 넘으면(내리막 등) 그만큼 다시 줄인다: 고속 급선회로 차체가 뒤집히지 않게
   _fwd.set(0, 0, 1).applyQuaternion(B.q);
+  const along0 = B.vel.dot(_fwd), sp0 = Math.abs(along0);
+  turn *= (1 + (PH.turnAtSpeed - 1) * Math.min(1, sp0 / vmax)) * Math.min(1, vmax * 1.3 / Math.max(vmax * 1.3, sp0));
   // 두 궤도 속도를 '공통 속도'(전진·후진, W/S)와 '좌우 차이'(회전, A/D)로 나눠 각자 목표를 따라간다. 왼쪽 = 공통 − 차이, 오른쪽 = 공통 + 차이.
   // (예전엔 궤도마다 '전진 목표 ∓ 회전 목표'를 따로 쫓아서, 달리다 W를 떼면 두 궤도가 같이 줄기만 해 좌우 차이가 약 1.1초 동안 안 생겼고 회전이 한참 느렸다)
   const tm = thr * vmax, td = turn * vturn;
@@ -148,7 +152,13 @@ function physStep(h, thr, turn, body = tank) {
     da *= PH.brake;
   }
   sm += Math.max(-da, Math.min(da, tm - sm));
-  sd += Math.max(-acc * h, Math.min(acc * h, td - sd));
+  // 조향 돕는 힘 배율 B.ya: 궤도가 땅을 미끄러지는 만큼 (궤도 공통 속도와 차체 앞뒤 속도의 차이, TURN_SLIP m/s면 최대 PH.brakeTurn배).
+  // 가속·감속·멈추는 순간 모두 두 궤도가 땅을 잡는 힘을 앞뒤로 써 버려 좌우 차이로 도는 힘이 약해진다. 줄어들 때는 TURN_ASSIST_FALL초에 걸쳐 서서히 (툭 끊기지 않게)
+  const ya = 1 + (PH.brakeTurn - 1) * Math.min(1, Math.abs(sm - along0) / TURN_SLIP);
+  B.ya = Math.max(ya, 1 + ((B.ya || 1) - 1) * Math.exp(-h / TURN_ASSIST_FALL));
+  // 회전 방향이 뒤집히면(A를 누른 채 W↔S 등) 좌우 차이도 PH.brake배로 빨리 바꾼다 (가속도로만 0을 지나느라 한동안 거의 안 돌았다)
+  const dd = acc * h * (td * sd < 0 ? PH.brake : 1);
+  sd += Math.max(-dd, Math.min(dd, td - sd));
   B.sL = sm - sd; B.sR = sm + sd;
   _qi.copy(B.q).invert();
   const gs = GT * (B.contacts > 0 ? 1 : PH.airGravity);   // 궤도가 땅에서 다 떨어진 동안은 더 세게 끌어내린다 (언덕에서 너무 뜨지 않게)
@@ -170,6 +180,7 @@ function physStep(h, thr, turn, body = tank) {
   }
   _ws = ws; B.wallC = 0;
   B.contacts = 0;
+  let sepD = 0;   // 다른 탱크에 PH.tankHitPen보다 깊이 파고든 만큼 (가장 깊은 것): 힘 대신 위치를 직접 떼어 낸다
   for (const cp of B.cpts || CPTS) {
     _rw.copy(cp.r).applyQuaternion(B.q);
     _pw.copy(B.pos).add(_rw);
@@ -201,6 +212,7 @@ function physStep(h, thr, turn, body = tank) {
         if (fp.metal || fp.target) metalHit();   // 쇠끼리(잔해·보급품·급수탑·풍차) 부딪힘
         else if (fp.group) woodHit();             // 나무 집
         if (fp.target && B === tank) (B.touch || (B.touch = new Set())).add(fp);   // '충돌 공격'용: 이번 프레임에 닿은 보급품
+        if (fp.tgt) pushTarget(fp.tgt, -_vp.dot(_n), _n);   // 보급품은 탱크보다 훨씬 가벼워서 살짝 밀려난다
         contactForce(cp, Math.min(ox, oz), _n, true);
       }
     }
@@ -215,8 +227,21 @@ function physStep(h, thr, turn, body = tank) {
       _n.applyQuaternion(O.q); _n.y = 0; _n.normalize();
       metalHit();
       if (B === tank) (B.touch || (B.touch = new Set())).add(O);   // '충돌 공격'용: 이번 프레임에 닿은 적
-      contactForce(cp, Math.min(ox, oz) * (O.jeep && !B.jeep ? 0.3 : B.jeep && !O.jeep ? 2.5 : 1), _n, true);   // 가벼운 지프는 탱크를 조금밖에 못 밀고, 탱크에는 확 밀려난다
+      // 가벼운 지프는 탱크를 조금밖에 못 밀고, 탱크에는 확 밀려난다
+      const jk = O.jeep && !B.jeep ? 0.3 : B.jeep && !O.jeep ? 2.5 : 1, pen = Math.min(ox, oz);
+      // 파고든 깊이에 비례하는 힘은 PH.tankHitPen까지만 (모서리끼리 비껴 깊이 겹친 뒤 한 번에 큰 힘이 걸려 가볍게 튕겨 날아갔다).
+      // 넘친 깊이는 아래에서 위치를 직접 떼어 내고, 힘은 무게중심 높이에 걸어 차체가 들리지 않게 한다
+      if (pen > PH.tankHitPen && pen - PH.tankHitPen > sepD) { sepD = pen - PH.tankHitPen; _sepN.copy(_n); _sepK = jk; }
+      const ry = _rw.y; _rw.y = 0;
+      contactForce(cp, Math.min(pen, PH.tankHitPen) * jk, _n, true);
+      _rw.y = ry;
     }
+  }
+  if (sepD > 0) {   // 다른 탱크와 너무 깊이 겹침: 내 몫(같은 무게면 절반, 지프는 더 많이)만큼 한 스텝에 최대 2cm씩 떼어 내고, 상대 쪽으로 가는 속도는 없앤다
+    const share = _sepK > 1 ? 0.9 : _sepK < 1 ? 0.1 : 0.5;
+    B.pos.addScaledVector(_sepN, Math.min(0.02, sepD * share));
+    const vn = B.vel.dot(_sepN);
+    if (vn < 0) B.vel.addScaledVector(_sepN, -vn * share);
   }
   // 전봇대: 탱크 박스 안으로 들어오면 밀어낸다
   for (let pi = 0; pi < allPoles.length; pi++) {
@@ -246,7 +271,8 @@ function physStep(h, thr, turn, body = tank) {
   B.yawCmd += Math.max(-TURN_ACC * h, Math.min(TURN_ACC * h, turn * TURN_RATE * (B.turnM || 1) - B.yawCmd));
   if (B.contacts > 0) {
     _n.set(0, 1, 0).applyQuaternion(B.q);
-    const tq = Math.max(-YAW_TQ, Math.min(YAW_TQ, (B.yawCmd - B.w.dot(_n)) * YAW_GAIN));
+    // 상한만 올리면 목표와의 차이 × YAW_GAIN이 상한에 못 미쳐 그대로라 (멈추는 순간 처지던 것), 세기(게인)도 같은 배율로 올린다
+    const ya = B.ya || 1, ym = YAW_TQ * ya, tq = Math.max(-ym, Math.min(ym, (B.yawCmd - B.w.dot(_n)) * YAW_GAIN * ya));
     _T.addScaledVector(_n, tq * Math.min(1, B.contacts / 6));
   }
   _F.addScaledVector(B.vel, -0.05);
@@ -595,6 +621,46 @@ function updateShadows() {
     U.uSh0.value[i].set(e.x, e.z, e.c, e.s); U.uSh1.value[i].set(e.hx, e.hz, e.k, 0);
   }
 }
+// 보급품 밀림: 탱크가 파고드는 속도(vin)의 PH.boxPush배로 미는 쪽(-n)으로 미끄러지다 땅 마찰로 멈춘다.
+// 지붕 위·떨어지는 중·위에 다른 보급품이 얹힌 것은 밀리지 않는다. 미끄러지는 동안 미는 쪽으로 PH.boxTilt°까지 기울었다가 되돌아온다 (그림만)
+const BOX_FRICTION = PH.boxFriction, _bxQ = new THREE.Quaternion(), _bxA = new THREE.Vector3(), _bxP = new THREE.Vector3(), _bxO = new THREE.Vector3();
+function pushTarget(t, vin, n) {
+  if (vin <= 0 || !t.alive || t.falling || t.roof || PH.boxPush <= 0) return;
+  if (targets.some((o) => o !== t && o.alive && o.roof && Math.hypot(o.x - t.x, o.z - t.z) < TARGET_S)) return;   // 위에 다른 보급품이 얹혀 있음
+  const want = vin * PH.boxPush;
+  t.vx = t.vx || 0; t.vz = t.vz || 0;
+  const cur = -(t.vx * n.x + t.vz * n.z);
+  if (cur < want) { t.vx -= n.x * (want - cur); t.vz -= n.z * (want - cur); }
+}
+function slideTarget(t, dt) {
+  const sp = Math.hypot(t.vx || 0, t.vz || 0);
+  if (sp > 0.02) {
+    const nx = t.x + t.vx * dt, nz = t.z + t.vz * dt, m = TARGET_S / 2 - 0.2;
+    // 보드 밖이나 다른 물체(건물·잔해·다른 보급품 등)에 닿으면 멈춘다
+    const hit = Math.abs(nx) > WALL - m || Math.abs(nz) > WALL - m || footprints.some((f) => {
+      if (f === t.fp || f.bunker || f.sandbag || f.y0 > t.y + 1 || f.top < t.y - 1) return false;
+      fpLocal(f, nx, nz, _fl); return Math.abs(_fl.x) < f.hx + m && Math.abs(_fl.z) < f.hz + m;
+    });
+    if (hit) { t.vx = t.vz = 0; }
+    else {
+      t.x = nx; t.z = nz; t.tdx = t.vx / sp; t.tdz = t.vz / sp;
+      t.floor = groundTop(t.x, t.z) - 0.2; seatTarget(t); t.tipT = undefined;
+      const k = Math.max(0, sp - BOX_FRICTION * dt) / sp; t.vx *= k; t.vz *= k;
+      colDirty = true;
+    }
+  } else t.vx = t.vz = 0;
+  // 기울기: 빠를수록 많이 (3m/s에서 최대), 멈추면 되돌아온다
+  const want = Math.min(1, sp / 3) * PH.boxTilt * DEG;
+  t.tilt = (t.tilt || 0) + (want - (t.tilt || 0)) * Math.min(1, dt * (want > (t.tilt || 0) ? 14 : 7));
+  if (t.tilt < 1e-3) { if (t.tiltOn) { t.mesh.quaternion.copy(t.baseQ); t.mesh.position.copy(t.baseP); t.tiltOn = false; } return; }
+  // 미는 쪽 아래 모서리를 축으로 위가 미는 쪽으로 쏠린다
+  _bxA.set(t.tdz, 0, -t.tdx);
+  _bxQ.setFromAxisAngle(_bxA, t.tilt);
+  _bxP.copy(t.baseP).add(_bxO.set(t.tdx * TARGET_S / 2, -TARGET_S / 2 + 0.15, t.tdz * TARGET_S / 2));
+  t.mesh.position.copy(t.baseP).sub(_bxP).applyQuaternion(_bxQ).add(_bxP);
+  t.mesh.quaternion.copy(t.baseQ).premultiply(_bxQ);
+  t.tiltOn = true;
+}
 // 터지고 몇 초 뒤 지도 아무 데나 하늘에서 새 공격 대상이 떨어진다 (지붕 위에 떨어져도 된다)
 const respawns = [];
 function updateTargets(dt) {
@@ -605,7 +671,7 @@ function updateTargets(dt) {
     dropSafe(kind);
   }
   for (const t of targets.slice()) {
-    if (t.alive && !t.falling) updateTip(t, dt);
+    if (t.alive && !t.falling) { if (t.vx || t.vz || t.tilt) slideTarget(t, dt); updateTip(t, dt); }
     if (!t.alive || !t.falling) continue;
     t.vy -= 22 * dt; t.y += t.vy * dt;
     // 떨어지다 탱크나 다른 보급품에 닿으면 그 자리에서 부서진다

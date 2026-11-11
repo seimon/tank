@@ -482,22 +482,30 @@ const repairModel = supplyModel(({ add, box }) => {
 // 물체와 함께 디더링으로 나타나고, 땅에 닿으면 접히며 디더링으로 스르륵 사라진다. 다 쓴 것은 모아 두었다 다시 쓴다
 const CHUTE_R = 2.6, CHUTE_H = 5.2, CHUTE_OUT = 0.8;   // 덮개 반지름, 매단 점에서 덮개 아래 가장자리까지 높이, 사라지는 시간 (초)
 const chuteTex = canvasTex(16, 4, (g) => { for (let i = 0; i < 16; i++) { g.fillStyle = i % 2 ? '#f0eee8' : '#e2dfd6'; g.fillRect(i, 0, 1, 4); } });   // 흰 천 (조각마다 아주 살짝 다르게)
-const CHUTE_TH = Math.PI * 0.5, CHUTE_SY = 0.85;   // 반구까지, 세로 85%: 볼록한 돔
-const chuteGeo = new THREE.SphereGeometry(CHUTE_R, 16, 5, 0, Math.PI * 2, 0, CHUTE_TH).scale(1, CHUTE_SY, 1);
-const chuteLineGeo = (() => {   // 덮개 가장자리 8곳 → 매단 점 (0, 0, 0)
-  const a = [], rimY = Math.cos(CHUTE_TH) * CHUTE_R * CHUTE_SY, rimR = Math.sin(CHUTE_TH) * CHUTE_R * 0.97;
-  for (let k = 0; k < 8; k++) { const t = k / 8 * Math.PI * 2; a.push(Math.cos(t) * rimR, CHUTE_H + rimY - CHUTE_H, Math.sin(t) * rimR, 0, -CHUTE_H, 0); }
-  return new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(a, 3));
-})();
+// 덮개: 꼭대기는 납작하고 옆은 둥글게 내려와 가장자리가 살짝 안으로 말린 모양 (구를 반구보다 조금 더(105°) 잘라 세로로 납작하게).
+// 꼭대기 가운데는 작은 구멍 (공기 빠지는 구멍, 0.16 rad). 떨어지는 동안 b1(기본) ↔ b2(넓고 낮게) 모양을 EaseInOutSine으로 오간다
+const CHUTE_T0 = 0.16, CHUTE_TH = 1.83, CHUTE_SY = 0.62;
+const CHUTE_BREATH = 0.44, CHUTE_B2 = [1.1, 0.8];   // 한쪽 모양에서 다른 쪽까지 걸리는 시간 (초), b2 = 가로·세로 배율
+const chuteGeo = new THREE.SphereGeometry(CHUTE_R, 16, 6, 0, Math.PI * 2, CHUTE_T0, CHUTE_TH - CHUTE_T0).scale(1, CHUTE_SY, 1);
+const CHUTE_RIM_Y = Math.cos(CHUTE_TH) * CHUTE_R * CHUTE_SY, CHUTE_RIM_R = Math.sin(CHUTE_TH) * CHUTE_R * 0.97;
+// 덮개 가장자리 8곳 → 매단 점 (0, -CHUTE_H, 0). 덮개 모양이 바뀌면 가장자리 끝을 따라 옮기므로 낙하산마다 따로
+function chuteLines(c, sx, sy) {
+  const a = c.lineGeo.attributes.position;
+  for (let k = 0; k < 8; k++) { const t = k / 8 * Math.PI * 2; a.setXYZ(k * 2, Math.cos(t) * CHUTE_RIM_R * sx, CHUTE_RIM_Y * sy, Math.sin(t) * CHUTE_RIM_R * sx); a.setXYZ(k * 2 + 1, 0, -CHUTE_H, 0); }
+  a.needsUpdate = true;
+}
 const chuteCanopyMat = lambert({ map: chuteTex, side: THREE.DoubleSide, emissive: 0x1e1e1c });
 const chuteLineMat = new THREE.LineBasicMaterial({ color: 0x2a2822 });
 const chutes = [], chutePool = [];
 function makeChute() {
   const u = { value: 0 }, g = new THREE.Group();
-  const canopy = new THREE.Mesh(chuteGeo, fadeMat(chuteCanopyMat, u)), lines = new THREE.LineSegments(chuteLineGeo, fadeMat(chuteLineMat, u));
+  const lineGeo = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(48), 3));
+  const canopy = new THREE.Mesh(chuteGeo, fadeMat(chuteCanopyMat, u)), lines = new THREE.LineSegments(lineGeo, fadeMat(chuteLineMat, u));
   canopy.userData.noOutline = lines.userData.noOutline = true;
   g.add(canopy, lines);
-  return { g, u, canopy };
+  const c = { g, u, canopy, lineGeo };
+  chuteLines(c, 1, 1);
+  return c;
 }
 // at(out): 매단 점 (물체 위 가운데) 월드 위치. falling(): 아직 떨어지는 중인가. 물체와 같이 dropFadeIn초 동안 나타난다
 function attachChute(at, falling) {
@@ -516,6 +524,9 @@ function updateChutes(dt) {
       c.u.value = Math.max(0, Math.min(1, c.t / c.dur));
       c.at(_chP); c.g.position.set(_chP.x, _chP.y + CHUTE_H, _chP.z);
       c.g.rotation.x = Math.sin(c.t * 1.7 + c.ph) * 0.06; c.g.rotation.z = Math.cos(c.t * 1.3 + c.ph) * 0.06;   // 살랑살랑
+      // 숨 쉬듯: b1 → b2 → b1 (EaseInOutSine)
+      const e = 0.5 - 0.5 * Math.cos(Math.PI * (c.t + c.ph) / CHUTE_BREATH), sx = 1 + (CHUTE_B2[0] - 1) * e, sy = 1 + (CHUTE_B2[1] - 1) * e;
+      c.canopy.scale.set(sx, sy, sx); chuteLines(c, sx, sy);
       if (!c.falling()) c.out = 0;   // 착지 (또는 공중에서 부서짐): 접히며 사라진다
     } else {
       c.out += dt;

@@ -470,7 +470,7 @@ for (const id of ['vol', 'debris']) document.getElementById(id).onchange = (e) =
 // 성장 테스트: 상자·적 떨구기 (내 탱크 둘레 12~32m), 내 탱크 성능 슬라이더 (오른쪽일수록 강하게)
 document.getElementById('tDropGold').onclick = (e) => { dropSafe('gold', tank.pos); e.target.blur(); };
 document.getElementById('tDropRepair').onclick = (e) => { dropSafe('repair', tank.pos); e.target.blur(); };
-document.getElementById('tDropEnemy').onclick = (e) => { startDrop(newEnemy(false, Math.min(EC.clearKills, enemyDrops + 2)), tank.pos); e.target.blur(); };   // 다음 순번 레벨로
+for (const lv of [1, 2, 3]) document.getElementById('tDropEnemy' + lv).onclick = (e) => { startDrop(newEnemy(false, Math.min(EC.clearKills, enemyDrops + 2), lv), tank.pos); e.target.blur(); };   // 적 탱크 레벨 1~3   // 다음 순번 레벨로
 document.getElementById('tDropSpg').onclick = (e) => { spawnSpg(); e.target.blur(); };
 document.getElementById('tDropJeep').onclick = (e) => { startDrop(newJeep()); e.target.blur(); };
 // 슬라이더: [id, 최소, 최대(config의 최대값), 처음 값(config), 적용]. 재장전은 짧을수록 오른쪽이 되게 음수로

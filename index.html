@@ -108,7 +108,7 @@
   <div><span class="it">주광 <input id="moonI" type="range" min="0" max="20" step="0.1" value="1.5"> <b id="moonIV">1.50</b> <input id="moonC" type="color" value="#9aaad0"></span></div>
   <div><span class="it">소리 <input id="vol" type="range" min="0" max="1" step="0.05" value="0.5"> <b id="volV">0.50</b></span></div>
   <div class="grp">성장 테스트</div>
-  <div><button id="tDropGold">골드 보급품 떨구기</button> <button id="tDropRepair">수리 보급품 떨구기</button> <button id="tDropEnemy">적 탱크 떨구기</button> <button id="tDropSpg">적 자주포</button> <button id="tDropJeep">적 지프</button></div>
+  <div><button id="tDropGold">골드 보급품 떨구기</button> <button id="tDropRepair">수리 보급품 떨구기</button> <button id="tDropEnemy1">적 탱크 레벨1</button> <button id="tDropEnemy2">적 탱크 레벨2</button> <button id="tDropEnemy3">적 탱크 레벨3</button> <button id="tDropSpg">적 자주포</button> <button id="tDropJeep">적 지프</button></div>
   <div><button id="gOffer">성장 선택지 표시</button> <button id="gReroll">선택지 다시 고르기</button> <button id="gRand10">10레벨 무작위 성장</button> <button id="gReset">성장 초기화</button> <button id="aiBtn">적 AI 표시 꺼짐</button> <button id="aiStopBtn">적 AI 정지 꺼짐</button> <button id="dbgDie">내 탱크 파괴</button> <button id="dbgWipe">적군 섬멸</button> <button id="dbgKill1">적 1대 물리침</button> <button id="gLog">고른 성장 목록</button> <button id="gMgAdd">기관총 추가</button></div>
   <div id="pickLog" style="display:none"></div>
   <table class="sl">
@@ -130,7 +130,7 @@
 </div>
 <script>
   // 버전·빌드 시각: 여기 한 곳만 고치면 로딩 화면과 설정 메뉴에 같이 나온다
-  const VERSION = '0.8.036', BUILD = '2026-11-10', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
+  const VERSION = '0.8.040', BUILD = '2026-11-11', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
   for (const e of document.querySelectorAll('.ver')) e.textContent = BUILD_TXT;
 </script>
 <div id="touchUI" style="display:none">
@@ -2930,22 +2930,30 @@ const repairModel = supplyModel(({ add, box }) => {
 // 물체와 함께 디더링으로 나타나고, 땅에 닿으면 접히며 디더링으로 스르륵 사라진다. 다 쓴 것은 모아 두었다 다시 쓴다
 const CHUTE_R = 2.6, CHUTE_H = 5.2, CHUTE_OUT = 0.8;   // 덮개 반지름, 매단 점에서 덮개 아래 가장자리까지 높이, 사라지는 시간 (초)
 const chuteTex = canvasTex(16, 4, (g) => { for (let i = 0; i < 16; i++) { g.fillStyle = i % 2 ? '#f0eee8' : '#e2dfd6'; g.fillRect(i, 0, 1, 4); } });   // 흰 천 (조각마다 아주 살짝 다르게)
-const CHUTE_TH = Math.PI * 0.5, CHUTE_SY = 0.85;   // 반구까지, 세로 85%: 볼록한 돔
-const chuteGeo = new THREE.SphereGeometry(CHUTE_R, 16, 5, 0, Math.PI * 2, 0, CHUTE_TH).scale(1, CHUTE_SY, 1);
-const chuteLineGeo = (() => {   // 덮개 가장자리 8곳 → 매단 점 (0, 0, 0)
-  const a = [], rimY = Math.cos(CHUTE_TH) * CHUTE_R * CHUTE_SY, rimR = Math.sin(CHUTE_TH) * CHUTE_R * 0.97;
-  for (let k = 0; k < 8; k++) { const t = k / 8 * Math.PI * 2; a.push(Math.cos(t) * rimR, CHUTE_H + rimY - CHUTE_H, Math.sin(t) * rimR, 0, -CHUTE_H, 0); }
-  return new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(a, 3));
-})();
+// 덮개: 꼭대기는 납작하고 옆은 둥글게 내려와 가장자리가 살짝 안으로 말린 모양 (구를 반구보다 조금 더(105°) 잘라 세로로 납작하게).
+// 꼭대기 가운데는 작은 구멍 (공기 빠지는 구멍, 0.16 rad). 떨어지는 동안 b1(기본) ↔ b2(넓고 낮게) 모양을 EaseInOutSine으로 오간다
+const CHUTE_T0 = 0.16, CHUTE_TH = 1.83, CHUTE_SY = 0.62;
+const CHUTE_BREATH = 0.44, CHUTE_B2 = [1.1, 0.8];   // 한쪽 모양에서 다른 쪽까지 걸리는 시간 (초), b2 = 가로·세로 배율
+const chuteGeo = new THREE.SphereGeometry(CHUTE_R, 16, 6, 0, Math.PI * 2, CHUTE_T0, CHUTE_TH - CHUTE_T0).scale(1, CHUTE_SY, 1);
+const CHUTE_RIM_Y = Math.cos(CHUTE_TH) * CHUTE_R * CHUTE_SY, CHUTE_RIM_R = Math.sin(CHUTE_TH) * CHUTE_R * 0.97;
+// 덮개 가장자리 8곳 → 매단 점 (0, -CHUTE_H, 0). 덮개 모양이 바뀌면 가장자리 끝을 따라 옮기므로 낙하산마다 따로
+function chuteLines(c, sx, sy) {
+  const a = c.lineGeo.attributes.position;
+  for (let k = 0; k < 8; k++) { const t = k / 8 * Math.PI * 2; a.setXYZ(k * 2, Math.cos(t) * CHUTE_RIM_R * sx, CHUTE_RIM_Y * sy, Math.sin(t) * CHUTE_RIM_R * sx); a.setXYZ(k * 2 + 1, 0, -CHUTE_H, 0); }
+  a.needsUpdate = true;
+}
 const chuteCanopyMat = lambert({ map: chuteTex, side: THREE.DoubleSide, emissive: 0x1e1e1c });
 const chuteLineMat = new THREE.LineBasicMaterial({ color: 0x2a2822 });
 const chutes = [], chutePool = [];
 function makeChute() {
   const u = { value: 0 }, g = new THREE.Group();
-  const canopy = new THREE.Mesh(chuteGeo, fadeMat(chuteCanopyMat, u)), lines = new THREE.LineSegments(chuteLineGeo, fadeMat(chuteLineMat, u));
+  const lineGeo = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(48), 3));
+  const canopy = new THREE.Mesh(chuteGeo, fadeMat(chuteCanopyMat, u)), lines = new THREE.LineSegments(lineGeo, fadeMat(chuteLineMat, u));
   canopy.userData.noOutline = lines.userData.noOutline = true;
   g.add(canopy, lines);
-  return { g, u, canopy };
+  const c = { g, u, canopy, lineGeo };
+  chuteLines(c, 1, 1);
+  return c;
 }
 // at(out): 매단 점 (물체 위 가운데) 월드 위치. falling(): 아직 떨어지는 중인가. 물체와 같이 dropFadeIn초 동안 나타난다
 function attachChute(at, falling) {
@@ -2964,6 +2972,9 @@ function updateChutes(dt) {
       c.u.value = Math.max(0, Math.min(1, c.t / c.dur));
       c.at(_chP); c.g.position.set(_chP.x, _chP.y + CHUTE_H, _chP.z);
       c.g.rotation.x = Math.sin(c.t * 1.7 + c.ph) * 0.06; c.g.rotation.z = Math.cos(c.t * 1.3 + c.ph) * 0.06;   // 살랑살랑
+      // 숨 쉬듯: b1 → b2 → b1 (EaseInOutSine)
+      const e = 0.5 - 0.5 * Math.cos(Math.PI * (c.t + c.ph) / CHUTE_BREATH), sx = 1 + (CHUTE_B2[0] - 1) * e, sy = 1 + (CHUTE_B2[1] - 1) * e;
+      c.canopy.scale.set(sx, sy, sx); chuteLines(c, sx, sy);
       if (!c.falling()) c.out = 0;   // 착지 (또는 공중에서 부서짐): 접히며 사라진다
     } else {
       c.out += dt;
@@ -4488,7 +4499,7 @@ for (const n of DECAL_NAMES) { const w = new THREE.Mesh(DECAL_GEO, tankDecalMat(
 // 질량 1로 정규화. 궤도 접촉점은 벨트 속도만큼 지면을 밀어 추진하고, 마찰 한계를 넘으면 미끄러진다
 const G = 9.8, K = 300, C = 8, KT = 25;
 // config.js의 physics: 마찰·중력(탱크만)·후진 제동·충돌음. 설정이 없어도 이 값으로 돈다
-const PH = Object.assign({ friction: 0.9, sideFriction: 1.0, gravity: 1.5, airGravity: 1.3, slopePull: 0.5, wallSlip: 0.3, brake: 4, crashVolume: 1.8 }, CFG.physics);
+const PH = Object.assign({ friction: 0.9, sideFriction: 1.0, gravity: 1.5, airGravity: 1.3, slopePull: 0.5, wallSlip: 0.3, brake: 4, crashVolume: 1.8, brakeTurn: 3, turnAtSpeed: 1.4, tankHitPen: 0.12, boxPush: 1.1, boxFriction: 14, boxTilt: 8 }, CFG.physics);
 const MU = PH.friction, MU_LAT = PH.sideFriction, GT = G * PH.gravity;   // GT: 탱크가 받는 중력 (포탄·부스러기는 G 그대로)
 // 부딪히는 속도(m/s)에 따른 충돌음 세기: 빠를수록 크다
 const crashK = (v) => Math.min(3, (0.7 + v * 0.3) * PH.crashVolume);
@@ -4615,13 +4626,17 @@ function sparks(p, n, k = 1) {   // k: 부딪힌 소리 세기
   flashes.push({ p: p.clone(), t: 0, dur: 0.1, I: 70, range: 10, color: 0xffd890 });
   sfx.metal(p, k);
 }
+const _sepN = new THREE.Vector3(); let _sepK = 1;
+const TURN_SLIP = 0.6, TURN_ASSIST_FALL = 0.25;
 function physStep(h, thr, turn, body = tank) {
   B = body;
   // 몸체마다 성능 배율 (성장 테스트 슬라이더: 내 탱크만). 시냇물 안에서는 절반 속도
   const vmax = VMAX * (B.spdM || 1) * (B.wet ? B.waterSpeed ?? PC.waterSpeed : 1), acc = ACC * (B.accM || 1), vturn = VTURN * (B.turnM || 1);
-  // 빠를 때는 덜 꺾이게 (초속 7m를 넘으면 그만큼 선회를 줄인다): 고속 급선회로 차체가 뒤집히지 않게
-  turn *= Math.min(1, 7 / Math.max(7, Math.abs(B.vel.dot(_fwd.set(0, 0, 1).applyQuaternion(B.q)))));
+  // 같은 회전 속도면 빠를수록 큰 원을 그려 덜 꺾이는 느낌이라, 빠를수록 회전 목표를 올린다 (최고 속도에서 PH.turnAtSpeed배).
+  // 최고 속도의 1.3배를 넘으면(내리막 등) 그만큼 다시 줄인다: 고속 급선회로 차체가 뒤집히지 않게
   _fwd.set(0, 0, 1).applyQuaternion(B.q);
+  const along0 = B.vel.dot(_fwd), sp0 = Math.abs(along0);
+  turn *= (1 + (PH.turnAtSpeed - 1) * Math.min(1, sp0 / vmax)) * Math.min(1, vmax * 1.3 / Math.max(vmax * 1.3, sp0));
   // 두 궤도 속도를 '공통 속도'(전진·후진, W/S)와 '좌우 차이'(회전, A/D)로 나눠 각자 목표를 따라간다. 왼쪽 = 공통 − 차이, 오른쪽 = 공통 + 차이.
   // (예전엔 궤도마다 '전진 목표 ∓ 회전 목표'를 따로 쫓아서, 달리다 W를 떼면 두 궤도가 같이 줄기만 해 좌우 차이가 약 1.1초 동안 안 생겼고 회전이 한참 느렸다)
   const tm = thr * vmax, td = turn * vturn;
@@ -4634,7 +4649,13 @@ function physStep(h, thr, turn, body = tank) {
     da *= PH.brake;
   }
   sm += Math.max(-da, Math.min(da, tm - sm));
-  sd += Math.max(-acc * h, Math.min(acc * h, td - sd));
+  // 조향 돕는 힘 배율 B.ya: 궤도가 땅을 미끄러지는 만큼 (궤도 공통 속도와 차체 앞뒤 속도의 차이, TURN_SLIP m/s면 최대 PH.brakeTurn배).
+  // 가속·감속·멈추는 순간 모두 두 궤도가 땅을 잡는 힘을 앞뒤로 써 버려 좌우 차이로 도는 힘이 약해진다. 줄어들 때는 TURN_ASSIST_FALL초에 걸쳐 서서히 (툭 끊기지 않게)
+  const ya = 1 + (PH.brakeTurn - 1) * Math.min(1, Math.abs(sm - along0) / TURN_SLIP);
+  B.ya = Math.max(ya, 1 + ((B.ya || 1) - 1) * Math.exp(-h / TURN_ASSIST_FALL));
+  // 회전 방향이 뒤집히면(A를 누른 채 W↔S 등) 좌우 차이도 PH.brake배로 빨리 바꾼다 (가속도로만 0을 지나느라 한동안 거의 안 돌았다)
+  const dd = acc * h * (td * sd < 0 ? PH.brake : 1);
+  sd += Math.max(-dd, Math.min(dd, td - sd));
   B.sL = sm - sd; B.sR = sm + sd;
   _qi.copy(B.q).invert();
   const gs = GT * (B.contacts > 0 ? 1 : PH.airGravity);   // 궤도가 땅에서 다 떨어진 동안은 더 세게 끌어내린다 (언덕에서 너무 뜨지 않게)
@@ -4656,6 +4677,7 @@ function physStep(h, thr, turn, body = tank) {
   }
   _ws = ws; B.wallC = 0;
   B.contacts = 0;
+  let sepD = 0;   // 다른 탱크에 PH.tankHitPen보다 깊이 파고든 만큼 (가장 깊은 것): 힘 대신 위치를 직접 떼어 낸다
   for (const cp of B.cpts || CPTS) {
     _rw.copy(cp.r).applyQuaternion(B.q);
     _pw.copy(B.pos).add(_rw);
@@ -4687,6 +4709,7 @@ function physStep(h, thr, turn, body = tank) {
         if (fp.metal || fp.target) metalHit();   // 쇠끼리(잔해·보급품·급수탑·풍차) 부딪힘
         else if (fp.group) woodHit();             // 나무 집
         if (fp.target && B === tank) (B.touch || (B.touch = new Set())).add(fp);   // '충돌 공격'용: 이번 프레임에 닿은 보급품
+        if (fp.tgt) pushTarget(fp.tgt, -_vp.dot(_n), _n);   // 보급품은 탱크보다 훨씬 가벼워서 살짝 밀려난다
         contactForce(cp, Math.min(ox, oz), _n, true);
       }
     }
@@ -4701,8 +4724,21 @@ function physStep(h, thr, turn, body = tank) {
       _n.applyQuaternion(O.q); _n.y = 0; _n.normalize();
       metalHit();
       if (B === tank) (B.touch || (B.touch = new Set())).add(O);   // '충돌 공격'용: 이번 프레임에 닿은 적
-      contactForce(cp, Math.min(ox, oz) * (O.jeep && !B.jeep ? 0.3 : B.jeep && !O.jeep ? 2.5 : 1), _n, true);   // 가벼운 지프는 탱크를 조금밖에 못 밀고, 탱크에는 확 밀려난다
+      // 가벼운 지프는 탱크를 조금밖에 못 밀고, 탱크에는 확 밀려난다
+      const jk = O.jeep && !B.jeep ? 0.3 : B.jeep && !O.jeep ? 2.5 : 1, pen = Math.min(ox, oz);
+      // 파고든 깊이에 비례하는 힘은 PH.tankHitPen까지만 (모서리끼리 비껴 깊이 겹친 뒤 한 번에 큰 힘이 걸려 가볍게 튕겨 날아갔다).
+      // 넘친 깊이는 아래에서 위치를 직접 떼어 내고, 힘은 무게중심 높이에 걸어 차체가 들리지 않게 한다
+      if (pen > PH.tankHitPen && pen - PH.tankHitPen > sepD) { sepD = pen - PH.tankHitPen; _sepN.copy(_n); _sepK = jk; }
+      const ry = _rw.y; _rw.y = 0;
+      contactForce(cp, Math.min(pen, PH.tankHitPen) * jk, _n, true);
+      _rw.y = ry;
     }
+  }
+  if (sepD > 0) {   // 다른 탱크와 너무 깊이 겹침: 내 몫(같은 무게면 절반, 지프는 더 많이)만큼 한 스텝에 최대 2cm씩 떼어 내고, 상대 쪽으로 가는 속도는 없앤다
+    const share = _sepK > 1 ? 0.9 : _sepK < 1 ? 0.1 : 0.5;
+    B.pos.addScaledVector(_sepN, Math.min(0.02, sepD * share));
+    const vn = B.vel.dot(_sepN);
+    if (vn < 0) B.vel.addScaledVector(_sepN, -vn * share);
   }
   // 전봇대: 탱크 박스 안으로 들어오면 밀어낸다
   for (let pi = 0; pi < allPoles.length; pi++) {
@@ -4732,7 +4768,8 @@ function physStep(h, thr, turn, body = tank) {
   B.yawCmd += Math.max(-TURN_ACC * h, Math.min(TURN_ACC * h, turn * TURN_RATE * (B.turnM || 1) - B.yawCmd));
   if (B.contacts > 0) {
     _n.set(0, 1, 0).applyQuaternion(B.q);
-    const tq = Math.max(-YAW_TQ, Math.min(YAW_TQ, (B.yawCmd - B.w.dot(_n)) * YAW_GAIN));
+    // 상한만 올리면 목표와의 차이 × YAW_GAIN이 상한에 못 미쳐 그대로라 (멈추는 순간 처지던 것), 세기(게인)도 같은 배율로 올린다
+    const ya = B.ya || 1, ym = YAW_TQ * ya, tq = Math.max(-ym, Math.min(ym, (B.yawCmd - B.w.dot(_n)) * YAW_GAIN * ya));
     _T.addScaledVector(_n, tq * Math.min(1, B.contacts / 6));
   }
   _F.addScaledVector(B.vel, -0.05);
@@ -5081,6 +5118,46 @@ function updateShadows() {
     U.uSh0.value[i].set(e.x, e.z, e.c, e.s); U.uSh1.value[i].set(e.hx, e.hz, e.k, 0);
   }
 }
+// 보급품 밀림: 탱크가 파고드는 속도(vin)의 PH.boxPush배로 미는 쪽(-n)으로 미끄러지다 땅 마찰로 멈춘다.
+// 지붕 위·떨어지는 중·위에 다른 보급품이 얹힌 것은 밀리지 않는다. 미끄러지는 동안 미는 쪽으로 PH.boxTilt°까지 기울었다가 되돌아온다 (그림만)
+const BOX_FRICTION = PH.boxFriction, _bxQ = new THREE.Quaternion(), _bxA = new THREE.Vector3(), _bxP = new THREE.Vector3(), _bxO = new THREE.Vector3();
+function pushTarget(t, vin, n) {
+  if (vin <= 0 || !t.alive || t.falling || t.roof || PH.boxPush <= 0) return;
+  if (targets.some((o) => o !== t && o.alive && o.roof && Math.hypot(o.x - t.x, o.z - t.z) < TARGET_S)) return;   // 위에 다른 보급품이 얹혀 있음
+  const want = vin * PH.boxPush;
+  t.vx = t.vx || 0; t.vz = t.vz || 0;
+  const cur = -(t.vx * n.x + t.vz * n.z);
+  if (cur < want) { t.vx -= n.x * (want - cur); t.vz -= n.z * (want - cur); }
+}
+function slideTarget(t, dt) {
+  const sp = Math.hypot(t.vx || 0, t.vz || 0);
+  if (sp > 0.02) {
+    const nx = t.x + t.vx * dt, nz = t.z + t.vz * dt, m = TARGET_S / 2 - 0.2;
+    // 보드 밖이나 다른 물체(건물·잔해·다른 보급품 등)에 닿으면 멈춘다
+    const hit = Math.abs(nx) > WALL - m || Math.abs(nz) > WALL - m || footprints.some((f) => {
+      if (f === t.fp || f.bunker || f.sandbag || f.y0 > t.y + 1 || f.top < t.y - 1) return false;
+      fpLocal(f, nx, nz, _fl); return Math.abs(_fl.x) < f.hx + m && Math.abs(_fl.z) < f.hz + m;
+    });
+    if (hit) { t.vx = t.vz = 0; }
+    else {
+      t.x = nx; t.z = nz; t.tdx = t.vx / sp; t.tdz = t.vz / sp;
+      t.floor = groundTop(t.x, t.z) - 0.2; seatTarget(t); t.tipT = undefined;
+      const k = Math.max(0, sp - BOX_FRICTION * dt) / sp; t.vx *= k; t.vz *= k;
+      colDirty = true;
+    }
+  } else t.vx = t.vz = 0;
+  // 기울기: 빠를수록 많이 (3m/s에서 최대), 멈추면 되돌아온다
+  const want = Math.min(1, sp / 3) * PH.boxTilt * DEG;
+  t.tilt = (t.tilt || 0) + (want - (t.tilt || 0)) * Math.min(1, dt * (want > (t.tilt || 0) ? 14 : 7));
+  if (t.tilt < 1e-3) { if (t.tiltOn) { t.mesh.quaternion.copy(t.baseQ); t.mesh.position.copy(t.baseP); t.tiltOn = false; } return; }
+  // 미는 쪽 아래 모서리를 축으로 위가 미는 쪽으로 쏠린다
+  _bxA.set(t.tdz, 0, -t.tdx);
+  _bxQ.setFromAxisAngle(_bxA, t.tilt);
+  _bxP.copy(t.baseP).add(_bxO.set(t.tdx * TARGET_S / 2, -TARGET_S / 2 + 0.15, t.tdz * TARGET_S / 2));
+  t.mesh.position.copy(t.baseP).sub(_bxP).applyQuaternion(_bxQ).add(_bxP);
+  t.mesh.quaternion.copy(t.baseQ).premultiply(_bxQ);
+  t.tiltOn = true;
+}
 // 터지고 몇 초 뒤 지도 아무 데나 하늘에서 새 공격 대상이 떨어진다 (지붕 위에 떨어져도 된다)
 const respawns = [];
 function updateTargets(dt) {
@@ -5091,7 +5168,7 @@ function updateTargets(dt) {
     dropSafe(kind);
   }
   for (const t of targets.slice()) {
-    if (t.alive && !t.falling) updateTip(t, dt);
+    if (t.alive && !t.falling) { if (t.vx || t.vz || t.tilt) slideTarget(t, dt); updateTip(t, dt); }
     if (!t.alive || !t.falling) continue;
     t.vy -= 22 * dt; t.y += t.vy * dt;
     // 떨어지다 탱크나 다른 보급품에 닿으면 그 자리에서 부서진다
@@ -6474,7 +6551,7 @@ for (const id of ['vol', 'debris']) document.getElementById(id).onchange = (e) =
 // 성장 테스트: 상자·적 떨구기 (내 탱크 둘레 12~32m), 내 탱크 성능 슬라이더 (오른쪽일수록 강하게)
 document.getElementById('tDropGold').onclick = (e) => { dropSafe('gold', tank.pos); e.target.blur(); };
 document.getElementById('tDropRepair').onclick = (e) => { dropSafe('repair', tank.pos); e.target.blur(); };
-document.getElementById('tDropEnemy').onclick = (e) => { startDrop(newEnemy(false, Math.min(EC.clearKills, enemyDrops + 2)), tank.pos); e.target.blur(); };   // 다음 순번 레벨로
+for (const lv of [1, 2, 3]) document.getElementById('tDropEnemy' + lv).onclick = (e) => { startDrop(newEnemy(false, Math.min(EC.clearKills, enemyDrops + 2), lv), tank.pos); e.target.blur(); };   // 적 탱크 레벨 1~3   // 다음 순번 레벨로
 document.getElementById('tDropSpg').onclick = (e) => { spawnSpg(); e.target.blur(); };
 document.getElementById('tDropJeep').onclick = (e) => { startDrop(newJeep()); e.target.blur(); };
 // 슬라이더: [id, 최소, 최대(config의 최대값), 처음 값(config), 적용]. 재장전은 짧을수록 오른쪽이 되게 음수로
@@ -7554,6 +7631,28 @@ const _spl = new THREE.Vector3(), _splQ = new THREE.Quaternion();
 // 같은 모델에 모래색 도장. 모델은 한 번만 만들고(AO 굽기 포함) 적마다 복제한다
 const ETC = { hull: 0x8a6c3e, low: 0x6e5836, turret: 0x9e7c48, wheel: 0x3c3a34, barrel: 0x7c6038, plate: 0x6e5432, top: 0xae8c56, muzzle: 0x64502e };
 const enemyTemplate = buildTank(false, ETC).root;
+// 레벨: config enemy.levels. 빠진 값은 enemy의 기본값 (armor는 면마다 따로 덮어쓴다). color = 차체 색 하나 → 나머지 부위는 기본 도장의 밝기 비율대로
+function enemyLevel(level) {
+  const l = EC.levels.find((x) => x.level === level) || {};
+  return Object.assign({ hp: EC.hp, speedMul: EC.speedMul, turnMul: EC.turnMul, reload: EC.reload, muzzle: EC.muzzle, shellDamage: EC.shellDamage,
+    blastRadius: EC.blastRadius, blastRatio: EC.blastRatio, spread: EC.spread, lead: EC.lead ?? 1, mg: 0 }, l, { armor: Object.assign({}, EC.armor, l.armor), level });
+}
+// 몇 번째 적이 어느 레벨인가: last가 있는 칸 중 끝에서 그 대수 안에 드는 가장 작은 last. 아무 데도 안 들면 레벨 1
+function levelForIdx(idx) {
+  const fromEnd = EC.clearKills - idx + 1;
+  const l = EC.levels.filter((x) => x.last != null).sort((a, b) => a.last - b.last).find((x) => fromEnd <= x.last);
+  return l ? l.level : 1;
+}
+const LV_TEMPLATES = new Map();   // 레벨 → 색을 바꾼 모델 (색이 있는 레벨만, 로딩 때 한 번)
+for (const l of EC.levels) if (l.color && !LV_TEMPLATES.has(l.level)) {
+  const base = new THREE.Color(ETC.hull), want = new THREE.Color(l.color), tc = {};
+  for (const k in ETC) {
+    if (k === 'wheel') { tc[k] = ETC[k]; continue; }
+    const c = new THREE.Color(ETC[k]);
+    tc[k] = new THREE.Color(Math.min(1, want.r * c.r / base.r), Math.min(1, want.g * c.g / base.g), Math.min(1, want.b * c.b / base.b)).getHex();
+  }
+  LV_TEMPLATES.set(l.level, buildTank(false, tc).root);
+}
 // 자주포: 회색빛 국방색. 포탑이 뒤에 있고 포신이 3배
 const STC = { hull: 0x5e6252, low: 0x52554a, turret: 0x6c705e, wheel: 0x3a3a34, barrel: 0x585c4c, plate: 0x4e5244, top: 0x7a7e6a, muzzle: 0x4a4e40 };
 const spgTemplate = buildTank(false, STC, true).root;
@@ -7566,9 +7665,10 @@ function cloneMat(m) {
   return c;
 }
 const ENEMIES = [];
-// idx = 몇 번째로 나온 적 탱크인가 (레벨: config enemy.levels)
-function newEnemy(spg = false, idx = 1) {
-  const root = markOutline((spg ? spgTemplate : enemyTemplate).clone(true)), P = { belts: [] };
+// idx = 몇 번째로 나온 적 탱크인가 (레벨: config enemy.levels). level을 주면 그 레벨로 (설정 메뉴 버튼)
+function newEnemy(spg = false, idx = 1, level = 0) {
+  const lvNo = spg ? 0 : level || levelForIdx(idx), LV = spg ? null : enemyLevel(lvNo);
+  const root = markOutline((spg ? spgTemplate : LV_TEMPLATES.get(lvNo) || enemyTemplate).clone(true)), P = { belts: [] };
   for (const k of ['pivot', 'barrel', 'turret', 'tip', 'stack']) P[k] = root.getObjectByName(k);
   let brake = null, halo = null;
   root.traverse((o) => {
@@ -7584,12 +7684,10 @@ function newEnemy(spg = false, idx = 1) {
     gold: 0, falling: false, vy: 0, landY: 0, group: root, P, thr: 0,
     stuck: 0, rev: 0, revTurn: 1, puff: 0, wx: 0, wz: 0, detour: 0, dx: 0, dz: 0, spg,
   };
-  // 레벨: 전체 20대(자주포 포함) 중 끝에서 몇 번째인가로 정한다 (마지막 2대 = 레벨 3, 그 앞 4대 = 레벨 2, 나머지 레벨 1. 설정)
-  const fromEnd = EC.clearKills - idx + 1;
-  const lv = spg ? { level: 0, mg: 0 } : EC.levels.find(l => fromEnd <= l.last) || { level: 1, mg: 0 };
-  E.level = lv.level; E.guns = buildGuns(P.turret, lv.mg);   // 레벨 2는 기관총 1정, 레벨 3은 2정
+  // 레벨: 전체 20대(자주포 포함) 중 끝에서 몇 번째인가로 정한다 (config enemy.levels)
+  E.level = lvNo; E.guns = buildGuns(P.turret, spg ? 0 : LV.mg);
   if (spg) Object.assign(E, { hp: SC.hp, maxHp: SC.hp, armor: SC.armor, turnM: SC.turnMul, muzzle: 30, shellDmg: SC.shellDamage, blastR: SC.blastRadius, blastRatio: SC.blastRatio, reload: SC.reload, elev: SC.elev * DEG });
-  else Object.assign(E, { hp: EC.hp, maxHp: EC.hp, armor: EC.armor, spdM: EC.speedMul, accM: EC.speedMul, turnM: EC.turnMul, muzzle: EC.muzzle, shellDmg: EC.shellDamage, blastR: EC.blastRadius, blastRatio: EC.blastRatio, reload: EC.reload });
+  else Object.assign(E, { hp: LV.hp, maxHp: LV.hp, armor: LV.armor, spdM: LV.speedMul, accM: LV.speedMul, turnM: LV.turnMul, muzzle: LV.muzzle, shellDmg: LV.shellDamage, blastR: LV.blastRadius, blastRatio: LV.blastRatio, reload: LV.reload, spread: LV.spread, lead: LV.lead });
   ENEMIES.push(E); TANKS.push(E);
   return E;
 }
@@ -7944,6 +8042,16 @@ function enemyAI(E, dt) {
   if (aim) {
     da = near(aim.x, aim.z);
     if (da < FIRE_R - 4 && !E.wet) hold = true; else { gx = aim.x; gz = aim.z; }   // 물속에서는 멈추지 않고 빠져나온다
+    // 내 탱크를 겨눌 때는 포탄이 날아가는 동안 갈 자리를 앞질러 겨눈다 (E.lead: 0 = 지금 자리, 1 = 정확히). 멈춰 서서 쏠 때만
+    if (hold && !aimObj && E.lead > 0 && P) {
+      const mv0 = E.muzzle || MUZZLE;
+      let t = da / mv0;
+      for (let k = 0; k < 2; k++) {
+        _lead.set(P.pos.x + P.vel.x * t * E.lead, P.pos.y, P.pos.z + P.vel.z * t * E.lead);
+        t = near(_lead.x, _lead.z) / mv0;
+      }
+      aim = _lead; da = near(aim.x, aim.z);
+    }
   }
   // 가려는 곳은 늘 지도 안쪽으로 자른다 (내가 가장자리에 있을 때 옆으로 돌아 들어갈 자리 등이 지도 밖이면 벽을 향해 계속 버둥댔다)
   if (gx !== null) { gx = Math.max(-GOAL_LIM, Math.min(GOAL_LIM, gx)); gz = Math.max(-GOAL_LIM, Math.min(GOAL_LIM, gz)); }
@@ -7981,9 +8089,10 @@ function enemyAI(E, dt) {
   // 겨눈 대상에 맞을 때만 쏘고, 짧거나 길면 포각을 고치고, 잔해·건물·둑에 막히면 옆으로 자리를 옮긴다
   if (hold && E.cool <= 0 && Math.abs(diff) < 0.06 && Math.abs(want - E.elev) < 0.03 && (E.predT = (E.predT || 0) - dt) <= 0) {
     E.predT = 0.25;
-    const h = predictShot(E), ok = h && (aimObj ? h.target === aimObj : h.enemy === tank);
+    // 내 탱크: 지금 맞거나, 앞질러 겨눈 자리 2.5m 안에 떨어지면 쏜다 (사이에 건물·잔해·다른 적이 막고 있으면 그 앞에 떨어지므로 안 쏜다)
+    const h = predictShot(E), ok = h && (aimObj ? h.target === aimObj : h.enemy === tank || (!h.enemy && !h.target && Math.hypot(h.p.x - aim.x, h.p.z - aim.z) < 2.5));
     if (ok) {
-      fireCannon(E, ENEMY_SPREAD); E.cool = E.reload * AI.fireWait * rr(0.9, 1.2); E.blocked = 0;   // 맞을 각도라도 아주 조금 흩뜨린다
+      fireCannon(E, E.spread ?? ENEMY_SPREAD); E.cool = E.reload * AI.fireWait * rr(0.9, 1.2); E.blocked = 0;   // 맞을 각도라도 아주 조금 흩뜨린다
       if (aimObj) {
         E.shots = E.shotAt === aimObj ? (E.shots || 0) + 1 : 1; E.shotAt = aimObj;
         if (E.shots >= 3) { (E.skip = E.skip || new Map()).set(aimObj, U.uTime.value + 20); E.shots = 0; }
@@ -7992,7 +8101,8 @@ function enemyAI(E, dt) {
       const land = h ? Math.hypot(h.p.x - E.pos.x, h.p.z - E.pos.z) : Infinity;
       if (land < da - 1.5 && !h.enemy && !h.target) E.elevBias = Math.min(0.3, (E.elevBias || 0) + 0.03);   // 앞에 떨어짐: 더 높이
       else if (land > da + 1.5) E.elevBias = Math.max(-0.3, (E.elevBias || 0) - 0.03);                     // 넘어감: 더 낮게
-      if (++E.blocked >= 8) {   // 2초 동안 못 쏘면 옆으로 10m쯤 비켜 선 자리로
+      // 2초 동안 막혀 못 쏘면 옆으로 10m쯤 비켜 선 자리로. 움직이는 내 탱크를 놓친 것(목표 근처나 너머에 떨어짐)은 막힘으로 세지 않는다
+      if ((!h || land < da - 4 || (h.enemy && h.enemy !== tank)) && ++E.blocked >= 8) {
         E.blocked = 0; E.elevBias = 0;
         const side = rand() < 0.5 ? -1 : 1;
         E.dx = Math.max(-GOAL_LIM, Math.min(GOAL_LIM, E.pos.x + _fwd.z * side * 10));
@@ -8022,7 +8132,7 @@ function enemyAI(E, dt) {
   return _eAim;
 }
 // 지금 포신 방향으로 쏘면 처음 맞는 것 (실제 포탄과 같은 판정)
-const _pp = new THREE.Vector3(), _pv = new THREE.Vector3(), _pa = new THREE.Vector3(), _pb = { age: 0, owner: null, v: null };
+const _lead = new THREE.Vector3(), _pp = new THREE.Vector3(), _pv = new THREE.Vector3(), _pa = new THREE.Vector3(), _pb = { age: 0, owner: null, v: null };
 function predictShot(E) {
   const dir = muzzle(E);
   _pp.copy(_tip); _pa.copy(_tip); _pv.copy(dir).multiplyScalar(E.muzzle || MUZZLE).addScaledVector(E.vel, VEL_INHERIT);
@@ -9533,6 +9643,8 @@ function padHold(code, on) {   // 누르고 있는 동안 키를 누른 채로 (
   else if (!on && padHeld.has(code)) { padHeld.delete(code); padSend('keyup', code); }
 }
 const padDz = (v) => Math.abs(v || 0) < 0.2 ? 0 : (v - Math.sign(v) * 0.2) / 0.8;   // 스틱 가운데 흔들림은 무시
+const GPAD = Object.assign({ forward: [0.2, 0.5], back: [0.2, 0.5], turn: [0.2, 0.7] }, CFG.gamepad);
+const padRamp = (v, r) => { const a = Math.abs(v); return a <= r[0] ? 0 : r[1] <= r[0] ? 1 : Math.min(1, (a - r[0]) / (r[1] - r[0])); };
 function padPoll() {
   pad.thr = pad.steer = pad.tq = pad.de = 0; pad.fire = false;
   if (!navigator.getGamepads) return;
@@ -9555,9 +9667,9 @@ function padPoll() {
       continue;
     }
     if (winUp()) { if (E[3]) padKey('KeyG'); if (E[8]) padKey('KeyT'); continue; }   // 전투 불능·적군 섬멸 창
-    // 플레이 (왼쪽 스틱: 위쪽으로 데드존을 넘기면 각도와 상관없이 전진 100%, 좌우는 아날로그 그대로. 뒤쪽은 아날로그)
-    const dg = (v) => v < -0.2 ? 1 : v > 0.2 ? -1 : 0;   // 왼쪽 스틱은 디지털처럼: 조금이라도 기울이면 W/S·A/D를 누른 것과 같다 (가운데 흔들림 0.2는 무시)
-    pad.thr = pad.thr || dg(gp.axes[1]); pad.steer = pad.steer || dg(gp.axes[0]);
+    // 플레이: 왼쪽 스틱은 전진·후진·선회마다 config gamepad의 [데드존, 최대] (데드존까지 0, 최대부터 W/S·A/D를 누른 것과 같은 1, 사이는 고르게)
+    const ax = gp.axes[1] || 0, ay = gp.axes[0] || 0;
+    pad.thr = pad.thr || (ax < 0 ? padRamp(ax, GPAD.forward) : -padRamp(ax, GPAD.back)); pad.steer = pad.steer || -Math.sign(ay) * padRamp(ay, GPAD.turn);
     pad.tq = pad.tq || -padDz(gp.axes[2]) || (B(4) ? 1 : 0) - (B(5) ? 1 : 0); pad.de = pad.de || -padDz(gp.axes[3]);
     pad.fire = pad.fire || B(7) || B(0);
     if (scr === offerUI) [14, 12, 15, 13].forEach((b, i) => { if (E[b]) pickOffer(i); });   // ←·↑·→·↓ (↓ = 4번째, '폭넓은 선택')
@@ -10194,7 +10306,9 @@ function tick(dt) {
   const auto = entranceDrive(dt);   // 타이틀 등장: 저절로 달려온다
   const thr = auto ? auto[0] : lockIn ? 0 : (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0) || touch.thr || pad.thr;
   const steer = lockIn ? 0 : (keys.has('KeyA') ? 1 : 0) - (keys.has('KeyD') ? 1 : 0) || touch.steer || pad.steer;
-  const turn = auto ? auto[1] : thr < 0 ? -steer : steer;   // 후진할 땐 자동차처럼 좌우가 반대
+  // 후진할 땐 자동차처럼 좌우가 반대: 후진 입력이 있고 실제로도 뒤로 가거나 거의 멈췄을 때만 (아직 앞으로 굴러가는 동안 뒤집으면 엉뚱한 쪽으로 돌았다)
+  const tq0 = tank.q, tAlong = tank.vel.x * 2 * (tq0.x * tq0.z + tq0.w * tq0.y) + tank.vel.z * (1 - 2 * (tq0.x * tq0.x + tq0.y * tq0.y));
+  const turn = auto ? auto[1] : thr < 0 && tAlong < 0.5 ? -steer : steer;
   const de = lockIn ? 0 : (keys.has('ArrowUp') || keys.has('KeyR') || touch.up ? 1 : 0) - (keys.has('ArrowDown') || keys.has('KeyF') || touch.down ? 1 : 0) || pad.de;   // 포각: R·↑ 올림, F·↓ 내림
   tank.elev = Math.max(-0.1, Math.min(0.96, tank.elev + de * 0.55 * dt));
   const tq = (keys.has('KeyQ') || keys.has('ArrowLeft') || touch.tl ? 1 : 0) - (keys.has('KeyE') || keys.has('ArrowRight') || touch.tr ? 1 : 0) || pad.tq;   // 포탑 회전: Q·← 왼쪽, E·→ 오른쪽 (오른손만으로 포탑·포각도)

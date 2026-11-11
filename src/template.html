@@ -107,7 +107,7 @@
   <div><span class="it">주광 <input id="moonI" type="range" min="0" max="20" step="0.1" value="1.5"> <b id="moonIV">1.50</b> <input id="moonC" type="color" value="#9aaad0"></span></div>
   <div><span class="it">소리 <input id="vol" type="range" min="0" max="1" step="0.05" value="0.5"> <b id="volV">0.50</b></span></div>
   <div class="grp">성장 테스트</div>
-  <div><button id="tDropGold">골드 보급품 떨구기</button> <button id="tDropRepair">수리 보급품 떨구기</button> <button id="tDropEnemy">적 탱크 떨구기</button> <button id="tDropSpg">적 자주포</button> <button id="tDropJeep">적 지프</button></div>
+  <div><button id="tDropGold">골드 보급품 떨구기</button> <button id="tDropRepair">수리 보급품 떨구기</button> <button id="tDropEnemy1">적 탱크 레벨1</button> <button id="tDropEnemy2">적 탱크 레벨2</button> <button id="tDropEnemy3">적 탱크 레벨3</button> <button id="tDropSpg">적 자주포</button> <button id="tDropJeep">적 지프</button></div>
   <div><button id="gOffer">성장 선택지 표시</button> <button id="gReroll">선택지 다시 고르기</button> <button id="gRand10">10레벨 무작위 성장</button> <button id="gReset">성장 초기화</button> <button id="aiBtn">적 AI 표시 꺼짐</button> <button id="aiStopBtn">적 AI 정지 꺼짐</button> <button id="dbgDie">내 탱크 파괴</button> <button id="dbgWipe">적군 섬멸</button> <button id="dbgKill1">적 1대 물리침</button> <button id="gLog">고른 성장 목록</button> <button id="gMgAdd">기관총 추가</button></div>
   <div id="pickLog" style="display:none"></div>
   <table class="sl">
@@ -129,7 +129,7 @@
 </div>
 <script>
   // 버전·빌드 시각: 여기 한 곳만 고치면 로딩 화면과 설정 메뉴에 같이 나온다
-  const VERSION = '0.8.036', BUILD = '2026-11-10', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
+  const VERSION = '0.8.040', BUILD = '2026-11-11', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
   for (const e of document.querySelectorAll('.ver')) e.textContent = BUILD_TXT;
 </script>
 <div id="touchUI" style="display:none">
