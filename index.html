@@ -131,7 +131,7 @@
 </div>
 <script>
   // 버전·빌드 시각: 여기 한 곳만 고치면 로딩 화면과 설정 메뉴에 같이 나온다
-  const VERSION = '0.8.051', BUILD = '2026-11-11', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
+  const VERSION = '0.8.052', BUILD = '2026-11-11', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
   for (const e of document.querySelectorAll('.ver')) e.textContent = BUILD_TXT;
 </script>
 <canvas id="perfHud" style="display:none"></canvas>
@@ -275,13 +275,17 @@ function ditherWipe(src, f, vOf) {
 // CRT 표현(41_crt.js)이 켜져 있으면 HUD·UI·타이틀 캔버스를 기기 픽셀이 아니라 게임 픽셀 크기로 그리고(layerScale = 게임 픽셀 ÷ CSS 픽셀),
 // 화면에는 숨긴 채 41_crt.js가 한 장으로 합쳐 3D 화면과 함께 CRT 셰이더를 거친다. crtDirty = 레이어가 바뀌었다 (다시 합친다)
 const CRT_LAYER = new Set();   // sharpBlit으로 그리는 레이어 캔버스 (타이틀 그림)
-let crtOn = false, layerScale = 0, crtDirty = true, crtLoadHook = null;   // crtLoadHook: 로딩 그림을 CRT로 (10a_crt.js)
+let crtOn = false, layerScale = 0, crtDirty = true, crtDirtyLo = true, crtDirtyHi = true, crtLoadHook = null;   // crtDirty = 두 묶음 모두, Lo = 아래 묶음(HUD·대미지 숫자·타이틀), Hi = 위 묶음(UI·로딩·나가기 덮개)
+// CRT를 켜고 시작하면 HUD·UI 캔버스를 CPU 쪽에 둔다(willReadFrequently): 아이패드에서 GPU 캔버스를 텍스처로 올릴 때마다 읽어 오느라 프레임마다 8~12ms 걸렸다
+const CV2D = { willReadFrequently: true };
+const cv2d = (c) => c.getContext('2d', crtOn ? CV2D : undefined);
+//   // crtLoadHook: 로딩 그림을 CRT로 (10a_crt.js)
 function sharpBlit(dst, src, cssW, cssH) {
-  const lay = CRT_LAYER.has(dst); if (lay) crtDirty = true;
+  const lay = CRT_LAYER.has(dst); if (lay) { if (dst._crtHi) crtDirtyHi = true; else crtDirtyLo = true; }
   const dpr = (lay && layerScale) || devicePixelRatio || 1, dw = Math.max(1, Math.round(cssW * dpr)), dh = Math.max(1, Math.round(cssH * dpr));
   if (dst.width !== dw || dst.height !== dh) { dst.width = dw; dst.height = dh; }
   Object.assign(dst.style, { width: `${cssW}px`, height: `${cssH}px` });
-  const g = dst.getContext('2d');
+  const g = lay ? cv2d(dst) : dst.getContext('2d');
   g.clearRect(0, 0, dw, dh);
   sharpDraw(g, src, 0, 0, dw, dh);
 }
@@ -1196,10 +1200,10 @@ const CRT = Object.assign({ enabled: false, lineSize: 4, scan: 0.85, maskType: 3
 // 성능 표시용 단계 표시. 로딩 중(81_ui.js의 perfT가 아직 없을 때)에도 CRT가 돌아서 오류를 삼킨다
 const crtMark = (n) => { try { perfMark(n); } catch (_) {} };
 const crtDpr = () => Math.min(devicePixelRatio || 1, CRT.maxScale || 99);
-const crtA = document.createElement('canvas'), crtAg = crtA.getContext('2d');   // 보통(source-over)으로 얹는 레이어
-const crtB = document.createElement('canvas'), crtBg = crtB.getContext('2d');   // 스크린·더하기로 얹는 레이어
-const crtC = document.createElement('canvas'), crtCg = crtC.getContext('2d');   // 위 묶음 (UI): 보통
-const crtD = document.createElement('canvas'), crtDg = crtD.getContext('2d');   // 위 묶음 (UI): 스크린·더하기
+const crtA = document.createElement('canvas'), crtAg = cv2d(crtA);   // 보통(source-over)으로 얹는 레이어
+const crtB = document.createElement('canvas'), crtBg = cv2d(crtB);   // 스크린·더하기로 얹는 레이어
+const crtC = document.createElement('canvas'), crtCg = cv2d(crtC);   // 위 묶음 (UI): 보통
+const crtD = document.createElement('canvas'), crtDg = cv2d(crtD);   // 위 묶음 (UI): 스크린·더하기
 const CRT_CV = [crtA, crtB, crtC, crtD], CRT_G = [crtAg, crtBg, crtCg, crtDg];
 const crtTex = (c) => { const t = new THREE.CanvasTexture(c); t.minFilter = t.magFilter = THREE.NearestFilter; t.generateMipmaps = false; t.premultiplyAlpha = true; return t; };
 const crtTexA = crtTex(crtA), crtTexB = crtTex(crtB), crtTexC = crtTex(crtC), crtTexD = crtTex(crtD), CRT_TX = [crtTexA, crtTexB, crtTexC, crtTexD];
@@ -1351,9 +1355,11 @@ const crtCompScene = crtQuad(crtCompMat), crtPrepScene = crtQuad(crtPrepMat), cr
 const CRT_TITLE = ['tCall', 'tLogo', 'tBrand', 'tBadge', 'tVer', 'tPress', 'tCamo'].map((id) => document.getElementById(id)).filter(Boolean);
 for (const c of CRT_TITLE) CRT_LAYER.add(c);
 const crtLoadCv = document.getElementById('loadCv');
-if (crtLoadCv) CRT_LAYER.add(crtLoadCv);   // 로딩 화면이 사라지는 동안 (fadeLoading)
+if (crtLoadCv) { CRT_LAYER.add(crtLoadCv); crtLoadCv._crtHi = true; }   // 로딩 화면이 사라지는 동안 (fadeLoading)
 const _crtRes = new THREE.Vector2();
-let crtKey = '', crtReady = false;
+let crtKeyLo = '', crtKeyHi = '', crtReady = false;
+const crtHas = [true, true, true, true];   // 레이어 텍스처에 마지막으로 올린 그림에 무언가 있었나 (비어 있고 계속 비면 다시 올리지 않는다)
+const crtUpload = (i, drew) => { if (drew || crtHas[i]) CRT_TX[i].needsUpdate = true; crtHas[i] = drew; };
 let crtLeave = null;   // 화면 나가기 검정 디더링 덮개 (게임 픽셀 크기 캔버스, 52_clear.js). 맨 위에 얹는다
 const crtVis = (el) => !!el && el.style.visibility !== 'hidden' && el.style.display !== 'none' && el.width !== 0;   // (#title은 div라 width가 없다)
 // 레이어 캔버스 크기: 바뀌면 텍스처도 새로 만든다 (three.js는 처음 올린 크기로 GPU 자리를 잡아 두고 그 뒤로는 덮어쓰기만 해서,
@@ -1365,33 +1371,47 @@ function crtSize(W, H) {
 }
 // 화면 캔버스들을 게임 해상도 두 장으로 합친다 (화면에 쌓인 순서대로: HUD → 대미지 숫자 → UI → 타이틀)
 function crtLayers(W, H) {
-  const pdmg = document.getElementById('pdmg'), showT = crtVis(document.getElementById('title'));
-  let key = `${W},${H},${pui.style.mixBlendMode},${showT}`;
-  for (const el of [phudS, phud, puiS, pui, pdmg, ...CRT_TITLE]) key += crtVis(el) ? 1 : 0;
-  const ld = document.getElementById('loading'); key += ld ? 'L' : '';
-  if (crtLeave) key += 'X';
-  if (!crtDirty && key === crtKey) return;
-  crtDirty = false; crtKey = key;
-  crtSize(W, H);
-  for (const g of CRT_G) { g.clearRect(0, 0, W, H); g.imageSmoothingEnabled = false; }
-  crtBg.globalCompositeOperation = crtDg.globalCompositeOperation = 'lighter';
-  const put = (el, normal, up) => { if (crtVis(el)) (up ? (normal ? crtCg : crtDg) : (normal ? crtAg : crtBg)).drawImage(el, 0, 0, W, H); };
-  put(phudS, true); put(phud, HC.blend === 'normal');   // 아래 묶음
-  put(pdmg, DTC.blend === 'normal');
-  put(puiS, true, true); put(pui, (pui.style.mixBlendMode || 'normal') === 'normal', true);   // 위 묶음
-  if (showT) for (const c of CRT_TITLE) if (crtVis(c)) {   // 타이틀 그림 (아래 묶음: 메뉴 창보다 아래): 화면 속 자리를 게임 픽셀로
-    const r = c.getBoundingClientRect();
-    crtAg.drawImage(c, Math.round((r.left - VR.x) * layerScale), Math.round((r.top - VR.y) * layerScale));
+  // 아래 묶음(HUD·대미지 숫자·타이틀 = A 보통·B 더하기)과 위 묶음(UI 창·선택지·로딩·나가기 덮개 = C·D)을 따로: 바뀐 묶음만 다시 그리고 올린다
+  // (예전엔 무엇 하나만 바뀌어도 네 장을 다 다시 그려 올렸다. HUD는 거의 매 프레임 바뀌어 아이패드에서 크게 느렸다)
+  const pdmg = document.getElementById('pdmg'), showT = crtVis(document.getElementById('title')), ld = document.getElementById('loading');
+  let kLo = `${W},${H},${showT},${HC.blend},${DTC.blend},`, kHi = `${W},${H},${pui.style.mixBlendMode},${ld ? 'L' : ''}${crtLeave ? 'X' : ''},`;
+  for (const el of [phudS, phud, pdmg, ...CRT_TITLE]) kLo += crtVis(el) ? 1 : 0;
+  for (const el of [puiS, pui]) kHi += crtVis(el) ? 1 : 0;
+  const lo = crtDirty || crtDirtyLo || kLo !== crtKeyLo, hi = crtDirty || crtDirtyHi || kHi !== crtKeyHi;
+  if (!lo && !hi) return;
+  crtDirty = crtDirtyLo = crtDirtyHi = false; crtKeyLo = kLo; crtKeyHi = kHi;
+  if (crtA.width !== W || crtA.height !== H) { crtSize(W, H); crtHas.fill(true); }   // (크기는 두 키에 다 들어 있어 둘 다 다시 그린다)
+  const put = (el, g) => { if (!crtVis(el)) return false; g.drawImage(el, 0, 0, W, H); return true; };
+  if (lo) {
+    for (const g of [crtAg, crtBg]) { g.clearRect(0, 0, W, H); g.imageSmoothingEnabled = false; }
+    crtBg.globalCompositeOperation = 'lighter';
+    let dA = false, dB = false;
+    if (put(phudS, crtAg)) dA = true;
+    if (put(phud, HC.blend === 'normal' ? crtAg : crtBg)) { if (HC.blend === 'normal') dA = true; else dB = true; }
+    if (put(pdmg, DTC.blend === 'normal' ? crtAg : crtBg)) { if (DTC.blend === 'normal') dA = true; else dB = true; }
+    if (showT) for (const c of CRT_TITLE) if (crtVis(c)) {   // 타이틀 그림 (아래 묶음: 메뉴 창보다 아래): 화면 속 자리를 게임 픽셀로
+      const r = c.getBoundingClientRect();
+      crtAg.drawImage(c, Math.round((r.left - VR.x) * layerScale), Math.round((r.top - VR.y) * layerScale)); dA = true;
+    }
+    crtUpload(0, dA); crtUpload(1, dB);
   }
-  if (ld && crtLoadCv && crtLoadCv._src) {   // 로딩 화면 (맨 위). 사라지는 중이면 디더링으로 비운 사본
-    const img = ld.style.background === 'transparent' ? crtLoadCv._src._dw : crtLoadCv._src;
-    if (img) crtCg.drawImage(img, 0, 0, W, H);
+  if (hi) {
+    for (const g of [crtCg, crtDg]) { g.clearRect(0, 0, W, H); g.imageSmoothingEnabled = false; }
+    crtDg.globalCompositeOperation = 'lighter';
+    const uiN = (pui.style.mixBlendMode || 'normal') === 'normal';
+    let dC = false, dD = false;
+    if (put(puiS, crtCg)) dC = true;
+    if (put(pui, uiN ? crtCg : crtDg)) { if (uiN) dC = true; else dD = true; }
+    if (ld && crtLoadCv && crtLoadCv._src) {   // 로딩 화면 (맨 위). 사라지는 중이면 디더링으로 비운 사본
+      const img = ld.style.background === 'transparent' ? crtLoadCv._src._dw : crtLoadCv._src;
+      if (img) { crtCg.drawImage(img, 0, 0, W, H); dC = true; }
+    }
+    if (crtLeave) {   // 화면 나가기 덮개 (맨 위). 더하기 레이어(UI 글자)는 보통 레이어 위에 더해지니, 덮인 칸은 거기서 지운다
+      crtCg.drawImage(crtLeave, 0, 0, W, H); dC = true;
+      crtDg.globalCompositeOperation = 'destination-out'; crtDg.drawImage(crtLeave, 0, 0, W, H); crtDg.globalCompositeOperation = 'lighter';
+    }
+    crtUpload(2, dC); crtUpload(3, dD);
   }
-  if (crtLeave) {   // 화면 나가기 덮개 (맨 위). 더하기 레이어(UI 글자)는 보통 레이어 위에 더해지니, 덮인 칸은 거기서 지운다
-    crtCg.drawImage(crtLeave, 0, 0, W, H);
-    crtDg.globalCompositeOperation = 'destination-out'; crtDg.drawImage(crtLeave, 0, 0, W, H); crtDg.globalCompositeOperation = 'lighter';
-  }
-  for (const t of CRT_TX) t.needsUpdate = true;
 }
 // 로딩 중 (게임 루프가 돌기 전): 로딩 그림 한 장을 CRT로 (drawLoading이 부른다)
 crtLoadHook = (src) => { try { crtLoad(src); } catch (e) { crtFail(e); } };
@@ -1405,7 +1425,7 @@ function crtLoad(src) {
   crtSize(W, H);
   for (const g of CRT_G) g.clearRect(0, 0, W, H);
   crtCg.drawImage(src, 0, 0);
-  for (const t of CRT_TX) t.needsUpdate = true; crtDirty = true;
+  for (const t of CRT_TX) t.needsUpdate = true; crtDirty = true; crtHas.fill(true);
   if (compRT.width !== W || compRT.height !== H) compRT.setSize(W, H);
   crtCompMat.uniforms.tSrc.value = crtBlack;
   renderer.setRenderTarget(compRT); renderer.render(crtCompScene, crtCam); renderer.setRenderTarget(null);
@@ -7416,7 +7436,7 @@ function leaveUpdate(dt) {
     }
     g.putImageData(img, 0, 0);
     Object.assign(leaveEl.style, { left: `${VR.x}px`, top: `${VR.y}px`, width: `${VR.w}px`, height: `${VR.h}px`, display: crtOn && layerScale ? 'none' : '' });
-    crtLeave = leaveEl; crtDirty = true;
+    crtLeave = leaveEl; crtDirtyHi = true;
   }
   if (f >= 1 && !leaving.done) { leaving.done = true; setTimeout(() => location.reload(), 30); }   // 다 덮인 화면을 한 번 보이고
 }
@@ -8697,12 +8717,12 @@ function ruinBunker(B) {
 // 게임 화면과 같은 저해상도에, 노란주황색 한 가지와 5x7 고정폭 글자로. 줄 높이 7칸, 줄 간격 4칸.
 // HUD 칸 = 1픽셀인 작은 캔버스 두 장(색, 검은 그림자)에 값이 바뀔 때만 다시 그려 두고, 화면 캔버스로 늘려 옮긴다.
 // 색은 스크린(또는 더하기) 블렌딩, 그 밑에 그림자를 살짝 깐다. 피해를 입으면 몇 칸 높이 띠마다 좌우로 치지직 어긋난다
-const phud = document.getElementById('phud'), pg = phud.getContext('2d');
-const phudS = document.getElementById('phudS'), sg = phudS.getContext('2d');
+const phud = document.getElementById('phud'), pg = cv2d(phud);
+const phudS = document.getElementById('phudS'), sg = cv2d(phudS);
 const HC = Object.assign({ color: '#ffb43a', blend: 'screen', shadow: 0.55, glitchTime: 0.45, glitchPx: 6 }, CFG.hud);
 phud.style.mixBlendMode = HC.blend;
-const hudC = document.createElement('canvas'), hc = hudC.getContext('2d');   // 색
-const hudK = document.createElement('canvas'), kc = hudK.getContext('2d');   // 그림자
+const hudC = document.createElement('canvas'), hc = cv2d(hudC);   // 색
+const hudK = document.createElement('canvas'), kc = cv2d(hudK);   // 그림자
 hudC.width = hudK.width = 240; hudC.height = hudK.height = 140;
 let hudKey = '', hk = 1, glitchUntil = 0, glitchPow = 0, hudGlitched = false, hudRight = 0;   // hudRight: HUD가 그린 가장 오른쪽 칸 (성장 선택지가 닿지 않게)
 const px = (x, y, w = 1, h = 1) => { hc.fillRect(x, y, w, h); kc.fillRect(x, y, w, h); if (x + w > hudRight) hudRight = x + w; };
@@ -8965,7 +8985,7 @@ function drawHud() {
   const fth = hudOffAt ? Math.max(0, Math.min(16, Math.floor((1 - (hudOffAt - now) / (POP.fade * 1000)) * 16))) : 0;
   const srcC = fth ? ditherMask(hudC, fth) : hudC, srcK = fth ? ditherMask(hudK, fth) : hudK;
   // 화면으로 옮기기: 평소엔 통째로, 치지직일 땐 1~4칸 높이 띠마다 좌우로 몇 칸씩 어긋나게
-  pg.clearRect(0, 0, DW, DH); sg.clearRect(0, 0, DW, DH); crtDirty = true;
+  pg.clearRect(0, 0, DW, DH); sg.clearRect(0, 0, DW, DH); crtDirtyLo = true;
   const u = hk * DH / H;   // HUD 한 칸의 화면 픽셀 수 (정수 배는 또렷하게, 나머지만 부드럽게: sharpDraw)
   const k = glitch ? glitchPow * Math.min(1, (glitchUntil - now) / (HC.glitchTime * 1000) * 1.5) : 0;
   const CW = hudC.width, CH = hudC.height;
@@ -9050,12 +9070,12 @@ function gfWrap(t, maxW) {
   return out;
 }
 
-const pui = document.getElementById('pui'), ug = pui.getContext('2d');
-const puiS = document.getElementById('puiS'), usg = puiS.getContext('2d');
+const pui = document.getElementById('pui'), ug = cv2d(pui);
+const puiS = document.getElementById('puiS'), usg = cv2d(puiS);
 pui.style.mixBlendMode = HC.blend;
-const uiC = document.createElement('canvas'), ucx = uiC.getContext('2d');   // 색
-const uiK = document.createElement('canvas'), ukx = uiK.getContext('2d');   // 글자·선 그림자
-const uiB = document.createElement('canvas'), ubx = uiB.getContext('2d');   // 패널 바탕 (반투명 검정)
+const uiC = document.createElement('canvas'), ucx = cv2d(uiC);   // 색
+const uiK = document.createElement('canvas'), ukx = cv2d(uiK);   // 글자·선 그림자
+const uiB = document.createElement('canvas'), ubx = cv2d(uiB);   // 패널 바탕 (반투명 검정)
 const UI = { screen: null, dirty: false, recomp: false, hits: [], hover: null, w: 0, h: 0, u: 1, shown: false, closing: null, glitchT: 0, noHit: false, pressId: null, pressT: 0 };
 // 키보드로 버튼을 누르면 그 버튼을 잠깐 마우스를 올린 것처럼 (사라지는 창에서도 보이게)
 const UI_PRESS_MS = 180;
@@ -9178,7 +9198,7 @@ function uiUpdate() {
   const H = rt.height, dpr = layerScale || devicePixelRatio || 1, DW = Math.max(1, Math.round(VR.w * dpr)), DH = Math.max(1, Math.round(VR.h * dpr));
   const k = Math.max(1, Math.floor(H / 360)), w = Math.floor(rt.width / k), h = Math.floor(H / k);
   if (!UI.screen) {
-    if (UI.shown) { ug.clearRect(0, 0, pui.width, pui.height); usg.clearRect(0, 0, puiS.width, puiS.height); UI.shown = false; crtDirty = true; }
+    if (UI.shown) { ug.clearRect(0, 0, pui.width, pui.height); usg.clearRect(0, 0, puiS.width, puiS.height); UI.shown = false; crtDirtyHi = true; }
     return;
   }
   if (pui.width !== DW || pui.height !== DH || UI.w !== w || UI.h !== h) {
@@ -9215,7 +9235,7 @@ function uiUpdate() {
   const glitchy = gk > 0;
   const src2 = (c) => glitchy ? sharpScaled(c, u) : c;
   const put = (g, src, o) => { if (glitchy) bandBlit(g, src, bands, u, o); else sharpDraw(g, src, o * u, o * u, w * u, h * u, 0, 0, w, h); };
-  ug.clearRect(0, 0, DW, DH); usg.clearRect(0, 0, DW, DH); crtDirty = true;
+  ug.clearRect(0, 0, DW, DH); usg.clearRect(0, 0, DW, DH); crtDirtyHi = true;
   put(usg, src2(dm(uiB)), 0);
   const shA = UI.screen.shadow ?? HC.shadow;   // 화면마다 그림자 진하기 (없으면 HUD 값)
   if (shA > 0) {
@@ -9968,7 +9988,7 @@ if (document.getElementById('tPress')) { drawTitleKeys(titlePad); layoutTitle();
 const DTC = Object.assign({ enabled: false, blend: 'normal', shadow: 0.3, letterSpacing: 1, bigDamage: 100, bigScale: 2, damageColor: '#ff4a3a', noDamageColor: '#9c9c9c', healColor: '#4ad86a', goldColor: '#ffd040',
   noDamageText: 'NO DAMAGE', height: 3.2, rise: 26, moveTime: 0.6, time: 1.0, push: 0.55, spread: 18 }, CFG.damageText);
 let dmgTextOn = loadOpt('dmgText', !!DTC.enabled), dmgFromP = null;   // (설정에서 바꾸면 기억한다. 처음엔 config)   // dmgFromP: 다음 대미지의 공격 위치 (폭발 자리·벙커 총구처럼 쏜 탱크 자리가 아닐 때 부르는 쪽이 넣는다)
-const dmgCv = document.createElement('canvas'), dmgG = dmgCv.getContext('2d');
+const dmgCv = document.createElement('canvas'), dmgG = cv2d(dmgCv);
 dmgCv.id = 'pdmg'; Object.assign(dmgCv.style, { position: 'fixed', pointerEvents: 'none', zIndex: 3,   /* HUD(2) 위, 픽셀 UI·창(5) 아래 */ imageRendering: 'pixelated', mixBlendMode: DTC.blend });
 document.body.appendChild(dmgCv);
 const dmgTexts = [];
@@ -10019,13 +10039,13 @@ const dtWidth = (t) => fontWidth(t) + Math.max(0, [...String(t)].length - 1) * d
 function dtDraw(t, x, y, k, plot) { for (const ch of String(t).toUpperCase()) { fontDraw(ch, x, y, k, plot); x += (fontSpan(ch).adv + dtSp()) * k; } }   // k = 배율
 function dmgTextUpdate(dt) {
   for (let i = dmgTexts.length - 1; i >= 0; i--) if ((dmgTexts[i].t += dt) >= DTC.time) dmgTexts.splice(i, 1);   // 시간이 다 되면 바로 사라진다
-  if (!dmgTexts.length) { if (dmgShown) { dmgG.clearRect(0, 0, dmgCv.width, dmgCv.height); dmgShown = false; crtDirty = true; } return; }
+  if (!dmgTexts.length) { if (dmgShown) { dmgG.clearRect(0, 0, dmgCv.width, dmgCv.height); dmgShown = false; crtDirtyLo = true; } return; }
   // 크기·자리: 픽셀 UI와 같은 배율
   const H = rt.height, dpr = layerScale || devicePixelRatio || 1, DW = Math.max(1, Math.round(VR.w * dpr)), DH = Math.max(1, Math.round(VR.h * dpr));
   const k = Math.max(1, Math.floor(H / 360)), w = Math.floor(rt.width / k), h = Math.floor(H / k), u = k * DH / H;
   if (dmgCv.width !== DW || dmgCv.height !== DH) { dmgCv.width = DW; dmgCv.height = DH; }
   Object.assign(dmgCv.style, { left: `${VR.x}px`, top: `${VR.y}px`, width: `${VR.w}px`, height: `${VR.h}px` });
-  dmgG.clearRect(0, 0, DW, DH); dmgShown = true; crtDirty = true;
+  dmgG.clearRect(0, 0, DW, DH); dmgShown = true; crtDirtyLo = true;
   for (const f of dmgTexts) {
     _dtA.copy(f.at).project(camera);
     if (_dtA.z > 1 || _dtA.z < -1) continue;

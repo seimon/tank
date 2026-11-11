@@ -123,13 +123,17 @@ function ditherWipe(src, f, vOf) {
 // CRT 표현(41_crt.js)이 켜져 있으면 HUD·UI·타이틀 캔버스를 기기 픽셀이 아니라 게임 픽셀 크기로 그리고(layerScale = 게임 픽셀 ÷ CSS 픽셀),
 // 화면에는 숨긴 채 41_crt.js가 한 장으로 합쳐 3D 화면과 함께 CRT 셰이더를 거친다. crtDirty = 레이어가 바뀌었다 (다시 합친다)
 const CRT_LAYER = new Set();   // sharpBlit으로 그리는 레이어 캔버스 (타이틀 그림)
-let crtOn = false, layerScale = 0, crtDirty = true, crtLoadHook = null;   // crtLoadHook: 로딩 그림을 CRT로 (10a_crt.js)
+let crtOn = false, layerScale = 0, crtDirty = true, crtDirtyLo = true, crtDirtyHi = true, crtLoadHook = null;   // crtDirty = 두 묶음 모두, Lo = 아래 묶음(HUD·대미지 숫자·타이틀), Hi = 위 묶음(UI·로딩·나가기 덮개)
+// CRT를 켜고 시작하면 HUD·UI 캔버스를 CPU 쪽에 둔다(willReadFrequently): 아이패드에서 GPU 캔버스를 텍스처로 올릴 때마다 읽어 오느라 프레임마다 8~12ms 걸렸다
+const CV2D = { willReadFrequently: true };
+const cv2d = (c) => c.getContext('2d', crtOn ? CV2D : undefined);
+//   // crtLoadHook: 로딩 그림을 CRT로 (10a_crt.js)
 function sharpBlit(dst, src, cssW, cssH) {
-  const lay = CRT_LAYER.has(dst); if (lay) crtDirty = true;
+  const lay = CRT_LAYER.has(dst); if (lay) { if (dst._crtHi) crtDirtyHi = true; else crtDirtyLo = true; }
   const dpr = (lay && layerScale) || devicePixelRatio || 1, dw = Math.max(1, Math.round(cssW * dpr)), dh = Math.max(1, Math.round(cssH * dpr));
   if (dst.width !== dw || dst.height !== dh) { dst.width = dw; dst.height = dh; }
   Object.assign(dst.style, { width: `${cssW}px`, height: `${cssH}px` });
-  const g = dst.getContext('2d');
+  const g = lay ? cv2d(dst) : dst.getContext('2d');
   g.clearRect(0, 0, dw, dh);
   sharpDraw(g, src, 0, 0, dw, dh);
 }

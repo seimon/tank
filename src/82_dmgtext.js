@@ -5,7 +5,7 @@
 const DTC = Object.assign({ enabled: false, blend: 'normal', shadow: 0.3, letterSpacing: 1, bigDamage: 100, bigScale: 2, damageColor: '#ff4a3a', noDamageColor: '#9c9c9c', healColor: '#4ad86a', goldColor: '#ffd040',
   noDamageText: 'NO DAMAGE', height: 3.2, rise: 26, moveTime: 0.6, time: 1.0, push: 0.55, spread: 18 }, CFG.damageText);
 let dmgTextOn = loadOpt('dmgText', !!DTC.enabled), dmgFromP = null;   // (설정에서 바꾸면 기억한다. 처음엔 config)   // dmgFromP: 다음 대미지의 공격 위치 (폭발 자리·벙커 총구처럼 쏜 탱크 자리가 아닐 때 부르는 쪽이 넣는다)
-const dmgCv = document.createElement('canvas'), dmgG = dmgCv.getContext('2d');
+const dmgCv = document.createElement('canvas'), dmgG = cv2d(dmgCv);
 dmgCv.id = 'pdmg'; Object.assign(dmgCv.style, { position: 'fixed', pointerEvents: 'none', zIndex: 3,   /* HUD(2) 위, 픽셀 UI·창(5) 아래 */ imageRendering: 'pixelated', mixBlendMode: DTC.blend });
 document.body.appendChild(dmgCv);
 const dmgTexts = [];
@@ -56,13 +56,13 @@ const dtWidth = (t) => fontWidth(t) + Math.max(0, [...String(t)].length - 1) * d
 function dtDraw(t, x, y, k, plot) { for (const ch of String(t).toUpperCase()) { fontDraw(ch, x, y, k, plot); x += (fontSpan(ch).adv + dtSp()) * k; } }   // k = 배율
 function dmgTextUpdate(dt) {
   for (let i = dmgTexts.length - 1; i >= 0; i--) if ((dmgTexts[i].t += dt) >= DTC.time) dmgTexts.splice(i, 1);   // 시간이 다 되면 바로 사라진다
-  if (!dmgTexts.length) { if (dmgShown) { dmgG.clearRect(0, 0, dmgCv.width, dmgCv.height); dmgShown = false; crtDirty = true; } return; }
+  if (!dmgTexts.length) { if (dmgShown) { dmgG.clearRect(0, 0, dmgCv.width, dmgCv.height); dmgShown = false; crtDirtyLo = true; } return; }
   // 크기·자리: 픽셀 UI와 같은 배율
   const H = rt.height, dpr = layerScale || devicePixelRatio || 1, DW = Math.max(1, Math.round(VR.w * dpr)), DH = Math.max(1, Math.round(VR.h * dpr));
   const k = Math.max(1, Math.floor(H / 360)), w = Math.floor(rt.width / k), h = Math.floor(H / k), u = k * DH / H;
   if (dmgCv.width !== DW || dmgCv.height !== DH) { dmgCv.width = DW; dmgCv.height = DH; }
   Object.assign(dmgCv.style, { left: `${VR.x}px`, top: `${VR.y}px`, width: `${VR.w}px`, height: `${VR.h}px` });
-  dmgG.clearRect(0, 0, DW, DH); dmgShown = true; crtDirty = true;
+  dmgG.clearRect(0, 0, DW, DH); dmgShown = true; crtDirtyLo = true;
   for (const f of dmgTexts) {
     _dtA.copy(f.at).project(camera);
     if (_dtA.z > 1 || _dtA.z < -1) continue;

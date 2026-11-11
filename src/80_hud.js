@@ -2,12 +2,12 @@
 // 게임 화면과 같은 저해상도에, 노란주황색 한 가지와 5x7 고정폭 글자로. 줄 높이 7칸, 줄 간격 4칸.
 // HUD 칸 = 1픽셀인 작은 캔버스 두 장(색, 검은 그림자)에 값이 바뀔 때만 다시 그려 두고, 화면 캔버스로 늘려 옮긴다.
 // 색은 스크린(또는 더하기) 블렌딩, 그 밑에 그림자를 살짝 깐다. 피해를 입으면 몇 칸 높이 띠마다 좌우로 치지직 어긋난다
-const phud = document.getElementById('phud'), pg = phud.getContext('2d');
-const phudS = document.getElementById('phudS'), sg = phudS.getContext('2d');
+const phud = document.getElementById('phud'), pg = cv2d(phud);
+const phudS = document.getElementById('phudS'), sg = cv2d(phudS);
 const HC = Object.assign({ color: '#ffb43a', blend: 'screen', shadow: 0.55, glitchTime: 0.45, glitchPx: 6 }, CFG.hud);
 phud.style.mixBlendMode = HC.blend;
-const hudC = document.createElement('canvas'), hc = hudC.getContext('2d');   // 색
-const hudK = document.createElement('canvas'), kc = hudK.getContext('2d');   // 그림자
+const hudC = document.createElement('canvas'), hc = cv2d(hudC);   // 색
+const hudK = document.createElement('canvas'), kc = cv2d(hudK);   // 그림자
 hudC.width = hudK.width = 240; hudC.height = hudK.height = 140;
 let hudKey = '', hk = 1, glitchUntil = 0, glitchPow = 0, hudGlitched = false, hudRight = 0;   // hudRight: HUD가 그린 가장 오른쪽 칸 (성장 선택지가 닿지 않게)
 const px = (x, y, w = 1, h = 1) => { hc.fillRect(x, y, w, h); kc.fillRect(x, y, w, h); if (x + w > hudRight) hudRight = x + w; };
@@ -270,7 +270,7 @@ function drawHud() {
   const fth = hudOffAt ? Math.max(0, Math.min(16, Math.floor((1 - (hudOffAt - now) / (POP.fade * 1000)) * 16))) : 0;
   const srcC = fth ? ditherMask(hudC, fth) : hudC, srcK = fth ? ditherMask(hudK, fth) : hudK;
   // 화면으로 옮기기: 평소엔 통째로, 치지직일 땐 1~4칸 높이 띠마다 좌우로 몇 칸씩 어긋나게
-  pg.clearRect(0, 0, DW, DH); sg.clearRect(0, 0, DW, DH); crtDirty = true;
+  pg.clearRect(0, 0, DW, DH); sg.clearRect(0, 0, DW, DH); crtDirtyLo = true;
   const u = hk * DH / H;   // HUD 한 칸의 화면 픽셀 수 (정수 배는 또렷하게, 나머지만 부드럽게: sharpDraw)
   const k = glitch ? glitchPow * Math.min(1, (glitchUntil - now) / (HC.glitchTime * 1000) * 1.5) : 0;
   const CW = hudC.width, CH = hudC.height;

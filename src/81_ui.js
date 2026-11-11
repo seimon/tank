@@ -55,12 +55,12 @@ function gfWrap(t, maxW) {
   return out;
 }
 
-const pui = document.getElementById('pui'), ug = pui.getContext('2d');
-const puiS = document.getElementById('puiS'), usg = puiS.getContext('2d');
+const pui = document.getElementById('pui'), ug = cv2d(pui);
+const puiS = document.getElementById('puiS'), usg = cv2d(puiS);
 pui.style.mixBlendMode = HC.blend;
-const uiC = document.createElement('canvas'), ucx = uiC.getContext('2d');   // 색
-const uiK = document.createElement('canvas'), ukx = uiK.getContext('2d');   // 글자·선 그림자
-const uiB = document.createElement('canvas'), ubx = uiB.getContext('2d');   // 패널 바탕 (반투명 검정)
+const uiC = document.createElement('canvas'), ucx = cv2d(uiC);   // 색
+const uiK = document.createElement('canvas'), ukx = cv2d(uiK);   // 글자·선 그림자
+const uiB = document.createElement('canvas'), ubx = cv2d(uiB);   // 패널 바탕 (반투명 검정)
 const UI = { screen: null, dirty: false, recomp: false, hits: [], hover: null, w: 0, h: 0, u: 1, shown: false, closing: null, glitchT: 0, noHit: false, pressId: null, pressT: 0 };
 // 키보드로 버튼을 누르면 그 버튼을 잠깐 마우스를 올린 것처럼 (사라지는 창에서도 보이게)
 const UI_PRESS_MS = 180;
@@ -183,7 +183,7 @@ function uiUpdate() {
   const H = rt.height, dpr = layerScale || devicePixelRatio || 1, DW = Math.max(1, Math.round(VR.w * dpr)), DH = Math.max(1, Math.round(VR.h * dpr));
   const k = Math.max(1, Math.floor(H / 360)), w = Math.floor(rt.width / k), h = Math.floor(H / k);
   if (!UI.screen) {
-    if (UI.shown) { ug.clearRect(0, 0, pui.width, pui.height); usg.clearRect(0, 0, puiS.width, puiS.height); UI.shown = false; crtDirty = true; }
+    if (UI.shown) { ug.clearRect(0, 0, pui.width, pui.height); usg.clearRect(0, 0, puiS.width, puiS.height); UI.shown = false; crtDirtyHi = true; }
     return;
   }
   if (pui.width !== DW || pui.height !== DH || UI.w !== w || UI.h !== h) {
@@ -220,7 +220,7 @@ function uiUpdate() {
   const glitchy = gk > 0;
   const src2 = (c) => glitchy ? sharpScaled(c, u) : c;
   const put = (g, src, o) => { if (glitchy) bandBlit(g, src, bands, u, o); else sharpDraw(g, src, o * u, o * u, w * u, h * u, 0, 0, w, h); };
-  ug.clearRect(0, 0, DW, DH); usg.clearRect(0, 0, DW, DH); crtDirty = true;
+  ug.clearRect(0, 0, DW, DH); usg.clearRect(0, 0, DW, DH); crtDirtyHi = true;
   put(usg, src2(dm(uiB)), 0);
   const shA = UI.screen.shadow ?? HC.shadow;   // 화면마다 그림자 진하기 (없으면 HUD 값)
   if (shA > 0) {

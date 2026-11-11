@@ -152,7 +152,7 @@ function leaveUpdate(dt) {
     }
     g.putImageData(img, 0, 0);
     Object.assign(leaveEl.style, { left: `${VR.x}px`, top: `${VR.y}px`, width: `${VR.w}px`, height: `${VR.h}px`, display: crtOn && layerScale ? 'none' : '' });
-    crtLeave = leaveEl; crtDirty = true;
+    crtLeave = leaveEl; crtDirtyHi = true;
   }
   if (f >= 1 && !leaving.done) { leaving.done = true; setTimeout(() => location.reload(), 30); }   // 다 덮인 화면을 한 번 보이고
 }
