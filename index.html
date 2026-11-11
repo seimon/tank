@@ -4,12 +4,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta http-equiv="Cache-Control" content="no-cache">   <!-- 고친 index.html을 바로 읽게 (캐시가 있어도 매번 서버에 확인) -->
 <title>Mighty Molly</title>
 <link rel="icon" href="data:,">
 <style>
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }   /* 검정 = 화면 비율 밖의 레터박스 */
   canvas#c { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block;
              image-rendering: crisp-edges; image-rendering: pixelated; }
+  body.crt canvas#c { image-rendering: auto; }   /* CRT: 화면 배율보다 낮게 계산했으면 부드럽게 늘린다 (스캔라인이 고르지 않게 보이지 않게) */
   #hud { position: fixed; left: 10px; top: 10px; color: #e8dcc0; font: 12px/1.6 monospace;
          background: rgba(20, 18, 16, .6); padding: 8px 10px; border-radius: 4px; user-select: none; }
   #hud select, #hud input { vertical-align: middle; }
@@ -31,6 +33,7 @@
   #title canvas { image-rendering: crisp-edges; image-rendering: pixelated; }
   #tCall { left: 0; top: 0; }
   /* 터치 조작 (스마트폰 세로 화면 하단): 왼쪽 아날로그 패드, 오른쪽 포각·발사·자세 버튼 */
+  #perfHud { position: fixed; left: 8px; bottom: 8px; z-index: 60; padding: 4px 6px; background: rgba(0,0,0,.7); color: #9f9; font: 12px/1.35 monospace; white-space: pre; pointer-events: none; }   /* 성능 표시 (설정 메뉴) */
   #touchUI { position: fixed; left: 0; right: 0; bottom: 0; height: 0; z-index: 5; user-select: none; -webkit-user-select: none; }
   #touchUI * { touch-action: none; -webkit-tap-highlight-color: transparent; }
   #stick { position: fixed; left: 18px; bottom: 22px; width: 132px; height: 132px; border-radius: 50%;
@@ -65,11 +68,8 @@
   body.crt #loading { background: transparent !important; }
   .ver { color: #e8dcc0; opacity: .6; font: 12px monospace; }
 </style>
-<script src="config.js"></script>
-<script src="map.js"></script>
-<script src="decal_images.js"></script>
-<script src="title_images.js"></script>
-<script src="decals.js"></script>
+<!-- 사용자가 고치는 파일(config.js·map.js·decals.js)은 브라우저 캐시를 거치지 않게 매번 다른 주소로 읽는다 (아이패드 사파리가 예전 config.js를 계속 쓰던 문제). document.write라 순서대로 바로 실행된다 -->
+<script>for (const f of ['config.js', 'map.js', 'decal_images.js', 'title_images.js', 'decals.js']) document.write(`<script src="${f}?v=${Date.now()}"><\/script>`);</script>
 <script src="fonts/galmuri11c.js"></script>
 <script type="importmap">
 { "imports": {
@@ -91,6 +91,7 @@
   <div style="display:flex; align-items:center; gap:8px; white-space:nowrap"><b style="color:#ffd25a">설정</b> <span style="opacity:.6">~ 키로 열고 닫기</span>
        <span style="margin-left:auto; display:flex; gap:2px"><button id="toTitle">타이틀 화면으로</button><button id="camPanBtn">우클릭 카메라 이동 꺼짐</button><button id="camreset">카메라 초기화</button></span></div>
   <div id="stats">-</div>
+  <div><button id="perfBtn">성능 표시 꺼짐</button></div>
   <div id="hudBody">
   <div>내 탱크 <b id="tankPos">-</b> <span style="opacity:.6">(config.js player.start와 같은 형식)</span></div>
   <div>해상도 <select id="res"><option>180</option><option>240</option><option selected>300</option><option>360</option><option>420</option><option value="max">최대</option></select>
@@ -130,9 +131,10 @@
 </div>
 <script>
   // 버전·빌드 시각: 여기 한 곳만 고치면 로딩 화면과 설정 메뉴에 같이 나온다
-  const VERSION = '0.8.040', BUILD = '2026-11-11', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
+  const VERSION = '0.8.043', BUILD = '2026-11-11', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
   for (const e of document.querySelectorAll('.ver')) e.textContent = BUILD_TXT;
 </script>
+<div id="perfHud" style="display:none"></div>
 <div id="touchUI" style="display:none">
   <div id="stick"><div id="knob"></div></div>
   <div id="tright"><button id="tTL">◀</button><button id="tTR">▶</button><button id="tUp">▲</button><button id="tDown">▼</button><button id="tFire">발사</button><button id="tFix">세우기</button></div>
@@ -1169,7 +1171,9 @@ let terrainCol;
 // 로딩 화면에도 걸려고 renderer(10_world.js)를 만든 바로 뒤에 둔다. 그 전에는 화면이 검다 (body.crt가 일반 로딩 그림을 숨긴다).
 // 그래서 뒤 파일의 이름(postRT·upScene·HUD·UI 캔버스·resize 등)은 함수 안에서 부를 때만 쓴다
 const CRT = Object.assign({ enabled: false, lineSize: 4, scan: 0.85, maskType: 3, maskStr: 0.55, maskSize: 1, curv: 0.04, corner: 0.07, bloom: 0.55, vig: 0.4,
-  soft: 0.8, conv: 0.5, bleed: 0, persist: 0.5, sat: 1.15, noise: 0.08, flicker: 0.2, roll: 0.4, tape: 0.2, bright: 1.25, margin: 8 }, CFG.crt);
+  soft: 0.8, conv: 0.5, bleed: 0, persist: 0.5, sat: 1.15, noise: 0.08, flicker: 0.2, roll: 0.4, tape: 0.2, bright: 1.25, margin: 8, maxScale: 1.5 }, CFG.crt);
+// CRT 계산 해상도: 화면 배율(devicePixelRatio)이 maxScale보다 크면 그만큼만 (아이패드 2배 화면에서 CRT 두 단계를 기기 해상도 그대로 계산하던 게 무거웠다). 브라우저가 부드럽게 늘린다
+const crtDpr = () => Math.min(devicePixelRatio || 1, CRT.maxScale || 99);
 const crtA = document.createElement('canvas'), crtAg = crtA.getContext('2d');   // 보통(source-over)으로 얹는 레이어
 const crtB = document.createElement('canvas'), crtBg = crtB.getContext('2d');   // 스크린·더하기로 얹는 레이어
 const crtC = document.createElement('canvas'), crtCg = crtC.getContext('2d');   // 위 묶음 (UI): 보통
@@ -1372,7 +1376,7 @@ crtLoadHook = (src) => { try { crtLoad(src); } catch (e) { crtFail(e); } };
 function crtLoad(src) {
   if (!crtOn || !src.width || !src.height) return;
   if (!layerScale) {   // 화면 크기를 정하는 resize(40_input_post.js)가 아직이면 직접
-    const r = renderer.domElement.getBoundingClientRect(), dpr = devicePixelRatio || 1;
+    const r = renderer.domElement.getBoundingClientRect(), dpr = crtDpr();
     renderer.setSize(Math.max(2, Math.round(r.width * dpr)), Math.max(2, Math.round(r.height * dpr)), false);
   }
   const W = src.width, H = src.height;
@@ -1412,7 +1416,7 @@ function crtPresent() {
   try { crtPresent0(); } catch (e) { crtFail(e); }
 }
 function crtPresent0() {
-  const dpr = devicePixelRatio || 1;
+  const dpr = crtDpr();
   renderer.getDrawingBufferSize(_crtRes);
   const W = _crtRes.x, H = _crtRes.y, lines = Math.max(16, Math.round(H / (CRT.lineSize * dpr))), t = (performance.now() / 1000) % 1000;
   const prev = crtPrep[crtCur], next = crtPrep[crtCur ^ 1];
@@ -4628,6 +4632,7 @@ function sparks(p, n, k = 1) {   // k: 부딪힌 소리 세기
 }
 const _sepN = new THREE.Vector3(); let _sepK = 1;
 const TURN_SLIP = 0.6, TURN_ASSIST_FALL = 0.25;
+const _nearFp = [], _nearT = [], BODY_R = 3.5;   // BODY_R: 차체 가운데에서 가장 먼 접촉점(약 2.4m)보다 넉넉하게
 function physStep(h, thr, turn, body = tank) {
   B = body;
   // 몸체마다 성능 배율 (성장 테스트 슬라이더: 내 탱크만). 시냇물 안에서는 절반 속도
@@ -4677,6 +4682,10 @@ function physStep(h, thr, turn, body = tank) {
   }
   _ws = ws; B.wallC = 0;
   B.contacts = 0;
+  // 근처 것만 미리 고른다: 접촉점(43개)마다 지도의 모든 물체·탱크와 비교하던 것을 이번 스텝에 차체가 닿을 수 있는 것만 (가장 비싼 부분이었다)
+  _nearFp.length = 0; _nearT.length = 0;
+  for (const fp of footprints) { const r = BODY_R + Math.hypot(fp.hx, fp.hz), dx = fp.x - B.pos.x, dz = fp.z - B.pos.z; if (dx * dx + dz * dz < r * r) _nearFp.push(fp); }
+  for (const O of TANKS) if (O !== B && O.solid && (O.pos.x - B.pos.x) ** 2 + (O.pos.z - B.pos.z) ** 2 < 64) _nearT.push(O);
   let sepD = 0;   // 다른 탱크에 PH.tankHitPen보다 깊이 파고든 만큼 (가장 깊은 것): 힘 대신 위치를 직접 떼어 낸다
   for (const cp of B.cpts || CPTS) {
     _rw.copy(cp.r).applyQuaternion(B.q);
@@ -4692,7 +4701,7 @@ function physStep(h, thr, turn, body = tank) {
     const ox = Math.abs(_pw.x) - WALL, oz = Math.abs(_pw.z) - WALL;
     if (ox > 0) { _n.set(-Math.sign(_pw.x), 0, 0); contactForce(cp, ox, _n, true); }
     if (oz > 0) { _n.set(0, 0, -Math.sign(_pw.z)); contactForce(cp, oz, _n, true); }
-    for (const fp of footprints) {
+    for (const fp of _nearFp) {
       if (_pw.y >= fp.top || _pw.y <= fp.y0 - 1) continue;
       fpLocal(fp, _pw.x, _pw.z, _fl);
       const ox = fp.hx - Math.abs(_fl.x), oz = fp.hz - Math.abs(_fl.z);
@@ -4714,7 +4723,7 @@ function physStep(h, thr, turn, body = tank) {
       }
     }
     // 다른 탱크: 그 차체 상자 안으로 들어간 접촉점을 가까운 옆면 밖으로 민다 (서로 상대 쪽에서 똑같이 밀린다)
-    for (const O of TANKS) {
+    for (const O of _nearT) {
       if (O === B || !O.solid) continue;
       _loc.copy(_pw).sub(O.pos).applyQuaternion(_qo.copy(O.q).invert()).add(COM);
       if (_loc.y < -0.2 || _loc.y > (O.ht ?? 2.8)) continue;
@@ -6217,11 +6226,13 @@ const pad = { thr: 0, steer: 0, tq: 0, de: 0, fire: false };
   };
   hold('tUp', 'up'); hold('tDown', 'down'); hold('tFire', 'fire'); hold('tTL', 'tl'); hold('tTR', 'tr');
   document.getElementById('tFix').addEventListener('pointerdown', (e) => { uprightTank(); e.preventDefault(); });
-  // 메뉴 토글. 터치 화면 기기에서는 처음부터 켠다
+  // 메뉴 토글. 처음엔 숨기고, 화면을 손가락으로 만지면 나타나고 키보드·게임패드를 쓰면 다시 숨긴다 (아이패드에 키보드를 연결해 할 때 계속 보이지 않게)
   const ui = document.getElementById('touchUI'), btn = document.getElementById('touchBtn');
-  const show = (v) => { ui.style.display = v ? '' : 'none'; btn.textContent = v ? '터치 버튼 켜짐' : '터치 버튼 꺼짐'; };
+  const show = (v) => { if ((ui.style.display !== 'none') === v) return; ui.style.display = v ? '' : 'none'; btn.textContent = v ? '터치 버튼 켜짐' : '터치 버튼 꺼짐'; };
   btn.onclick = (e) => { show(ui.style.display === 'none'); e.target.blur(); };
-  show(matchMedia('(pointer: coarse)').matches);
+  show(false);
+  addEventListener('pointerdown', (e) => { if (e.pointerType === 'touch') show(true); }, true);
+  addEventListener('keydown', () => show(false), true);
 }
 addEventListener('keyup', (e) => keys.delete(e.code));
 addEventListener('blur', () => keys.clear());
@@ -6507,7 +6518,7 @@ function resize() {
   viewRect();
   if (resMax) lowH = Math.round(VR.h * (devicePixelRatio || 1));
   layerScale = crtOn ? lowH / VR.h : 0;   // CRT 표현: HUD·UI를 게임 픽셀 크기로 (00_core.js)
-  const w = Math.max(2, Math.round(lowH * VR.w / VR.h)), dpr = devicePixelRatio || 1, dw = Math.max(2, Math.round(VR.w * dpr)), dh = Math.max(2, Math.round(VR.h * dpr));
+  const w = Math.max(2, Math.round(lowH * VR.w / VR.h)), dpr = crtOn ? crtDpr() : devicePixelRatio || 1, dw = Math.max(2, Math.round(VR.w * dpr)), dh = Math.max(2, Math.round(VR.h * dpr));   // CRT는 crt.maxScale 배율까지만
   renderer.setSize(dw, dh, false);   // 캔버스는 기기 픽셀 크기 (게임은 rt에 저해상도로 그리고 마지막에 늘린다)
   rt.setSize(w, lowH); cutRT.setSize(w, lowH); olRT.setSize(w, lowH); postRT.setSize(w, lowH);
   upMat.uniforms.uSrc.value.set(w, lowH); upMat.uniforms.uK.value = Math.max(1, Math.floor(dh / lowH + 1e-6));
@@ -9781,6 +9792,36 @@ function perfFrame(frameMs, renderMs, progs, jsMs = 0) {
   console.warn(`[끊김] ${e.frame}ms · 프레임 JS 전체 ${e.js}ms · 그리기 ${e.render}ms${progs ? ` · 새 셰이더 ${progs}개 컴파일` : ''} · 오래 걸린 단계: ${top || '없음'}` +
     ` · ${rt.width}x${rt.height} 화면 ${innerWidth}x${innerHeight}@${devicePixelRatio} · GPU ${perfGpu}`);
 }
+// 화면 성능 표시 (설정 메뉴 '성능 표시'): 아이패드 등에서 직접 재 보려고. 화면 왼쪽 아래 글자(DOM, CRT 위)로 0.5초마다 평균.
+// 켜져 있는 동안은 renderer.info를 프레임마다 직접 비워(autoReset 끔) 한 프레임 전체의 그리기 호출·삼각형을 센다
+let perfHudOn = loadOpt('perfHud', false);
+const perfHudEl = document.getElementById('perfHud'), perfBtn = document.getElementById('perfBtn'), _phSz = new THREE.Vector2();
+const PHA = { n: 0, t0: 0, frame: 0, frameMax: 0, js: 0, phys: 0, render: 0, calls: 0, tris: 0 };
+function perfHud(frameMs, jsMs, renderMs) {
+  if (!perfHudOn) return;
+  const A = PHA, now = performance.now();
+  if (!A.t0) { A.t0 = now; return; }
+  A.n++; A.frame += frameMs; A.frameMax = Math.max(A.frameMax, frameMs); A.js += jsMs; A.render += renderMs;
+  for (const [k, v] of perfT) if (k === '물리') A.phys += v;
+  A.calls += renderer.info.render.calls; A.tris += renderer.info.render.triangles;
+  if (now - A.t0 < 500) return;
+  const n = A.n, f = (v) => (v / n).toFixed(1);
+  renderer.getDrawingBufferSize(_phSz);
+  perfHudEl.textContent = [
+    `${Math.round(n * 1000 / (now - A.t0))} fps   프레임 ${f(A.frame)}ms (가장 김 ${Math.round(A.frameMax)})`,
+    `JS ${f(A.js)}ms   그중 물리 ${f(A.phys)} · 그리기 ${f(A.render)}`,
+    `GPU·기다림 약 ${Math.max(0, (A.frame - A.js) / n).toFixed(1)}ms`,
+    `그리기 호출 ${Math.round(A.calls / n)}   삼각형 ${Math.round(A.tris / n / 1000)}k`,
+    `게임 ${rt.width}x${rt.height}   화면 ${_phSz.x}x${_phSz.y} (기기 배율 ${devicePixelRatio}${crtOn ? ` · CRT 계산 배율 ${+crtDpr().toFixed(2)}` : ''})`].join('\n');
+  Object.assign(A, { n: 0, t0: now, frame: 0, frameMax: 0, js: 0, phys: 0, render: 0, calls: 0, tris: 0 });
+}
+function setPerfHud(v) {
+  perfHudOn = !!v; saveOpt('perfHud', perfHudOn); PHA.t0 = 0;
+  perfHudEl.style.display = perfHudOn ? '' : 'none'; perfBtn.textContent = perfHudOn ? '성능 표시 켜짐' : '성능 표시 꺼짐';
+  renderer.info.autoReset = !perfHudOn;
+}
+perfBtn.onclick = (e) => { setPerfHud(!perfHudOn); e.target.blur(); };
+setPerfHud(perfHudOn);
 // 타이틀 우하단 키 안내 첫 그리기: 한글 글꼴(GF)이 이 파일에 있어서 80_hud.js 로딩 중에는 그릴 수 없다 (const 선언 전). 여기서
 if (document.getElementById('tPress')) { drawTitleKeys(titlePad); layoutTitle(); }
 // ===== src/82_dmgtext.js =====
@@ -10547,6 +10588,7 @@ function overlayFrame() {
 }
 function frame() {
   const fj0 = performance.now();   // 이 프레임 JS 전체 시간 (끊김 기록용)
+  if (perfHudOn) renderer.info.reset();   // 성능 표시: 한 프레임 전체를 센다
   // 일시정지(정보 창) 동안 게임 시간은 흐르지 않고 (재개 때 한꺼번에 몰아 계산하지 않음), 창·회색조 연출만 그린다
   const raw = clock.getDelta();
   uiDt = Math.min(raw, 0.05);   // 창·회색조 연출 시간: 멈춘 동안에도 흐른다
@@ -10620,6 +10662,7 @@ function frame() {
   camera.position.sub(_shake);
   if (frozen) pauseScene = true;   // 멈춘 장면을 한 번 그렸다
   if (!frozen) perfFrame(rawDt * 1000, performance.now() - tr0, renderer.info.programs.length - progs0, performance.now() - fj0);
+  perfHud(raw * 1000, performance.now() - fj0, performance.now() - tr0);   // 화면 성능 표시 (켜져 있을 때만)
 
   frames++; acc += dt;
   if (acc > 0.5) {

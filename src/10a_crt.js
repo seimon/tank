@@ -11,7 +11,9 @@
 // 로딩 화면에도 걸려고 renderer(10_world.js)를 만든 바로 뒤에 둔다. 그 전에는 화면이 검다 (body.crt가 일반 로딩 그림을 숨긴다).
 // 그래서 뒤 파일의 이름(postRT·upScene·HUD·UI 캔버스·resize 등)은 함수 안에서 부를 때만 쓴다
 const CRT = Object.assign({ enabled: false, lineSize: 4, scan: 0.85, maskType: 3, maskStr: 0.55, maskSize: 1, curv: 0.04, corner: 0.07, bloom: 0.55, vig: 0.4,
-  soft: 0.8, conv: 0.5, bleed: 0, persist: 0.5, sat: 1.15, noise: 0.08, flicker: 0.2, roll: 0.4, tape: 0.2, bright: 1.25, margin: 8 }, CFG.crt);
+  soft: 0.8, conv: 0.5, bleed: 0, persist: 0.5, sat: 1.15, noise: 0.08, flicker: 0.2, roll: 0.4, tape: 0.2, bright: 1.25, margin: 8, maxScale: 1.5 }, CFG.crt);
+// CRT 계산 해상도: 화면 배율(devicePixelRatio)이 maxScale보다 크면 그만큼만 (아이패드 2배 화면에서 CRT 두 단계를 기기 해상도 그대로 계산하던 게 무거웠다). 브라우저가 부드럽게 늘린다
+const crtDpr = () => Math.min(devicePixelRatio || 1, CRT.maxScale || 99);
 const crtA = document.createElement('canvas'), crtAg = crtA.getContext('2d');   // 보통(source-over)으로 얹는 레이어
 const crtB = document.createElement('canvas'), crtBg = crtB.getContext('2d');   // 스크린·더하기로 얹는 레이어
 const crtC = document.createElement('canvas'), crtCg = crtC.getContext('2d');   // 위 묶음 (UI): 보통
@@ -214,7 +216,7 @@ crtLoadHook = (src) => { try { crtLoad(src); } catch (e) { crtFail(e); } };
 function crtLoad(src) {
   if (!crtOn || !src.width || !src.height) return;
   if (!layerScale) {   // 화면 크기를 정하는 resize(40_input_post.js)가 아직이면 직접
-    const r = renderer.domElement.getBoundingClientRect(), dpr = devicePixelRatio || 1;
+    const r = renderer.domElement.getBoundingClientRect(), dpr = crtDpr();
     renderer.setSize(Math.max(2, Math.round(r.width * dpr)), Math.max(2, Math.round(r.height * dpr)), false);
   }
   const W = src.width, H = src.height;
@@ -254,7 +256,7 @@ function crtPresent() {
   try { crtPresent0(); } catch (e) { crtFail(e); }
 }
 function crtPresent0() {
-  const dpr = devicePixelRatio || 1;
+  const dpr = crtDpr();
   renderer.getDrawingBufferSize(_crtRes);
   const W = _crtRes.x, H = _crtRes.y, lines = Math.max(16, Math.round(H / (CRT.lineSize * dpr))), t = (performance.now() / 1000) % 1000;
   const prev = crtPrep[crtCur], next = crtPrep[crtCur ^ 1];

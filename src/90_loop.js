@@ -253,6 +253,7 @@ function overlayFrame() {
 }
 function frame() {
   const fj0 = performance.now();   // 이 프레임 JS 전체 시간 (끊김 기록용)
+  if (perfHudOn) renderer.info.reset();   // 성능 표시: 한 프레임 전체를 센다
   // 일시정지(정보 창) 동안 게임 시간은 흐르지 않고 (재개 때 한꺼번에 몰아 계산하지 않음), 창·회색조 연출만 그린다
   const raw = clock.getDelta();
   uiDt = Math.min(raw, 0.05);   // 창·회색조 연출 시간: 멈춘 동안에도 흐른다
@@ -326,6 +327,7 @@ function frame() {
   camera.position.sub(_shake);
   if (frozen) pauseScene = true;   // 멈춘 장면을 한 번 그렸다
   if (!frozen) perfFrame(rawDt * 1000, performance.now() - tr0, renderer.info.programs.length - progs0, performance.now() - fj0);
+  perfHud(raw * 1000, performance.now() - fj0, performance.now() - tr0);   // 화면 성능 표시 (켜져 있을 때만)
 
   frames++; acc += dt;
   if (acc > 0.5) {

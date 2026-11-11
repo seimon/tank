@@ -136,11 +136,13 @@ const pad = { thr: 0, steer: 0, tq: 0, de: 0, fire: false };
   };
   hold('tUp', 'up'); hold('tDown', 'down'); hold('tFire', 'fire'); hold('tTL', 'tl'); hold('tTR', 'tr');
   document.getElementById('tFix').addEventListener('pointerdown', (e) => { uprightTank(); e.preventDefault(); });
-  // 메뉴 토글. 터치 화면 기기에서는 처음부터 켠다
+  // 메뉴 토글. 처음엔 숨기고, 화면을 손가락으로 만지면 나타나고 키보드·게임패드를 쓰면 다시 숨긴다 (아이패드에 키보드를 연결해 할 때 계속 보이지 않게)
   const ui = document.getElementById('touchUI'), btn = document.getElementById('touchBtn');
-  const show = (v) => { ui.style.display = v ? '' : 'none'; btn.textContent = v ? '터치 버튼 켜짐' : '터치 버튼 꺼짐'; };
+  const show = (v) => { if ((ui.style.display !== 'none') === v) return; ui.style.display = v ? '' : 'none'; btn.textContent = v ? '터치 버튼 켜짐' : '터치 버튼 꺼짐'; };
   btn.onclick = (e) => { show(ui.style.display === 'none'); e.target.blur(); };
-  show(matchMedia('(pointer: coarse)').matches);
+  show(false);
+  addEventListener('pointerdown', (e) => { if (e.pointerType === 'touch') show(true); }, true);
+  addEventListener('keydown', () => show(false), true);
 }
 addEventListener('keyup', (e) => keys.delete(e.code));
 addEventListener('blur', () => keys.clear());
@@ -426,7 +428,7 @@ function resize() {
   viewRect();
   if (resMax) lowH = Math.round(VR.h * (devicePixelRatio || 1));
   layerScale = crtOn ? lowH / VR.h : 0;   // CRT 표현: HUD·UI를 게임 픽셀 크기로 (00_core.js)
-  const w = Math.max(2, Math.round(lowH * VR.w / VR.h)), dpr = devicePixelRatio || 1, dw = Math.max(2, Math.round(VR.w * dpr)), dh = Math.max(2, Math.round(VR.h * dpr));
+  const w = Math.max(2, Math.round(lowH * VR.w / VR.h)), dpr = crtOn ? crtDpr() : devicePixelRatio || 1, dw = Math.max(2, Math.round(VR.w * dpr)), dh = Math.max(2, Math.round(VR.h * dpr));   // CRT는 crt.maxScale 배율까지만
   renderer.setSize(dw, dh, false);   // 캔버스는 기기 픽셀 크기 (게임은 rt에 저해상도로 그리고 마지막에 늘린다)
   rt.setSize(w, lowH); cutRT.setSize(w, lowH); olRT.setSize(w, lowH); postRT.setSize(w, lowH);
   upMat.uniforms.uSrc.value.set(w, lowH); upMat.uniforms.uK.value = Math.max(1, Math.floor(dh / lowH + 1e-6));

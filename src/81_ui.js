@@ -862,5 +862,35 @@ function perfFrame(frameMs, renderMs, progs, jsMs = 0) {
   console.warn(`[끊김] ${e.frame}ms · 프레임 JS 전체 ${e.js}ms · 그리기 ${e.render}ms${progs ? ` · 새 셰이더 ${progs}개 컴파일` : ''} · 오래 걸린 단계: ${top || '없음'}` +
     ` · ${rt.width}x${rt.height} 화면 ${innerWidth}x${innerHeight}@${devicePixelRatio} · GPU ${perfGpu}`);
 }
+// 화면 성능 표시 (설정 메뉴 '성능 표시'): 아이패드 등에서 직접 재 보려고. 화면 왼쪽 아래 글자(DOM, CRT 위)로 0.5초마다 평균.
+// 켜져 있는 동안은 renderer.info를 프레임마다 직접 비워(autoReset 끔) 한 프레임 전체의 그리기 호출·삼각형을 센다
+let perfHudOn = loadOpt('perfHud', false);
+const perfHudEl = document.getElementById('perfHud'), perfBtn = document.getElementById('perfBtn'), _phSz = new THREE.Vector2();
+const PHA = { n: 0, t0: 0, frame: 0, frameMax: 0, js: 0, phys: 0, render: 0, calls: 0, tris: 0 };
+function perfHud(frameMs, jsMs, renderMs) {
+  if (!perfHudOn) return;
+  const A = PHA, now = performance.now();
+  if (!A.t0) { A.t0 = now; return; }
+  A.n++; A.frame += frameMs; A.frameMax = Math.max(A.frameMax, frameMs); A.js += jsMs; A.render += renderMs;
+  for (const [k, v] of perfT) if (k === '물리') A.phys += v;
+  A.calls += renderer.info.render.calls; A.tris += renderer.info.render.triangles;
+  if (now - A.t0 < 500) return;
+  const n = A.n, f = (v) => (v / n).toFixed(1);
+  renderer.getDrawingBufferSize(_phSz);
+  perfHudEl.textContent = [
+    `${Math.round(n * 1000 / (now - A.t0))} fps   프레임 ${f(A.frame)}ms (가장 김 ${Math.round(A.frameMax)})`,
+    `JS ${f(A.js)}ms   그중 물리 ${f(A.phys)} · 그리기 ${f(A.render)}`,
+    `GPU·기다림 약 ${Math.max(0, (A.frame - A.js) / n).toFixed(1)}ms`,
+    `그리기 호출 ${Math.round(A.calls / n)}   삼각형 ${Math.round(A.tris / n / 1000)}k`,
+    `게임 ${rt.width}x${rt.height}   화면 ${_phSz.x}x${_phSz.y} (기기 배율 ${devicePixelRatio}${crtOn ? ` · CRT 계산 배율 ${+crtDpr().toFixed(2)}` : ''})`].join('\n');
+  Object.assign(A, { n: 0, t0: now, frame: 0, frameMax: 0, js: 0, phys: 0, render: 0, calls: 0, tris: 0 });
+}
+function setPerfHud(v) {
+  perfHudOn = !!v; saveOpt('perfHud', perfHudOn); PHA.t0 = 0;
+  perfHudEl.style.display = perfHudOn ? '' : 'none'; perfBtn.textContent = perfHudOn ? '성능 표시 켜짐' : '성능 표시 꺼짐';
+  renderer.info.autoReset = !perfHudOn;
+}
+perfBtn.onclick = (e) => { setPerfHud(!perfHudOn); e.target.blur(); };
+setPerfHud(perfHudOn);
 // 타이틀 우하단 키 안내 첫 그리기: 한글 글꼴(GF)이 이 파일에 있어서 80_hud.js 로딩 중에는 그릴 수 없다 (const 선언 전). 여기서
 if (document.getElementById('tPress')) { drawTitleKeys(titlePad); layoutTitle(); }

@@ -8,7 +8,7 @@
 - **버전:** 작업할 때마다 `src/template.html`의 `VERSION`을 0.0.001씩 올리고(끝자리 세 자리, 예 0.5.016 → 0.5.017), `BUILD`는 그날 날짜(YYYY-MM-DD)만. 큰 단계는 사용자가 정한다 (예 0.5.000).
 - **성능 목표:** PC·맥·아이패드에서 60fps. CPU·GPU를 최대한 적게 쓴다. 기능을 넣을 때마다 비용을 따진다.
 - **config.js는 사용자가 직접 고친다.** 사용자가 바꾼 값은 그대로 두고, 새 설정만 주석과 함께 추가한다.
-- 탱크 물리 메모: 탱크 중력은 `GT = G × physics.gravity`(포탄·부스러기는 `G` 그대로). 벽·물체에 붙어 거의 멈춘 평지에서는 궤도 마찰을 `physics.wallSlip`배로 줄인다(`physStep`의 `_ws`, 벽에 붙어 제자리 회전이 느린 문제). 경사면 아래로 끌리는 힘은 `physics.slopePull`배(법선 성분은 그대로, `physStep`). 마찰 한계는 땅을 누르는 힘에 비례해서 중력 배율을 올리면 마찰도 같이 세진다. 궤도 속도는 '공통 속도(W/S)'와 '좌우 차이(A/D)'로 나눠 따로 따라간다(달리다 W를 떼고 돌아도 회전이 바로 시작되도록). 달리던 반대 방향 키를 누르면 헛돌던 궤도를 실제 속도로 맞춘 뒤 `physics.brake`배로 줄인다(`physStep`). G키(`uprightTank` → `openHopSpot`): 주변 16방향 중 6m 넘게 열린 방향이 8개 미만이면 가장 트인 쪽으로 고른 자리까지의 절반만큼 45도 포물선으로 쏘아 올려(`hopUpright(.., move)`, 수평은 일정 속도·높이는 식 그대로, `updateFall`) 차체 방향 그대로 내려앉고, 이미 트여 있으면 제자리에서 위로. 떠오르는 순간에도 착지 연출(`landFx`), 세우면 남은 HP가 1이 된다. 후진할 때 A/D 반대는 S를 누르고 실제로도 뒤로 가거나 거의 멈췄을 때만(tick의 `tAlong`). 회전 방향이 뒤집히면 좌우 차이도 `physics.brake`배로 빨리 바꾸고, 궤도가 땅을 미끄러지는 만큼(궤도 공통 속도와 차체 앞뒤 속도의 차이, `TURN_SLIP` m/s면 최대) 조향 돕는 힘의 상한과 세기를 `physics.brakeTurn`배까지 올린다(`B.ya`, 줄 때는 `TURN_ASSIST_FALL`초에 걸쳐 서서히). 가속·감속·멈추는 순간 두 궤도가 땅을 잡는 힘을 앞뒤로 써 버려 회전이 약해지던 문제. 빠를수록 회전 목표를 올린다(최고 속도에서 `physics.turnAtSpeed`배, 최고 속도 1.3배 넘으면 다시 줄임). 탱크끼리 충돌은 파고든 깊이를 `physics.tankHitPen`까지만 힘으로 쓰고 넘친 만큼은 위치를 떼어 내며, 힘은 무게중심 높이에 건다 (가볍게 튕겨 날아가던 문제). 보급품은 들이받으면 `pushTarget`/`slideTarget`(30_combat.js)으로 미끄러지며 기운다 (`physics.boxPush`·`boxFriction`·`boxTilt`, 기울기는 그림만).
+- 탱크 물리 메모: 탱크 중력은 `GT = G × physics.gravity`(포탄·부스러기는 `G` 그대로). 벽·물체에 붙어 거의 멈춘 평지에서는 궤도 마찰을 `physics.wallSlip`배로 줄인다(`physStep`의 `_ws`, 벽에 붙어 제자리 회전이 느린 문제). 경사면 아래로 끌리는 힘은 `physics.slopePull`배(법선 성분은 그대로, `physStep`). 마찰 한계는 땅을 누르는 힘에 비례해서 중력 배율을 올리면 마찰도 같이 세진다. 궤도 속도는 '공통 속도(W/S)'와 '좌우 차이(A/D)'로 나눠 따로 따라간다(달리다 W를 떼고 돌아도 회전이 바로 시작되도록). 달리던 반대 방향 키를 누르면 헛돌던 궤도를 실제 속도로 맞춘 뒤 `physics.brake`배로 줄인다(`physStep`). G키(`uprightTank` → `openHopSpot`): 주변 16방향 중 6m 넘게 열린 방향이 8개 미만이면 가장 트인 쪽으로 고른 자리까지의 절반만큼 45도 포물선으로 쏘아 올려(`hopUpright(.., move)`, 수평은 일정 속도·높이는 식 그대로, `updateFall`) 차체 방향 그대로 내려앉고, 이미 트여 있으면 제자리에서 위로. 떠오르는 순간에도 착지 연출(`landFx`), 세우면 남은 HP가 1이 된다. 후진할 때 A/D 반대는 S를 누르고 실제로도 뒤로 가거나 거의 멈췄을 때만(tick의 `tAlong`). 회전 방향이 뒤집히면 좌우 차이도 `physics.brake`배로 빨리 바꾸고, 궤도가 땅을 미끄러지는 만큼(궤도 공통 속도와 차체 앞뒤 속도의 차이, `TURN_SLIP` m/s면 최대) 조향 돕는 힘의 상한과 세기를 `physics.brakeTurn`배까지 올린다(`B.ya`, 줄 때는 `TURN_ASSIST_FALL`초에 걸쳐 서서히). 가속·감속·멈추는 순간 두 궤도가 땅을 잡는 힘을 앞뒤로 써 버려 회전이 약해지던 문제. 빠를수록 회전 목표를 올린다(최고 속도에서 `physics.turnAtSpeed`배, 최고 속도 1.3배 넘으면 다시 줄임). 탱크끼리 충돌은 파고든 깊이를 `physics.tankHitPen`까지만 힘으로 쓰고 넘친 만큼은 위치를 떼어 내며, 힘은 무게중심 높이에 건다 (가볍게 튕겨 날아가던 문제). 보급품은 들이받으면 `pushTarget`/`slideTarget`(30_combat.js)으로 미끄러지며 기운다 (`physics.boxPush`·`boxFriction`·`boxTilt`, 기울기는 그림만). 물리는 초당 480번(`PHYS_H`, 마찰·접촉 스프링이 안정적이려면 필요해서 낮추지 않기로 함). 스텝마다 차체 근처(`BODY_R`)의 물체(`_nearFp`)·8m 안 탱크(`_nearT`)만 골라 접촉점과 비교한다 (모든 물체와 비교하던 것이 가장 비쌌다).
 - **file://로 열어도 동작해야 한다.** 그래서 로컬 ES 모듈(import)로 나누지 않는다 (아래 '구조').
 - **index.html은 직접 고치지 않는다.** `src/`를 고치고 `python tools/build.py`로 합친다.
 - 사용자에게 시안을 보여 줄 때는 `mockups/`에 `YYYYMMDD_` 접두어로 저장한다.
@@ -50,6 +50,7 @@ images/             ← 타이틀 도트 PNG (사용자가 직접 그림). image
 mockups/            ← 사용자에게 보여 준 시안 그림
 ```
 - 모든 src/*.js는 **하나의 모듈 범위**를 나눠 쓴다. import/export 없이 앞 파일의 이름을 그대로 쓰고, **파일 이름 순서가 곧 실행 순서**다 (let/const는 선언 전에 쓰면 TDZ 오류).
+- config.js·map.js·decals.js 등 앞에서 읽는 데이터 파일은 template.html이 `?v=시각`을 붙여 `document.write`로 읽는다 (브라우저 캐시 때문에 고친 config가 반영되지 않던 문제. 새 파일을 더하면 그 목록에).
 - 브라우저 오류 줄 번호는 index.html 기준. 파일 경계에 `// ===== src/xx.js =====` 표시가 있다.
 
 ## 화면 구성
@@ -64,6 +65,7 @@ mockups/            ← 사용자에게 보여 준 시안 그림
 - 레이어는 바뀐 때만 다시 합친다: 새 화면 캔버스를 만들면 그리는 곳에서 `crtDirty = true`, sharpBlit으로 그리면 `CRT_LAYER`에 넣고, 쌓는 순서는 `crtLayers()`에 더한다.
 - 화면 휨·테두리 때문에 마우스 좌표는 `crtPoint(x, y)`로 되짚는다 (UI 클릭·편집 모드).
 - **캔버스 텍스처 크기:** three.js는 캔버스 텍스처를 처음 올린 크기로 잡아 두고 그 뒤로는 덮어쓰기만 한다. 캔버스 크기를 바꾸면 `texture.dispose()`로 새로 만들어야 한다 (안 하면 WebGL 오류만 나고 옛 그림이 남는다. 레이어는 `crtSize()`).
+- CRT 계산 해상도는 화면 배율을 config `crt.maxScale`까지만(`crtDpr()`, resize·crtPresent0): 아이패드 같은 2배 화면에서 기기 해상도 그대로 계산하면 무겁다. 그보다 낮게 계산하면 CSS가 부드럽게 늘린다(`body.crt canvas#c`).
 - CRT에서 오류가 나면 `crtFail()`이 CRT를 끄고 원래 화면으로 돌아간다 (로딩·게임이 멈추지 않게, 원인은 콘솔 `[CRT]`).
 - 로딩 화면에도 건다: 그래서 renderer를 만든 10_world.js 바로 뒤 파일이고, 뒤 파일의 이름(postRT·HUD 캔버스·resize 등)은 함수 안에서만 쓴다. `crtOn`은 00_core.js가 처음에 읽고, 로딩 그림은 `drawLoading` → `crtLoadHook`. 그 전에는 화면이 검다.
 
@@ -142,6 +144,7 @@ mockups/            ← 사용자에게 보여 준 시안 그림
 - 미리보기: `.claude/launch.json`의 `minitank` (python http.server 8123).
 - 셰이더 미리 컴파일은 `warmCompile()`(90_loop.js): 렌더 타깃 `rt`에 맞춰 컴파일한다 (캔버스 기준이면 출력 색 공간이 달라 전부 다시 컴파일된다). 새 재질·인스턴스 색 버퍼는 로딩 때 장면에 있어야 미리 컴파일된다. **`scene` 밖에서 따로 그리는 장면(궤도 자국 `stampScene`·`fadeScene` 등)은 warmCompile에 안 들어가므로** 90_loop.js 로딩 단계에서 그려질 렌더 타깃을 맞춰 `compileAsync`로 따로 미리 컴파일하고 끝날 때까지 기다린다 (안 하면 처음 쓰이는 순간 컴파일·링크를 기다리며 1초 넘게 멈춘다: 게임 시작 때 `updateTrackMap`에서 1.5초 멈춘 적 있음). 끊김 확인: `renderer.info.programs.length`가 게임 중에 늘면 그때 컴파일한 것.
 - 그을음(`addScorchDecal`)은 건물이면 잘게 쪼개기 전 저해상도 사본(`group.userData.ray`)에 투영하고, 데칼 상자에 닿는 삼각형만 골라 계산한다(`decalCulled`). 잔해 그을음은 로딩 때 3벌 미리 만들어 잔해에 자식으로 붙인다(`WRECK_SCORCH`). 게임 중에 무거운 계산을 새로 넣을 때는 이렇게 미리 만들거나 저해상도로.
+- 화면 성능 표시(설정 메뉴 '성능 표시', `perfHud`, 81_ui.js): 왼쪽 아래 DOM 글자로 fps·프레임·JS(물리·그리기)·GPU·기다림·그리기 호출·삼각형·해상도. 켜져 있으면 `renderer.info`를 프레임마다 직접 비운다(autoReset 끔). 아이패드에서 직접 잴 때.
 - 끊김 기록(`perfFrame`, 콘솔 `[끊김]`): 프레임 JS 전체 시간·그리기·새 셰이더 수·오래 걸린 단계·해상도·GPU 이름.
 - 미리보기 창이 가려져 있으면 rAF가 거의 돌지 않는다. 시험할 때는 `src/90_loop.js`에 임시로 `window.__frame = frame` 같은 훅을 넣고 빌드해서 루프를 직접 돌린 뒤, **끝나면 반드시 지우고 다시 빌드**한다.
 - 디버그: `window.dbg` (`dbg.tank`, `dbg.setOffer([...id])`, `dbg.setOfferRaw`, `dbg.offerPad`, `dbg.offerFreeze`, `dbg.holdPick`, `dbg.showClear`, `dbg.showPause`, `dbg.fillPickLog(n)`, `dbg.uiShot()` = HUD+UI를 게임 해상도 PNG data URL로).
@@ -151,6 +154,7 @@ mockups/            ← 사용자에게 보여 준 시안 그림
 ## 게임패드
 - `81_ui.js` `padPoll()`이 매 프레임(frame 맨 앞, 일시정지 중에도) 표준 배치 패드를 읽어 `pad`(40_input_post.js)에 아날로그 값을 채운다 (tick이 키보드·터치 값과 함께 쓴다). 버튼 하나짜리 동작은 `padKey(code)`로 키 입력을 만들어 보낸다 (`e.fromPad`, 누르고 있는 동작은 `padHold`). 창마다 버튼 배치는 padPoll 위 주석. 화면의 키 글자는 마지막 입력(`inputPad`, `setInputPad`)에 따라 `PK(키보드, 패드)`로 바로 바뀐다 (타이틀은 `drawTitleKeys`). 버튼 이름은 Xbox 기준 (PS 패드도 브라우저가 같은 자리로).
 - 왼쪽 스틱은 전진·후진·선회마다 config `gamepad`의 [데드존, 최대] (`padRamp`, 81_ui.js): 데드존까지 0, 최대부터 키를 누른 것과 같은 1.
+- 화면 가상패드(`#touchUI`)는 처음엔 숨기고, 손가락으로 화면을 만지면 나타나고 키보드·패드 입력이면 다시 숨는다 (40_input_post.js).
 - 패드로 조작하면 시점은 늘 차체 방향(`camTurret()`). 진동은 `padRumble(strong, weak, ms)` (패드로 조작할 때만, 마지막에 만진 패드로): 폭발·피격·충돌·줍기·내 대포 발사(타이틀·임무 완료 화면 빼고)에서 부른다. 실제로 울리는 건 `padRumbleNow`: `vibrationActuator.playEffect`('dual-rumble'/'trigger-rumble') → 없으면 `hapticActuators[0].pulse`, 안 되면 콘솔 `[진동]`에 이유를 한 번. 설정에서 진동을 켜면 한 번 울린다.
 
 ## 남은 일 / 생각해 둔 것

@@ -131,6 +131,7 @@ function sparks(p, n, k = 1) {   // k: 부딪힌 소리 세기
 }
 const _sepN = new THREE.Vector3(); let _sepK = 1;
 const TURN_SLIP = 0.6, TURN_ASSIST_FALL = 0.25;
+const _nearFp = [], _nearT = [], BODY_R = 3.5;   // BODY_R: 차체 가운데에서 가장 먼 접촉점(약 2.4m)보다 넉넉하게
 function physStep(h, thr, turn, body = tank) {
   B = body;
   // 몸체마다 성능 배율 (성장 테스트 슬라이더: 내 탱크만). 시냇물 안에서는 절반 속도
@@ -180,6 +181,10 @@ function physStep(h, thr, turn, body = tank) {
   }
   _ws = ws; B.wallC = 0;
   B.contacts = 0;
+  // 근처 것만 미리 고른다: 접촉점(43개)마다 지도의 모든 물체·탱크와 비교하던 것을 이번 스텝에 차체가 닿을 수 있는 것만 (가장 비싼 부분이었다)
+  _nearFp.length = 0; _nearT.length = 0;
+  for (const fp of footprints) { const r = BODY_R + Math.hypot(fp.hx, fp.hz), dx = fp.x - B.pos.x, dz = fp.z - B.pos.z; if (dx * dx + dz * dz < r * r) _nearFp.push(fp); }
+  for (const O of TANKS) if (O !== B && O.solid && (O.pos.x - B.pos.x) ** 2 + (O.pos.z - B.pos.z) ** 2 < 64) _nearT.push(O);
   let sepD = 0;   // 다른 탱크에 PH.tankHitPen보다 깊이 파고든 만큼 (가장 깊은 것): 힘 대신 위치를 직접 떼어 낸다
   for (const cp of B.cpts || CPTS) {
     _rw.copy(cp.r).applyQuaternion(B.q);
@@ -195,7 +200,7 @@ function physStep(h, thr, turn, body = tank) {
     const ox = Math.abs(_pw.x) - WALL, oz = Math.abs(_pw.z) - WALL;
     if (ox > 0) { _n.set(-Math.sign(_pw.x), 0, 0); contactForce(cp, ox, _n, true); }
     if (oz > 0) { _n.set(0, 0, -Math.sign(_pw.z)); contactForce(cp, oz, _n, true); }
-    for (const fp of footprints) {
+    for (const fp of _nearFp) {
       if (_pw.y >= fp.top || _pw.y <= fp.y0 - 1) continue;
       fpLocal(fp, _pw.x, _pw.z, _fl);
       const ox = fp.hx - Math.abs(_fl.x), oz = fp.hz - Math.abs(_fl.z);
@@ -217,7 +222,7 @@ function physStep(h, thr, turn, body = tank) {
       }
     }
     // 다른 탱크: 그 차체 상자 안으로 들어간 접촉점을 가까운 옆면 밖으로 민다 (서로 상대 쪽에서 똑같이 밀린다)
-    for (const O of TANKS) {
+    for (const O of _nearT) {
       if (O === B || !O.solid) continue;
       _loc.copy(_pw).sub(O.pos).applyQuaternion(_qo.copy(O.q).invert()).add(COM);
       if (_loc.y < -0.2 || _loc.y > (O.ht ?? 2.8)) continue;
