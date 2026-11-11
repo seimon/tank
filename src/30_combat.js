@@ -131,7 +131,7 @@ function sparks(p, n, k = 1) {   // k: 부딪힌 소리 세기
 }
 const _sepN = new THREE.Vector3(); let _sepK = 1;
 const TURN_SLIP = 0.6, TURN_ASSIST_FALL = 0.25;
-const _nearFp = [], _nearT = [], BODY_R = 3.5;   // BODY_R: 차체 가운데에서 가장 먼 접촉점(약 2.4m)보다 넉넉하게
+const _nearFp = [], _nearT = [], BODY_R = 3.5, TANK_R2 = 4.3 * 4.3;   // TANK_R2: 무게중심에서 차체 상자(높이 2.8m 포함) 끝까지 약 4m   // BODY_R: 차체 가운데에서 가장 먼 접촉점(약 2.4m)보다 넉넉하게
 function physStep(h, thr, turn, body = tank) {
   B = body;
   // 몸체마다 성능 배율 (성장 테스트 슬라이더: 내 탱크만). 시냇물 안에서는 절반 속도
@@ -184,7 +184,7 @@ function physStep(h, thr, turn, body = tank) {
   // 근처 것만 미리 고른다: 접촉점(43개)마다 지도의 모든 물체·탱크와 비교하던 것을 이번 스텝에 차체가 닿을 수 있는 것만 (가장 비싼 부분이었다)
   _nearFp.length = 0; _nearT.length = 0;
   for (const fp of footprints) { const r = BODY_R + Math.hypot(fp.hx, fp.hz), dx = fp.x - B.pos.x, dz = fp.z - B.pos.z; if (dx * dx + dz * dz < r * r) _nearFp.push(fp); }
-  for (const O of TANKS) if (O !== B && O.solid && (O.pos.x - B.pos.x) ** 2 + (O.pos.z - B.pos.z) ** 2 < 64) _nearT.push(O);
+  for (const O of TANKS) if (O !== B && O.solid && (O.pos.x - B.pos.x) ** 2 + (O.pos.z - B.pos.z) ** 2 < 64) { _nearT.push(O); (O._qinv || (O._qinv = new THREE.Quaternion())).copy(O.q).invert(); }   // 역회전은 스텝마다 한 번만
   let sepD = 0;   // 다른 탱크에 PH.tankHitPen보다 깊이 파고든 만큼 (가장 깊은 것): 힘 대신 위치를 직접 떼어 낸다
   for (const cp of B.cpts || CPTS) {
     _rw.copy(cp.r).applyQuaternion(B.q);
@@ -223,8 +223,9 @@ function physStep(h, thr, turn, body = tank) {
     }
     // 다른 탱크: 그 차체 상자 안으로 들어간 접촉점을 가까운 옆면 밖으로 민다 (서로 상대 쪽에서 똑같이 밀린다)
     for (const O of _nearT) {
-      if (O === B || !O.solid) continue;
-      _loc.copy(_pw).sub(O.pos).applyQuaternion(_qo.copy(O.q).invert()).add(COM);
+      const ox0 = _pw.x - O.pos.x, oy0 = _pw.y - O.pos.y, oz0 = _pw.z - O.pos.z;
+      if (ox0 * ox0 + oy0 * oy0 + oz0 * oz0 > TANK_R2) continue;   // 그 차체를 감싸는 구 밖의 접촉점은 바로 건너뛴다 (탱크가 몰려 있을 때 가장 비쌌다)
+      _loc.copy(_pw).sub(O.pos).applyQuaternion(O._qinv).add(COM);
       if (_loc.y < -0.2 || _loc.y > (O.ht ?? 2.8)) continue;
       const ox = (O.hx ?? HULL_HX) - Math.abs(_loc.x), oz = (O.hz ?? HULL_HZ) - Math.abs(_loc.z);
       if (ox <= 0 || oz <= 0) continue;
