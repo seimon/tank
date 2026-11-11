@@ -124,9 +124,8 @@ function ditherWipe(src, f, vOf) {
 // 화면에는 숨긴 채 41_crt.js가 한 장으로 합쳐 3D 화면과 함께 CRT 셰이더를 거친다. crtDirty = 레이어가 바뀌었다 (다시 합친다)
 const CRT_LAYER = new Set();   // sharpBlit으로 그리는 레이어 캔버스 (타이틀 그림)
 let crtOn = false, layerScale = 0, crtDirty = true, crtDirtyLo = true, crtDirtyHi = true, crtLoadHook = null;   // crtDirty = 두 묶음 모두, Lo = 아래 묶음(HUD·대미지 숫자·타이틀), Hi = 위 묶음(UI·로딩·나가기 덮개)
-// CRT를 켜고 시작하면 HUD·UI 캔버스를 CPU 쪽에 둔다(willReadFrequently): 아이패드에서 GPU 캔버스를 텍스처로 올릴 때마다 읽어 오느라 프레임마다 8~12ms 걸렸다
-const CV2D = { willReadFrequently: true };
-const cv2d = (c) => c.getContext('2d', crtOn ? CV2D : undefined);
+// HUD·UI·CRT 레이어 캔버스의 2D 그리기 판. (CPU 쪽에 두는 willReadFrequently를 아이패드에서 시험했으나 오히려 느려져 기본으로 되돌림. 한곳에서 바꿀 수 있게 남겨 둔다)
+const cv2d = (c) => c.getContext('2d');
 //   // crtLoadHook: 로딩 그림을 CRT로 (10a_crt.js)
 function sharpBlit(dst, src, cssW, cssH) {
   const lay = CRT_LAYER.has(dst); if (lay) { if (dst._crtHi) crtDirtyHi = true; else crtDirtyLo = true; }

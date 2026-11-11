@@ -21,7 +21,9 @@ const crtB = document.createElement('canvas'), crtBg = cv2d(crtB);   // 스크�
 const crtC = document.createElement('canvas'), crtCg = cv2d(crtC);   // 위 묶음 (UI): 보통
 const crtD = document.createElement('canvas'), crtDg = cv2d(crtD);   // 위 묶음 (UI): 스크린·더하기
 const CRT_CV = [crtA, crtB, crtC, crtD], CRT_G = [crtAg, crtBg, crtCg, crtDg];
-const crtTex = (c) => { const t = new THREE.CanvasTexture(c); t.minFilter = t.magFilter = THREE.NearestFilter; t.generateMipmaps = false; t.premultiplyAlpha = true; return t; };
+// 위아래 뒤집기(flipY)는 끄고 셰이더에서 뒤집어 읽는다: 캔버스를 올릴 때 브라우저가 뒤집느라 따로 변환하지 않게 (아이패드에서 'CRT 합치기'가 느렸다).
+// 미리 곱한 알파(premultiplyAlpha)는 캔버스가 원래 그 형태라 그대로 둔다
+const crtTex = (c) => { const t = new THREE.CanvasTexture(c); t.minFilter = t.magFilter = THREE.NearestFilter; t.generateMipmaps = false; t.premultiplyAlpha = true; t.flipY = false; return t; };
 const crtTexA = crtTex(crtA), crtTexB = crtTex(crtB), crtTexC = crtTex(crtC), crtTexD = crtTex(crtD), CRT_TX = [crtTexA, crtTexB, crtTexC, crtTexD];
 const compRT = new THREE.WebGLRenderTarget(2, 2, { magFilter: THREE.LinearFilter, minFilter: THREE.LinearFilter, depthBuffer: false });
 const crtPrep = [0, 1].map(() => new THREE.WebGLRenderTarget(2, 2, { magFilter: THREE.LinearFilter, minFilter: THREE.LinearMipmapLinearFilter, generateMipmaps: true, depthBuffer: false }));
@@ -36,8 +38,9 @@ const crtCompMat = new THREE.ShaderMaterial({
     vec3 lay(vec3 c, vec4 a, vec3 b, float scr) { c = c * (1.0 - a.a) + a.rgb; return scr > 0.5 ? 1.0 - (1.0 - c) * (1.0 - b) : c + b; }   // 레이어는 미리 곱한 알파
     void main() {
       vec3 c = texture2D(tSrc, vUv).rgb;
-      c = lay(c, texture2D(tA, vUv), texture2D(tB, vUv).rgb, uScreen);    // 아래: HUD·대미지 숫자
-      c = lay(c, texture2D(tC, vUv), texture2D(tD, vUv).rgb, uScreen2);   // 위: UI 창·선택지·타이틀
+      vec2 lu = vec2(vUv.x, 1.0 - vUv.y);   // 레이어 텍스처는 뒤집지 않고 올렸다
+      c = lay(c, texture2D(tA, lu), texture2D(tB, lu).rgb, uScreen);    // 아래: HUD·대미지 숫자
+      c = lay(c, texture2D(tC, lu), texture2D(tD, lu).rgb, uScreen2);   // 위: UI 창·선택지·타이틀
       gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
     }`,
   depthTest: false, depthWrite: false,
