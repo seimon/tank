@@ -513,6 +513,8 @@ function vcMat(m) {
   }
   return vcCache.get(m);
 }
+// 건물 그늘(AO)을 굽는 정점 간격 (m). 작을수록 그늘이 부드럽지만 삼각형이 많아진다 (0.5일 때 건물들만 20만 개쯤이라 0.8로)
+const HOUSE_AO_E = 0.8;
 function place(g0, x, z, rotY, w, d, extra = 0, porchD = 0) {
   // 몸통 = 가장 큰 상자. 이웃 건물 벽·바닥 틈의 그늘을 구울 때 이 상자가 가린다 (쪼개기 전에 찾아 둔다)
   let body = null;
@@ -524,7 +526,7 @@ function place(g0, x, z, rotY, w, d, extra = 0, porchD = 0) {
   // 포탄·조준선 충돌 판정용 저해상도 복사본: AO 때문에 잘게 쪼갠 모델(살롱은 삼각형 6만여 개)에 광선을 쏘면
   // 판정 한 번에 몇 ms씩 걸려 조준선이 건물을 스칠 때 프레임이 크게 끊긴다. 쪼개기 전 모양을 같은 기울기로 따로 굽는다
   const lean = leaner(), rayG0 = g0.clone();
-  bakeAO(g0, 1.8, 0.85, 0.5);   // 처마 밑, 현관 지붕 밑, 벽 밑동, 통·상자 뒤가 어둑하게
+  bakeAO(g0, 1.8, 0.85, HOUSE_AO_E);   // 처마 밑, 현관 지붕 밑, 벽 밑동, 통·상자 뒤가 어둑하게 (그늘을 정점마다 굽느라 HOUSE_AO_E m보다 짧은 변으로 쪼갠다)
   const g = bake(g0, lean, ['color']), ray = bake(rayG0, lean);
   g.children.forEach((o) => { if (o.isMesh) o.material = vcMat(o.material); });
   rotY += (rand() < 0.5 ? -1 : 1) * rr(3, 10) * Math.PI / 180;

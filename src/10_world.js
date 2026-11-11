@@ -458,7 +458,27 @@ let terrainCol;
   }, 'terrain');
   mat.userData.ownWhite = true;   // 흰색 보기는 위 셰이더가 그늘을 남기며 직접 처리
   mat.userData.noOcc = true;   // 땅은 내 탱크를 가려도 비우지 않는다
-  { const m = new THREE.Mesh(geo, mat); m.userData.noOutline = true; scene.add(m); }   // 땅은 외곽선 없음
+  // 그리는 격자는 config map.terrainStep칸마다 하나만 (2 = 1m 간격, 삼각형 1/4). 세로 300줄 화면에서는 거의 구분이 안 되는데 GPU 부담은 크다.
+  // 위의 계산(난수 순서·terrainCol·물리 높이)은 원래 0.5m 격자 그대로 두고, 같은 자리의 값을 골라 옮긴다
+  let tgeo = geo;
+  const TS = Math.max(1, Math.round(CFG.map?.terrainStep ?? 2));
+  if (TS > 1 && (N - 1) % TS === 0) {
+    const M = (N - 1) / TS + 1, g2 = new THREE.PlaneGeometry(HALF * 2, HALF * 2, M - 1, M - 1);
+    g2.rotateX(-Math.PI / 2);
+    const p2 = g2.attributes.position, c2 = new Float32Array(M * M * 3), r2 = new Float32Array(M * M), k2 = new Float32Array(M * M * 2), l2 = new Float32Array(M * M);
+    for (let b = 0; b < M; b++) for (let a = 0; a < M; a++) {
+      const i = b * M + a, j = b * TS * N + a * TS;   // PlaneGeometry는 줄(z)마다 x 순서: 성긴 (a, b) = 원래 (a·TS, b·TS)
+      p2.setY(i, pos.getY(j)); c2[i * 3] = col[j * 3]; c2[i * 3 + 1] = col[j * 3 + 1]; c2[i * 3 + 2] = col[j * 3 + 2];
+      r2[i] = road[j]; k2[i * 2] = creek[j * 2]; k2[i * 2 + 1] = creek[j * 2 + 1]; l2[i] = cliff[j];
+    }
+    g2.setAttribute('color', new THREE.BufferAttribute(c2, 3));
+    g2.setAttribute('aRoad', new THREE.BufferAttribute(r2, 1));
+    g2.setAttribute('aCreek', new THREE.BufferAttribute(k2, 2));
+    g2.setAttribute('aCliff', new THREE.BufferAttribute(l2, 1));
+    g2.computeVertexNormals();
+    tgeo = g2; geo.dispose();
+  }
+  { const m = new THREE.Mesh(tgeo, mat); m.userData.noOutline = true; scene.add(m); }   // 땅은 외곽선 없음
 }
 
 // 디오라마 단면 (지층 3단): 위 겉흙 / 가운데 흙(자갈·잔뿌리) / 아래 암반(바위). 디테일은 단면 텍스처 두 장에 그려 둔다

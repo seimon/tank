@@ -131,7 +131,7 @@
 </div>
 <script>
   // 버전·빌드 시각: 여기 한 곳만 고치면 로딩 화면과 설정 메뉴에 같이 나온다
-  const VERSION = '0.8.045', BUILD = '2026-11-11', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
+  const VERSION = '0.8.048', BUILD = '2026-11-11', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
   for (const e of document.querySelectorAll('.ver')) e.textContent = BUILD_TXT;
 </script>
 <canvas id="perfHud" style="display:none"></canvas>
@@ -1022,7 +1022,27 @@ let terrainCol;
   }, 'terrain');
   mat.userData.ownWhite = true;   // 흰색 보기는 위 셰이더가 그늘을 남기며 직접 처리
   mat.userData.noOcc = true;   // 땅은 내 탱크를 가려도 비우지 않는다
-  { const m = new THREE.Mesh(geo, mat); m.userData.noOutline = true; scene.add(m); }   // 땅은 외곽선 없음
+  // 그리는 격자는 config map.terrainStep칸마다 하나만 (2 = 1m 간격, 삼각형 1/4). 세로 300줄 화면에서는 거의 구분이 안 되는데 GPU 부담은 크다.
+  // 위의 계산(난수 순서·terrainCol·물리 높이)은 원래 0.5m 격자 그대로 두고, 같은 자리의 값을 골라 옮긴다
+  let tgeo = geo;
+  const TS = Math.max(1, Math.round(CFG.map?.terrainStep ?? 2));
+  if (TS > 1 && (N - 1) % TS === 0) {
+    const M = (N - 1) / TS + 1, g2 = new THREE.PlaneGeometry(HALF * 2, HALF * 2, M - 1, M - 1);
+    g2.rotateX(-Math.PI / 2);
+    const p2 = g2.attributes.position, c2 = new Float32Array(M * M * 3), r2 = new Float32Array(M * M), k2 = new Float32Array(M * M * 2), l2 = new Float32Array(M * M);
+    for (let b = 0; b < M; b++) for (let a = 0; a < M; a++) {
+      const i = b * M + a, j = b * TS * N + a * TS;   // PlaneGeometry는 줄(z)마다 x 순서: 성긴 (a, b) = 원래 (a·TS, b·TS)
+      p2.setY(i, pos.getY(j)); c2[i * 3] = col[j * 3]; c2[i * 3 + 1] = col[j * 3 + 1]; c2[i * 3 + 2] = col[j * 3 + 2];
+      r2[i] = road[j]; k2[i * 2] = creek[j * 2]; k2[i * 2 + 1] = creek[j * 2 + 1]; l2[i] = cliff[j];
+    }
+    g2.setAttribute('color', new THREE.BufferAttribute(c2, 3));
+    g2.setAttribute('aRoad', new THREE.BufferAttribute(r2, 1));
+    g2.setAttribute('aCreek', new THREE.BufferAttribute(k2, 2));
+    g2.setAttribute('aCliff', new THREE.BufferAttribute(l2, 1));
+    g2.computeVertexNormals();
+    tgeo = g2; geo.dispose();
+  }
+  { const m = new THREE.Mesh(tgeo, mat); m.userData.noOutline = true; scene.add(m); }   // 땅은 외곽선 없음
 }
 
 // 디오라마 단면 (지층 3단): 위 겉흙 / 가운데 흙(자갈·잔뿌리) / 아래 암반(바위). 디테일은 단면 텍스처 두 장에 그려 둔다
@@ -1963,6 +1983,8 @@ function vcMat(m) {
   }
   return vcCache.get(m);
 }
+// 건물 그늘(AO)을 굽는 정점 간격 (m). 작을수록 그늘이 부드럽지만 삼각형이 많아진다 (0.5일 때 건물들만 20만 개쯤이라 0.8로)
+const HOUSE_AO_E = 0.8;
 function place(g0, x, z, rotY, w, d, extra = 0, porchD = 0) {
   // 몸통 = 가장 큰 상자. 이웃 건물 벽·바닥 틈의 그늘을 구울 때 이 상자가 가린다 (쪼개기 전에 찾아 둔다)
   let body = null;
@@ -1974,7 +1996,7 @@ function place(g0, x, z, rotY, w, d, extra = 0, porchD = 0) {
   // 포탄·조준선 충돌 판정용 저해상도 복사본: AO 때문에 잘게 쪼갠 모델(살롱은 삼각형 6만여 개)에 광선을 쏘면
   // 판정 한 번에 몇 ms씩 걸려 조준선이 건물을 스칠 때 프레임이 크게 끊긴다. 쪼개기 전 모양을 같은 기울기로 따로 굽는다
   const lean = leaner(), rayG0 = g0.clone();
-  bakeAO(g0, 1.8, 0.85, 0.5);   // 처마 밑, 현관 지붕 밑, 벽 밑동, 통·상자 뒤가 어둑하게
+  bakeAO(g0, 1.8, 0.85, HOUSE_AO_E);   // 처마 밑, 현관 지붕 밑, 벽 밑동, 통·상자 뒤가 어둑하게 (그늘을 정점마다 굽느라 HOUSE_AO_E m보다 짧은 변으로 쪼갠다)
   const g = bake(g0, lean, ['color']), ray = bake(rayG0, lean);
   g.children.forEach((o) => { if (o.isMesh) o.material = vcMat(o.material); });
   rotY += (rand() < 0.5 ? -1 : 1) * rr(3, 10) * Math.PI / 180;
@@ -2720,7 +2742,7 @@ function buildTank(wreck, tc = TC, spg = false) {
   P.stack = add(new THREE.Object3D(), end.x, end.y + STACK_DIR.y * 0.08, end.z + STACK_DIR.z * 0.08);
   // 합칠 때 속성이 같아야 하므로 리벳 속성이 없는 메시는 0으로 채운다
   root.traverse((o) => { if (o.isMesh && !o.geometry.attributes.aRiv) o.geometry.setAttribute('aRiv', new THREE.BufferAttribute(new Float32Array(o.geometry.attributes.position.count * 4), 4)); });
-  bakeAO(root);
+  bakeAO(root, 1.1, 0.9, wreck ? 0.5 : 0.28);   // 잔해는 새카맣게 그을려 그늘이 덜 보이니 덜 쪼갠다
   root.traverse((o) => { if (o.isMesh && !o.material.isMeshBasicMaterial) o.material.defines = { AO_BAKED: '' }; });
   for (const k of ['pivot', 'barrel', 'turret', 'tip', 'stack', 'shovel']) P[k].name = k;   // 복제본에서 다시 찾을 수 있게
   PS1_NOSNAP = false;
@@ -3069,8 +3091,26 @@ function surfaceTop(x, z) {
 
 // ---------------------------------------------------------------- 부서진 탱크 (내 탱크와 같은 모델, 새카맣게 그을림. 계속 연기를 피움)
 const WRECKS = [];
+// 재질 색을 정점 색(구운 그늘)에 곱해 넣고, 텍스처·면 방향이 같은 메시끼리 하나로 합친다 (잔해 하나 24번 그리던 것을 몇 번으로)
+function mergeByTex(g) {
+  const groups = new Map(), out = new THREE.Group();
+  for (const m of [...g.children]) {
+    if (!m.isMesh || m.material.isMeshBasicMaterial || !m.geometry.attributes.color) { out.add(m); continue; }
+    const geo = m.geometry.clone(), c = geo.attributes.color, mc = m.material.color;
+    for (let i = 0; i < c.count; i++) c.setXYZ(i, c.getX(i) * mc.r, c.getY(i) * mc.g, c.getZ(i) * mc.b);
+    const k = `${m.material.map ? m.material.map.uuid : '-'}|${m.material.side}`;
+    if (!groups.has(k)) groups.set(k, { mat: m.material, geos: [] });
+    groups.get(k).geos.push(geo);
+  }
+  for (const { mat, geos } of groups.values()) {
+    const nm = mat.clone(); nm.color.set(0xffffff); nm.onBeforeCompile = mat.onBeforeCompile;
+    if (mat.customProgramCacheKey !== THREE.Material.prototype.customProgramCacheKey) nm.customProgramCacheKey = mat.customProgramCacheKey;
+    out.add(new THREE.Mesh(mergeGeometries(geos), nm));
+  }
+  return out;
+}
 const wreckModel = (() => { const { root, P } = buildTank(true); P.pivot.rotation.x = 0.16; P.turret.rotation.y = 0.45;   // 포신이 축 처지고 포탑이 비뚤게 돌아갔다
-  return bake(root, null, ['aRiv', 'color']);
+  return mergeByTex(bake(root, null, ['aRiv', 'color']));
 })();
 function placeWreck(x, z, yaw) {
   const wg = markOutline(wreckModel.clone());
@@ -6535,13 +6575,14 @@ document.getElementById('olBtn').onclick = (e) => {   // 외곽선 (풀 제외)
   outlineOn = !outlineOn; postMat.uniforms.uOL.value = outlineOn ? 1 : 0;
   e.target.textContent = outlineOn ? '외곽선 켜짐' : '외곽선 꺼짐'; e.target.blur();
 };
-let grassMode = 0;   // 텍스처 종류 (0부터)
+let grassMode = 0;   // 텍스처 종류 (0부터). grassCardMats.length = 풀 끔 (성능 비교용: 메시만 숨긴다)
 function setGrass(m) {
   grassMode = m;
-  for (const cm of grassCard) cm.material = grassCardMats[m];
-  document.getElementById('grassBtn').textContent = `풀: 텍스처${grassCardNames[m]}`;
+  const off = m >= grassCardMats.length;
+  for (const cm of grassCard) { cm.visible = !off; if (!off) cm.material = grassCardMats[m]; }
+  document.getElementById('grassBtn').textContent = off ? '풀: 끔' : `풀: 텍스처${grassCardNames[m]}`;
 }
-document.getElementById('grassBtn').onclick = (e) => { setGrass((grassMode + 1) % grassCardMats.length); e.target.blur(); };   // 텍스처1 → 2 → 3 → 1
+document.getElementById('grassBtn').onclick = (e) => { setGrass((grassMode + 1) % (grassCardMats.length + 1)); e.target.blur(); };   // 텍스처1 → 2 → 3 → 끔 → 1
 setGrass(1);   // 처음엔 텍스처2 (이삭 풀)
 document.getElementById('ppBtn').onclick = (e) => {
   pixelPerfect = !pixelPerfect; e.target.textContent = pixelPerfect ? 'Pixel Perfect 켜짐' : 'Pixel Perfect 꺼짐';
@@ -9801,7 +9842,13 @@ const perfHudEl = document.getElementById('perfHud'), perfBtn = document.getElem
 const PH_GROUPS = [   // [이름, perfMark 이름들, 주의 ms, 위험 ms]
   ['물리', ['물리'], 4, 8],
   ['적 AI', ['적 AI'], 2, 4],
-  ['월드 갱신', ['입력', '탱크 표시', '포탄', '파티클', '풀·불 필드', '궤도 자국', '보급품·동전·기타', '조명·조준', '카메라', '기타'], 4, 8],
+  ['탱크 표시', ['탱크 표시'], 2, 4],
+  ['포탄', ['포탄'], 2, 4],
+  ['파티클·불꽃', ['파티클'], 2, 4],
+  ['풀·불 필드', ['풀·불 필드'], 2, 4],
+  ['궤도 자국', ['궤도 자국'], 2, 4],
+  ['보급품·기타', ['입력', '보급품·동전·기타', '기타'], 2, 4],
+  ['조명·카메라', ['조명·조준', '카메라'], 2, 4],
   ['날씨', ['날씨'], 2, 4],
   ['HUD·UI', ['HUD', 'UI·대미지 숫자'], 2, 4],
   ['장면 그리기', ['장면 그리기'], 5, 9],

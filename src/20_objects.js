@@ -268,7 +268,7 @@ function buildTank(wreck, tc = TC, spg = false) {
   P.stack = add(new THREE.Object3D(), end.x, end.y + STACK_DIR.y * 0.08, end.z + STACK_DIR.z * 0.08);
   // 합칠 때 속성이 같아야 하므로 리벳 속성이 없는 메시는 0으로 채운다
   root.traverse((o) => { if (o.isMesh && !o.geometry.attributes.aRiv) o.geometry.setAttribute('aRiv', new THREE.BufferAttribute(new Float32Array(o.geometry.attributes.position.count * 4), 4)); });
-  bakeAO(root);
+  bakeAO(root, 1.1, 0.9, wreck ? 0.5 : 0.28);   // 잔해는 새카맣게 그을려 그늘이 덜 보이니 덜 쪼갠다
   root.traverse((o) => { if (o.isMesh && !o.material.isMeshBasicMaterial) o.material.defines = { AO_BAKED: '' }; });
   for (const k of ['pivot', 'barrel', 'turret', 'tip', 'stack', 'shovel']) P[k].name = k;   // 복제본에서 다시 찾을 수 있게
   PS1_NOSNAP = false;
@@ -617,8 +617,26 @@ function surfaceTop(x, z) {
 
 // ---------------------------------------------------------------- 부서진 탱크 (내 탱크와 같은 모델, 새카맣게 그을림. 계속 연기를 피움)
 const WRECKS = [];
+// 재질 색을 정점 색(구운 그늘)에 곱해 넣고, 텍스처·면 방향이 같은 메시끼리 하나로 합친다 (잔해 하나 24번 그리던 것을 몇 번으로)
+function mergeByTex(g) {
+  const groups = new Map(), out = new THREE.Group();
+  for (const m of [...g.children]) {
+    if (!m.isMesh || m.material.isMeshBasicMaterial || !m.geometry.attributes.color) { out.add(m); continue; }
+    const geo = m.geometry.clone(), c = geo.attributes.color, mc = m.material.color;
+    for (let i = 0; i < c.count; i++) c.setXYZ(i, c.getX(i) * mc.r, c.getY(i) * mc.g, c.getZ(i) * mc.b);
+    const k = `${m.material.map ? m.material.map.uuid : '-'}|${m.material.side}`;
+    if (!groups.has(k)) groups.set(k, { mat: m.material, geos: [] });
+    groups.get(k).geos.push(geo);
+  }
+  for (const { mat, geos } of groups.values()) {
+    const nm = mat.clone(); nm.color.set(0xffffff); nm.onBeforeCompile = mat.onBeforeCompile;
+    if (mat.customProgramCacheKey !== THREE.Material.prototype.customProgramCacheKey) nm.customProgramCacheKey = mat.customProgramCacheKey;
+    out.add(new THREE.Mesh(mergeGeometries(geos), nm));
+  }
+  return out;
+}
 const wreckModel = (() => { const { root, P } = buildTank(true); P.pivot.rotation.x = 0.16; P.turret.rotation.y = 0.45;   // 포신이 축 처지고 포탑이 비뚤게 돌아갔다
-  return bake(root, null, ['aRiv', 'color']);
+  return mergeByTex(bake(root, null, ['aRiv', 'color']));
 })();
 function placeWreck(x, z, yaw) {
   const wg = markOutline(wreckModel.clone());

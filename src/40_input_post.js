@@ -445,13 +445,14 @@ document.getElementById('olBtn').onclick = (e) => {   // 외곽선 (풀 제외)
   outlineOn = !outlineOn; postMat.uniforms.uOL.value = outlineOn ? 1 : 0;
   e.target.textContent = outlineOn ? '외곽선 켜짐' : '외곽선 꺼짐'; e.target.blur();
 };
-let grassMode = 0;   // 텍스처 종류 (0부터)
+let grassMode = 0;   // 텍스처 종류 (0부터). grassCardMats.length = 풀 끔 (성능 비교용: 메시만 숨긴다)
 function setGrass(m) {
   grassMode = m;
-  for (const cm of grassCard) cm.material = grassCardMats[m];
-  document.getElementById('grassBtn').textContent = `풀: 텍스처${grassCardNames[m]}`;
+  const off = m >= grassCardMats.length;
+  for (const cm of grassCard) { cm.visible = !off; if (!off) cm.material = grassCardMats[m]; }
+  document.getElementById('grassBtn').textContent = off ? '풀: 끔' : `풀: 텍스처${grassCardNames[m]}`;
 }
-document.getElementById('grassBtn').onclick = (e) => { setGrass((grassMode + 1) % grassCardMats.length); e.target.blur(); };   // 텍스처1 → 2 → 3 → 1
+document.getElementById('grassBtn').onclick = (e) => { setGrass((grassMode + 1) % (grassCardMats.length + 1)); e.target.blur(); };   // 텍스처1 → 2 → 3 → 끔 → 1
 setGrass(1);   // 처음엔 텍스처2 (이삭 풀)
 document.getElementById('ppBtn').onclick = (e) => {
   pixelPerfect = !pixelPerfect; e.target.textContent = pixelPerfect ? 'Pixel Perfect 켜짐' : 'Pixel Perfect 꺼짐';
