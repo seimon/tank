@@ -164,7 +164,7 @@ function updateTitle(dt) {
 }
 // 타이틀에서는 키·클릭이 게임에 가지 않는다 (설정 메뉴 ` 키와 메뉴 클릭은 그대로): SPACE(또는 클릭·터치)로 시작, Q/E로 위장색
 addEventListener('keydown', (e) => {
-  if (titleState !== 'title' || e.code === 'Backquote' || decalMode || paused) return;   // 데칼 편집 중이면 그쪽 처리로. 메뉴 창(ESC)이 떠 있으면 창으로
+  if (titleState !== 'title' || e.code === 'Backquote' || (e.code === 'Digit1' && e.shiftKey) || decalMode || paused) return;   // (! = 성능 표시, 81_ui.js)   // 데칼 편집 중이면 그쪽 처리로. 메뉴 창(ESC)이 떠 있으면 창으로
   if (!e.fromPad) setInputPad(false);   // 키보드를 누르면 키 글자도 키보드로 (아래에서 다른 처리를 막으니 여기서)
   sfx.unlock();
   if (e.ctrlKey || e.metaKey || e.altKey || /^F\d+$/.test(e.code)) return;   // 새로고침 등 브라우저 단축키는 그대로

@@ -32,7 +32,7 @@
   #title canvas { image-rendering: crisp-edges; image-rendering: pixelated; }
   #tCall { left: 0; top: 0; }
   /* 터치 조작 (스마트폰 세로 화면 하단): 왼쪽 아날로그 패드, 오른쪽 포각·발사·자세 버튼 */
-  #perfHud { position: fixed; left: 8px; bottom: 8px; z-index: 60; padding: 4px 6px; background: rgba(0,0,0,.7); color: #9f9; font: 12px/1.35 monospace; white-space: pre; pointer-events: none; }   /* 성능 표시 (설정 메뉴) */
+  #perfHud { position: fixed; left: 8px; top: 8px; z-index: 60; pointer-events: none; }   /* 성능 표시 (설정 메뉴) */
   #touchUI { position: fixed; left: 0; right: 0; bottom: 0; height: 0; z-index: 5; user-select: none; -webkit-user-select: none; }
   #touchUI * { touch-action: none; -webkit-tap-highlight-color: transparent; }
   #stick { position: fixed; left: 18px; bottom: 22px; width: 132px; height: 132px; border-radius: 50%;
@@ -90,7 +90,7 @@
   <div style="display:flex; align-items:center; gap:8px; white-space:nowrap"><b style="color:#ffd25a">설정</b> <span style="opacity:.6">~ 키로 열고 닫기</span>
        <span style="margin-left:auto; display:flex; gap:2px"><button id="toTitle">타이틀 화면으로</button><button id="camPanBtn">우클릭 카메라 이동 꺼짐</button><button id="camreset">카메라 초기화</button></span></div>
   <div id="stats">-</div>
-  <div><button id="perfBtn">성능 표시 꺼짐</button></div>
+  <div><button id="perfBtn">성능 표시 꺼짐 (!)</button></div>
   <div id="hudBody">
   <div>내 탱크 <b id="tankPos">-</b> <span style="opacity:.6">(config.js player.start와 같은 형식)</span></div>
   <div>해상도 <select id="res"><option>180</option><option>240</option><option selected>300</option><option>360</option><option>420</option><option value="max">최대</option></select>
@@ -130,10 +130,10 @@
 </div>
 <script>
   // 버전·빌드 시각: 여기 한 곳만 고치면 로딩 화면과 설정 메뉴에 같이 나온다
-  const VERSION = '0.8.043', BUILD = '2026-11-11', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
+  const VERSION = '0.8.045', BUILD = '2026-11-11', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
   for (const e of document.querySelectorAll('.ver')) e.textContent = BUILD_TXT;
 </script>
-<div id="perfHud" style="display:none"></div>
+<canvas id="perfHud" style="display:none"></canvas>
 <div id="touchUI" style="display:none">
   <div id="stick"><div id="knob"></div></div>
   <div id="tright"><button id="tTL">◀</button><button id="tTR">▶</button><button id="tUp">▲</button><button id="tDown">▼</button><button id="tFire">발사</button><button id="tFix">세우기</button></div>

@@ -862,35 +862,95 @@ function perfFrame(frameMs, renderMs, progs, jsMs = 0) {
   console.warn(`[끊김] ${e.frame}ms · 프레임 JS 전체 ${e.js}ms · 그리기 ${e.render}ms${progs ? ` · 새 셰이더 ${progs}개 컴파일` : ''} · 오래 걸린 단계: ${top || '없음'}` +
     ` · ${rt.width}x${rt.height} 화면 ${innerWidth}x${innerHeight}@${devicePixelRatio} · GPU ${perfGpu}`);
 }
-// 화면 성능 표시 (설정 메뉴 '성능 표시'): 아이패드 등에서 직접 재 보려고. 화면 왼쪽 아래 글자(DOM, CRT 위)로 0.5초마다 평균.
+// 화면 성능 표시 (설정 메뉴 '성능 표시'): 아이패드 등에서 직접 재 보려고. 좌상단 캔버스(DOM, CRT 위).
+// 줄마다 왼쪽 = 0.5초 평균 / 가장 큰 값 (ms), 오른쪽 = 왼쪽으로 흘러가는 그래프 (한 칸 = 한 프레임, 초록 → 노랑(주의) → 빨강(위험)).
+// 첫 줄은 프레임 간격(막대)과 그 프레임의 JS 계산 시간(흰 점). 나머지는 단계 묶음별 JS 시간 (perfMark 이름으로 묶는다).
 // 켜져 있는 동안은 renderer.info를 프레임마다 직접 비워(autoReset 끔) 한 프레임 전체의 그리기 호출·삼각형을 센다
 let perfHudOn = loadOpt('perfHud', false);
 const perfHudEl = document.getElementById('perfHud'), perfBtn = document.getElementById('perfBtn'), _phSz = new THREE.Vector2();
-const PHA = { n: 0, t0: 0, frame: 0, frameMax: 0, js: 0, phys: 0, render: 0, calls: 0, tris: 0 };
-function perfHud(frameMs, jsMs, renderMs) {
+const PH_GROUPS = [   // [이름, perfMark 이름들, 주의 ms, 위험 ms]
+  ['물리', ['물리'], 4, 8],
+  ['적 AI', ['적 AI'], 2, 4],
+  ['월드 갱신', ['입력', '탱크 표시', '포탄', '파티클', '풀·불 필드', '궤도 자국', '보급품·동전·기타', '조명·조준', '카메라', '기타'], 4, 8],
+  ['날씨', ['날씨'], 2, 4],
+  ['HUD·UI', ['HUD', 'UI·대미지 숫자'], 2, 4],
+  ['장면 그리기', ['장면 그리기'], 5, 9],
+  ['후처리·CRT', ['후처리·CRT'], 3, 6],
+];
+const PH_GI = new Map(); PH_GROUPS.forEach(([, ks], i) => { for (const k of ks) PH_GI.set(k, i); });
+const PH_W = 330, PH_LW = 132, PH_HEAD = 30, PH_FH = 34, PH_RH = 22, PH_GS = 16.7;   // 폭, 왼쪽 글자 칸, 머리 두 줄, 프레임 줄, 단계 줄 높이, 단계 그래프 꽉 참 = 16.7ms
+const PH_H = PH_HEAD + PH_FH + PH_GROUPS.length * PH_RH + 4;
+const PHC = { ok: '#3fbf5f', warn: '#e0b020', bad: '#e04030', bg: '#101410', guide: '#3a463a', text: '#cfe8cf', dim: '#7f9a7f' };
+const PHA = { n: 0, t0: 0, frame: 0, frameMax: 0, js: 0, jsMax: 0, g: PH_GROUPS.map(() => [0, 0]), calls: 0, tris: 0 };
+let phS = 1, phG = null;
+const _phV = new Float64Array(PH_GROUPS.length);
+function perfHudSize() {
+  phS = Math.min(2, devicePixelRatio || 1);
+  perfHudEl.width = Math.round(PH_W * phS); perfHudEl.height = Math.round(PH_H * phS);
+  perfHudEl.style.width = PH_W + 'px'; perfHudEl.style.height = PH_H + 'px';
+  phG = perfHudEl.getContext('2d');
+  phG.setTransform(1, 0, 0, 1, 0, 0); phG.fillStyle = 'rgba(8,12,8,.82)'; phG.fillRect(0, 0, perfHudEl.width, perfHudEl.height);
+  phG.setTransform(phS, 0, 0, phS, 0, 0);
+  phG.fillStyle = PHC.bg; phG.fillRect(PH_LW, PH_HEAD, PH_W - PH_LW - 4, PH_FH - 2);
+  for (let i = 0; i < PH_GROUPS.length; i++) phG.fillRect(PH_LW, PH_HEAD + PH_FH + i * PH_RH, PH_W - PH_LW - 4, PH_RH - 2);
+}
+// 그래프 한 칸: 막대 높이 = v / full, 색은 주의·위험 기준으로. 주의 기준선은 흐린 선
+function phCol(x, y, h, v, full, warn, bad, dot) {
+  const g = phG, bh = Math.min(h, v / full * h);
+  g.fillStyle = PHC.bg; g.fillRect(x, y, 1, h);
+  g.fillStyle = PHC.guide; g.fillRect(x, y + h - Math.min(h, warn / full * h), 1, 1);
+  g.fillStyle = v >= bad ? PHC.bad : v >= warn ? PHC.warn : PHC.ok; g.fillRect(x, y + h - bh, 1, bh);
+  if (dot != null) { g.fillStyle = '#ffffff'; g.fillRect(x, y + h - Math.min(h, dot / full * h), 1, 1); }
+}
+function perfHud(frameMs, jsMs) {
   if (!perfHudOn) return;
   const A = PHA, now = performance.now();
+  if (!phG || perfHudEl.width !== Math.round(PH_W * Math.min(2, devicePixelRatio || 1))) perfHudSize();
   if (!A.t0) { A.t0 = now; return; }
-  A.n++; A.frame += frameMs; A.frameMax = Math.max(A.frameMax, frameMs); A.js += jsMs; A.render += renderMs;
-  for (const [k, v] of perfT) if (k === '물리') A.phys += v;
+  _phV.fill(0);
+  for (const [k, v] of perfT) { const i = PH_GI.get(k); if (i !== undefined) _phV[i] += v; }
+  A.n++; A.frame += frameMs; A.frameMax = Math.max(A.frameMax, frameMs); A.js += jsMs; A.jsMax = Math.max(A.jsMax, jsMs);
+  for (let i = 0; i < _phV.length; i++) { A.g[i][0] += _phV[i]; A.g[i][1] = Math.max(A.g[i][1], _phV[i]); }
   A.calls += renderer.info.render.calls; A.tris += renderer.info.render.triangles;
+  // 그래프: 오른쪽 칸들을 한 칸 왼쪽으로 밀고 맨 오른쪽에 새 칸
+  const g = phG, gx = PH_LW, gw = PH_W - PH_LW - 4, x = gx + gw - 1;
+  g.save(); g.setTransform(1, 0, 0, 1, 0, 0);
+  const sx = Math.round(gx * phS), sy = Math.round(PH_HEAD * phS), sw = Math.round(gw * phS), sh = Math.round((PH_H - PH_HEAD - 4) * phS), d = Math.round(phS);
+  g.drawImage(perfHudEl, sx + d, sy, sw - d, sh, sx, sy, sw - d, sh);
+  g.restore();
+  phCol(x, PH_HEAD, PH_FH - 2, frameMs, 50, 17.5, 34, jsMs);
+  PH_GROUPS.forEach(([, , w, b], i) => phCol(x, PH_HEAD + PH_FH + i * PH_RH, PH_RH - 2, _phV[i], PH_GS, w, b));
   if (now - A.t0 < 500) return;
+  // 글자 (0.5초마다): 머리 두 줄 + 줄마다 이름·평균/최대
   const n = A.n, f = (v) => (v / n).toFixed(1);
   renderer.getDrawingBufferSize(_phSz);
-  perfHudEl.textContent = [
-    `${Math.round(n * 1000 / (now - A.t0))} fps   프레임 ${f(A.frame)}ms (가장 김 ${Math.round(A.frameMax)})`,
-    `JS ${f(A.js)}ms   그중 물리 ${f(A.phys)} · 그리기 ${f(A.render)}`,
-    `GPU·기다림 약 ${Math.max(0, (A.frame - A.js) / n).toFixed(1)}ms`,
-    `그리기 호출 ${Math.round(A.calls / n)}   삼각형 ${Math.round(A.tris / n / 1000)}k`,
-    `게임 ${rt.width}x${rt.height}   화면 ${_phSz.x}x${_phSz.y} (기기 배율 ${devicePixelRatio}${crtOn ? ` · CRT 계산 배율 ${+crtDpr().toFixed(2)}` : ''})`].join('\n');
-  Object.assign(A, { n: 0, t0: now, frame: 0, frameMax: 0, js: 0, phys: 0, render: 0, calls: 0, tris: 0 });
+  g.fillStyle = 'rgba(8,12,8,1)'; g.fillRect(0, 0, PH_W, PH_HEAD); g.fillRect(0, PH_HEAD, PH_LW - 2, PH_H - PH_HEAD);
+  g.font = '11px monospace'; g.textBaseline = 'top';
+  g.fillStyle = PHC.text;
+  g.fillText(`그리기 호출 ${Math.round(A.calls / n)} · 삼각형 ${Math.round(A.tris / n / 1000)}k · 배율 ${devicePixelRatio}${crtOn ? ` (CRT ${+crtDpr().toFixed(2)})` : ''}`, 4, 3);
+  g.fillStyle = PHC.dim;
+  g.fillText(`게임 ${rt.width}x${rt.height} · 화면 ${_phSz.x}x${_phSz.y}`, 4, 16);
+  const fps = Math.round(n * 1000 / (now - A.t0)), fa = A.frame / n;
+  g.fillStyle = fa >= 34 ? PHC.bad : fa >= 17.5 ? PHC.warn : PHC.ok;
+  g.fillText(`${fps} fps  ${f(A.frame)}ms`, 4, PH_HEAD + 3);
+  g.fillStyle = PHC.text; g.fillText(`JS ${f(A.js)} / ${A.jsMax.toFixed(0)}`, 4, PH_HEAD + 17);
+  PH_GROUPS.forEach(([name, , w, b], i) => {
+    const av = A.g[i][0] / n, y = PH_HEAD + PH_FH + i * PH_RH + 4;
+    g.fillStyle = av >= b ? PHC.bad : av >= w ? PHC.warn : PHC.text;
+    g.fillText(`${name} ${av.toFixed(1)}/${A.g[i][1].toFixed(1)}`, 4, y);
+  });
+  Object.assign(A, { n: 0, t0: now, frame: 0, frameMax: 0, js: 0, jsMax: 0, calls: 0, tris: 0 });
+  for (const e of A.g) { e[0] = 0; e[1] = 0; }
 }
 function setPerfHud(v) {
   perfHudOn = !!v; saveOpt('perfHud', perfHudOn); PHA.t0 = 0;
-  perfHudEl.style.display = perfHudOn ? '' : 'none'; perfBtn.textContent = perfHudOn ? '성능 표시 켜짐' : '성능 표시 꺼짐';
+  perfHudEl.style.display = perfHudOn ? '' : 'none'; perfBtn.textContent = perfHudOn ? '성능 표시 켜짐 (!)' : '성능 표시 꺼짐 (!)';
   renderer.info.autoReset = !perfHudOn;
+  if (perfHudOn) perfHudSize();
 }
 perfBtn.onclick = (e) => { setPerfHud(!perfHudOn); e.target.blur(); };
+// ! (Shift+1)로도 켜고 끈다. 성장 선택지 1번이 같이 골리지 않게 다른 키 처리보다 먼저 가로챈다
+addEventListener('keydown', (e) => { if (e.code === 'Digit1' && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) { e.stopImmediatePropagation(); e.preventDefault(); if (!e.repeat) setPerfHud(!perfHudOn); } }, true);
 setPerfHud(perfHudOn);
 // 타이틀 우하단 키 안내 첫 그리기: 한글 글꼴(GF)이 이 파일에 있어서 80_hud.js 로딩 중에는 그릴 수 없다 (const 선언 전). 여기서
 if (document.getElementById('tPress')) { drawTitleKeys(titlePad); layoutTitle(); }

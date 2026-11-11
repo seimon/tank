@@ -291,9 +291,12 @@ function frame() {
   }
   controls.update();
   camAboveGround();
+  perfMark('카메라');
   U.uOccR.value = titleK >= 1 && tank.solid && !clearSeq ? CC.seeThrough ?? 3.2 : 0; U.uOccP.value.set(tank.pos.x, tank.pos.y + 0.6, tank.pos.z);   // 가리는 물체 비춰 보기 (플레이 중에만)
   updateTitle(dt);
+  perfMark('기타');
   updateWeather(dt);
+  perfMark('날씨');
   missionCheck();
   if (!decalMode) { titleCamEnd(); drawCallouts(); }
   updateHudReveal(dt);
@@ -303,8 +306,11 @@ function frame() {
   updateAiView();
   updateFloaters(dt);
   updateTankPos(dt);
+  perfMark('기타');
   drawHud();
+  perfMark('HUD');
   overlayFrame();
+  perfMark('UI·대미지 숫자');
 
   const tr0 = performance.now();
   if (!clearHold()) {   // (임무 완료로 배경을 다 지웠으면 장면은 그리지 않고 탱크만)
@@ -316,6 +322,7 @@ function frame() {
       scene.overrideMaterial = null; camera.layers.set(0);
     }
   }
+  perfMark('장면 그리기');
   if (clearSeq && clearSeq.cut > 0) clearRenderCut();   // 임무 완료: 탱크만 따로 (후처리가 디더링으로 바꿔 간다)
   postMat.uniforms.uCut.value = clearSeq ? clearSeq.cut : 0;
   const calls = renderer.info.render.calls, tris = renderer.info.render.triangles;
@@ -324,10 +331,11 @@ function frame() {
   renderer.render(postScene, postCam);
   renderer.setRenderTarget(null);
   finalPass();   // 게임 해상도 → 화면 (샤프 바이리니어, CRT 표현이면 HUD·UI와 합쳐 CRT로)
+  perfMark('후처리·CRT');
   camera.position.sub(_shake);
   if (frozen) pauseScene = true;   // 멈춘 장면을 한 번 그렸다
   if (!frozen) perfFrame(rawDt * 1000, performance.now() - tr0, renderer.info.programs.length - progs0, performance.now() - fj0);
-  perfHud(raw * 1000, performance.now() - fj0, performance.now() - tr0);   // 화면 성능 표시 (켜져 있을 때만)
+  perfHud(raw * 1000, performance.now() - fj0);   // 화면 성능 표시 (켜져 있을 때만)
 
   frames++; acc += dt;
   if (acc > 0.5) {
