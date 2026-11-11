@@ -850,7 +850,8 @@ function updateWindDebris(dt) {
 // 끊김 기록: 한 프레임이 60ms를 넘으면 어느 단계가 오래 걸렸는지 콘솔에 남긴다 (dbg.perfLog에 최근 30개)
 const perfT = [], perfLog = [], perfStart = performance.now();
 let perfLast = 0;
-function perfMark(name) { const t = performance.now(); perfT.push([name, t - perfLast]); perfLast = t; }
+function perfMark(name) { if (perfT.length > 80) return; const t = performance.now();   // (멈춘 동안 CRT만 돌면 tick이 비우지 않아 쌓이지 않게)
+  perfT.push([name, t - perfLast]); perfLast = t; }
 let perfGpu = null;   // GPU 이름 (처음 끊길 때 한 번 알아낸다. SwiftShader·llvmpipe면 하드웨어 가속이 꺼진 것)
 function perfFrame(frameMs, renderMs, progs, jsMs = 0) {
   if (frameMs < 60 || frameMs > 5000 || performance.now() - perfStart < 3000) return;   // 창을 다시 연 직후와 시작 3초는 빼고
@@ -881,10 +882,14 @@ const PH_GROUPS = [   // [이름, perfMark 이름들, 주의 ms, 위험 ms]
   ['날씨', ['날씨'], 2, 4],
   ['HUD·UI', ['HUD', 'UI·대미지 숫자'], 2, 4],
   ['장면 그리기', ['장면 그리기'], 5, 9],
-  ['후처리·CRT', ['후처리·CRT'], 3, 6],
+  ['후처리', ['후처리'], 2, 4],
+  ['CRT 레이어 올리기', ['CRT 레이어'], 1, 3],
+  ['CRT 합치기', ['CRT 합치기'], 1, 3],
+  ['CRT 1단계', ['CRT 1단계'], 2, 4],
+  ['CRT 2단계·늘리기', ['CRT 2단계', '화면 늘리기'], 2, 4],
 ];
 const PH_GI = new Map(); PH_GROUPS.forEach(([, ks], i) => { for (const k of ks) PH_GI.set(k, i); });
-const PH_W = 330, PH_LW = 132, PH_HEAD = 30, PH_FH = 34, PH_RH = 22, PH_GS = 16.7;   // 폭, 왼쪽 글자 칸, 머리 두 줄, 프레임 줄, 단계 줄 높이, 단계 그래프 꽉 참 = 16.7ms
+const PH_W = 480, PH_LW = 215, PH_HEAD = 38, PH_FH = 40, PH_RH = 21, PH_GS = 16.7;   // 폭, 왼쪽 글자 칸, 머리 두 줄, 프레임 줄, 단계 줄 높이, 단계 그래프 꽉 참 = 16.7ms
 const PH_H = PH_HEAD + PH_FH + PH_GROUPS.length * PH_RH + 4;
 const PHC = { ok: '#3fbf5f', warn: '#e0b020', bad: '#e04030', bg: '#101410', guide: '#3a463a', text: '#cfe8cf', dim: '#7f9a7f' };
 const PHA = { n: 0, t0: 0, frame: 0, frameMax: 0, js: 0, jsMax: 0, g: PH_GROUPS.map(() => [0, 0]), calls: 0, tris: 0 };
@@ -895,7 +900,7 @@ function perfHudSize() {
   perfHudEl.width = Math.round(PH_W * phS); perfHudEl.height = Math.round(PH_H * phS);
   perfHudEl.style.width = PH_W + 'px'; perfHudEl.style.height = PH_H + 'px';
   phG = perfHudEl.getContext('2d');
-  phG.setTransform(1, 0, 0, 1, 0, 0); phG.fillStyle = 'rgba(8,12,8,.82)'; phG.fillRect(0, 0, perfHudEl.width, perfHudEl.height);
+  phG.setTransform(1, 0, 0, 1, 0, 0); phG.fillStyle = 'rgb(8,12,8)'; phG.fillRect(0, 0, perfHudEl.width, perfHudEl.height);   // 캔버스는 불투명하게 그리고 CSS opacity로 게임이 살짝 비치게
   phG.setTransform(phS, 0, 0, phS, 0, 0);
   phG.fillStyle = PHC.bg; phG.fillRect(PH_LW, PH_HEAD, PH_W - PH_LW - 4, PH_FH - 2);
   for (let i = 0; i < PH_GROUPS.length; i++) phG.fillRect(PH_LW, PH_HEAD + PH_FH + i * PH_RH, PH_W - PH_LW - 4, PH_RH - 2);
@@ -931,17 +936,17 @@ function perfHud(frameMs, jsMs) {
   const n = A.n, f = (v) => (v / n).toFixed(1);
   renderer.getDrawingBufferSize(_phSz);
   g.fillStyle = 'rgba(8,12,8,1)'; g.fillRect(0, 0, PH_W, PH_HEAD); g.fillRect(0, PH_HEAD, PH_LW - 2, PH_H - PH_HEAD);
-  g.font = '11px monospace'; g.textBaseline = 'top';
+  g.font = '13px monospace'; g.textBaseline = 'top';
   g.fillStyle = PHC.text;
-  g.fillText(`그리기 호출 ${Math.round(A.calls / n)} · 삼각형 ${Math.round(A.tris / n / 1000)}k · 배율 ${devicePixelRatio}${crtOn ? ` (CRT ${+crtDpr().toFixed(2)})` : ''}`, 4, 3);
+  g.fillText(`그리기 호출 ${Math.round(A.calls / n)} · 삼각형 ${Math.round(A.tris / n / 1000)}k · 배율 ${devicePixelRatio}${crtOn ? ` (CRT ${+crtDpr().toFixed(2)})` : ''}`, 5, 4);
   g.fillStyle = PHC.dim;
-  g.fillText(`게임 ${rt.width}x${rt.height} · 화면 ${_phSz.x}x${_phSz.y}`, 4, 16);
+  g.fillText(`게임 ${rt.width}x${rt.height} · 화면 ${_phSz.x}x${_phSz.y}`, 5, 20);
   const fps = Math.round(n * 1000 / (now - A.t0)), fa = A.frame / n;
   g.fillStyle = fa >= 34 ? PHC.bad : fa >= 17.5 ? PHC.warn : PHC.ok;
-  g.fillText(`${fps} fps  ${f(A.frame)}ms`, 4, PH_HEAD + 3);
-  g.fillStyle = PHC.text; g.fillText(`JS ${f(A.js)} / ${A.jsMax.toFixed(0)}`, 4, PH_HEAD + 17);
+  g.fillText(`${fps} fps  ${f(A.frame)}ms`, 5, PH_HEAD + 3);
+  g.fillStyle = PHC.text; g.fillText(`JS ${f(A.js)} / ${A.jsMax.toFixed(0)}`, 5, PH_HEAD + 20);
   PH_GROUPS.forEach(([name, , w, b], i) => {
-    const av = A.g[i][0] / n, y = PH_HEAD + PH_FH + i * PH_RH + 4;
+    const av = A.g[i][0] / n, y = PH_HEAD + PH_FH + i * PH_RH + 3;
     g.fillStyle = av >= b ? PHC.bad : av >= w ? PHC.warn : PHC.text;
     g.fillText(`${name} ${av.toFixed(1)}/${A.g[i][1].toFixed(1)}`, 4, y);
   });

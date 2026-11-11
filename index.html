@@ -33,7 +33,7 @@
   #title canvas { image-rendering: crisp-edges; image-rendering: pixelated; }
   #tCall { left: 0; top: 0; }
   /* 터치 조작 (스마트폰 세로 화면 하단): 왼쪽 아날로그 패드, 오른쪽 포각·발사·자세 버튼 */
-  #perfHud { position: fixed; left: 8px; top: 8px; z-index: 60; pointer-events: none; }   /* 성능 표시 (설정 메뉴) */
+  #perfHud { position: fixed; left: 8px; top: 8px; z-index: 60; pointer-events: none; opacity: .95; }   /* 게임이 아주 살짝 비치게 */   /* 성능 표시 (설정 메뉴) */
   #touchUI { position: fixed; left: 0; right: 0; bottom: 0; height: 0; z-index: 5; user-select: none; -webkit-user-select: none; }
   #touchUI * { touch-action: none; -webkit-tap-highlight-color: transparent; }
   #stick { position: fixed; left: 18px; bottom: 22px; width: 132px; height: 132px; border-radius: 50%;
@@ -131,7 +131,7 @@
 </div>
 <script>
   // 버전·빌드 시각: 여기 한 곳만 고치면 로딩 화면과 설정 메뉴에 같이 나온다
-  const VERSION = '0.8.049', BUILD = '2026-11-11', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
+  const VERSION = '0.8.051', BUILD = '2026-11-11', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
   for (const e of document.querySelectorAll('.ver')) e.textContent = BUILD_TXT;
 </script>
 <canvas id="perfHud" style="display:none"></canvas>
@@ -1193,6 +1193,8 @@ let terrainCol;
 const CRT = Object.assign({ enabled: false, lineSize: 4, scan: 0.85, maskType: 3, maskStr: 0.55, maskSize: 1, curv: 0.04, corner: 0.07, bloom: 0.55, vig: 0.4,
   soft: 0.8, conv: 0.5, bleed: 0, persist: 0.5, sat: 1.15, noise: 0.08, flicker: 0.2, roll: 0.4, tape: 0.2, bright: 1.25, margin: 8, maxScale: 1.5 }, CFG.crt);
 // CRT 계산 해상도: 화면 배율(devicePixelRatio)이 maxScale보다 크면 그만큼만 (아이패드 2배 화면에서 CRT 두 단계를 기기 해상도 그대로 계산하던 게 무거웠다). 브라우저가 부드럽게 늘린다
+// 성능 표시용 단계 표시. 로딩 중(81_ui.js의 perfT가 아직 없을 때)에도 CRT가 돌아서 오류를 삼킨다
+const crtMark = (n) => { try { perfMark(n); } catch (_) {} };
 const crtDpr = () => Math.min(devicePixelRatio || 1, CRT.maxScale || 99);
 const crtA = document.createElement('canvas'), crtAg = crtA.getContext('2d');   // 보통(source-over)으로 얹는 레이어
 const crtB = document.createElement('canvas'), crtBg = crtB.getContext('2d');   // 스크린·더하기로 얹는 레이어
@@ -1424,9 +1426,11 @@ function crtFail(e) {
 function crtFinal() {
   const W = postRT.width, H = postRT.height;
   crtLayers(W, H);
+  crtMark('CRT 레이어');   // HUD·UI 캔버스를 텍스처로 올리기 (성능 표시)
   if (compRT.width !== W || compRT.height !== H) compRT.setSize(W, H);
   crtCompMat.uniforms.uScreen.value = HC.blend === 'screen' ? 1 : 0; crtCompMat.uniforms.uScreen2.value = (pui.style.mixBlendMode || HC.blend) === 'screen' ? 1 : 0; crtCompMat.uniforms.tSrc.value = postRT.texture;
   renderer.setRenderTarget(compRT); renderer.render(crtCompScene, crtCam); renderer.setRenderTarget(null);
+  crtMark('CRT 합치기');
   crtReady = true;
   crtPresent();
 }
@@ -1446,6 +1450,7 @@ function crtPresent0() {
   P.uOutRes.value.set(W, H); P.uLines.value = lines; P.uSoft.value = CRT.soft * dpr; P.uConv.value = CRT.conv * dpr; P.uBleed.value = CRT.bleed;
   P.uSat.value = CRT.sat; P.uPersist.value = CRT.persist; P.uTime.value = t; P.uTape.value = CRT.tape;
   renderer.setRenderTarget(next); renderer.render(crtPrepScene, crtCam); renderer.setRenderTarget(null);
+  crtMark('CRT 1단계');
   crtCur ^= 1;
   const C = crtMat.uniforms;
   C.uPrep.value = next.texture; C.uRes.value.set(W, H); C.uLines.value = lines; C.uTime.value = t;
@@ -1453,6 +1458,7 @@ function crtPresent0() {
   C.uBloom.value = CRT.bloom; C.uBright.value = CRT.bright; C.uVig.value = CRT.vig; C.uNoise.value = CRT.noise; C.uFlicker.value = CRT.flicker;
   C.uCorner.value = CRT.corner; C.uRoll.value = CRT.roll; C.uMargin.value = CRT.margin * dpr;
   renderer.render(crtScene, crtCam);
+  crtMark('CRT 2단계');
 }
 // 화면 좌표(CSS) → CRT 화면 휨·테두리를 되짚은 좌표 (클릭이 보이는 자리에 맞게)
 function crtPoint(x, y) {
@@ -9839,7 +9845,8 @@ function updateWindDebris(dt) {
 // 끊김 기록: 한 프레임이 60ms를 넘으면 어느 단계가 오래 걸렸는지 콘솔에 남긴다 (dbg.perfLog에 최근 30개)
 const perfT = [], perfLog = [], perfStart = performance.now();
 let perfLast = 0;
-function perfMark(name) { const t = performance.now(); perfT.push([name, t - perfLast]); perfLast = t; }
+function perfMark(name) { if (perfT.length > 80) return; const t = performance.now();   // (멈춘 동안 CRT만 돌면 tick이 비우지 않아 쌓이지 않게)
+  perfT.push([name, t - perfLast]); perfLast = t; }
 let perfGpu = null;   // GPU 이름 (처음 끊길 때 한 번 알아낸다. SwiftShader·llvmpipe면 하드웨어 가속이 꺼진 것)
 function perfFrame(frameMs, renderMs, progs, jsMs = 0) {
   if (frameMs < 60 || frameMs > 5000 || performance.now() - perfStart < 3000) return;   // 창을 다시 연 직후와 시작 3초는 빼고
@@ -9870,10 +9877,14 @@ const PH_GROUPS = [   // [이름, perfMark 이름들, 주의 ms, 위험 ms]
   ['날씨', ['날씨'], 2, 4],
   ['HUD·UI', ['HUD', 'UI·대미지 숫자'], 2, 4],
   ['장면 그리기', ['장면 그리기'], 5, 9],
-  ['후처리·CRT', ['후처리·CRT'], 3, 6],
+  ['후처리', ['후처리'], 2, 4],
+  ['CRT 레이어 올리기', ['CRT 레이어'], 1, 3],
+  ['CRT 합치기', ['CRT 합치기'], 1, 3],
+  ['CRT 1단계', ['CRT 1단계'], 2, 4],
+  ['CRT 2단계·늘리기', ['CRT 2단계', '화면 늘리기'], 2, 4],
 ];
 const PH_GI = new Map(); PH_GROUPS.forEach(([, ks], i) => { for (const k of ks) PH_GI.set(k, i); });
-const PH_W = 330, PH_LW = 132, PH_HEAD = 30, PH_FH = 34, PH_RH = 22, PH_GS = 16.7;   // 폭, 왼쪽 글자 칸, 머리 두 줄, 프레임 줄, 단계 줄 높이, 단계 그래프 꽉 참 = 16.7ms
+const PH_W = 480, PH_LW = 215, PH_HEAD = 38, PH_FH = 40, PH_RH = 21, PH_GS = 16.7;   // 폭, 왼쪽 글자 칸, 머리 두 줄, 프레임 줄, 단계 줄 높이, 단계 그래프 꽉 참 = 16.7ms
 const PH_H = PH_HEAD + PH_FH + PH_GROUPS.length * PH_RH + 4;
 const PHC = { ok: '#3fbf5f', warn: '#e0b020', bad: '#e04030', bg: '#101410', guide: '#3a463a', text: '#cfe8cf', dim: '#7f9a7f' };
 const PHA = { n: 0, t0: 0, frame: 0, frameMax: 0, js: 0, jsMax: 0, g: PH_GROUPS.map(() => [0, 0]), calls: 0, tris: 0 };
@@ -9884,7 +9895,7 @@ function perfHudSize() {
   perfHudEl.width = Math.round(PH_W * phS); perfHudEl.height = Math.round(PH_H * phS);
   perfHudEl.style.width = PH_W + 'px'; perfHudEl.style.height = PH_H + 'px';
   phG = perfHudEl.getContext('2d');
-  phG.setTransform(1, 0, 0, 1, 0, 0); phG.fillStyle = 'rgba(8,12,8,.82)'; phG.fillRect(0, 0, perfHudEl.width, perfHudEl.height);
+  phG.setTransform(1, 0, 0, 1, 0, 0); phG.fillStyle = 'rgb(8,12,8)'; phG.fillRect(0, 0, perfHudEl.width, perfHudEl.height);   // 캔버스는 불투명하게 그리고 CSS opacity로 게임이 살짝 비치게
   phG.setTransform(phS, 0, 0, phS, 0, 0);
   phG.fillStyle = PHC.bg; phG.fillRect(PH_LW, PH_HEAD, PH_W - PH_LW - 4, PH_FH - 2);
   for (let i = 0; i < PH_GROUPS.length; i++) phG.fillRect(PH_LW, PH_HEAD + PH_FH + i * PH_RH, PH_W - PH_LW - 4, PH_RH - 2);
@@ -9920,17 +9931,17 @@ function perfHud(frameMs, jsMs) {
   const n = A.n, f = (v) => (v / n).toFixed(1);
   renderer.getDrawingBufferSize(_phSz);
   g.fillStyle = 'rgba(8,12,8,1)'; g.fillRect(0, 0, PH_W, PH_HEAD); g.fillRect(0, PH_HEAD, PH_LW - 2, PH_H - PH_HEAD);
-  g.font = '11px monospace'; g.textBaseline = 'top';
+  g.font = '13px monospace'; g.textBaseline = 'top';
   g.fillStyle = PHC.text;
-  g.fillText(`그리기 호출 ${Math.round(A.calls / n)} · 삼각형 ${Math.round(A.tris / n / 1000)}k · 배율 ${devicePixelRatio}${crtOn ? ` (CRT ${+crtDpr().toFixed(2)})` : ''}`, 4, 3);
+  g.fillText(`그리기 호출 ${Math.round(A.calls / n)} · 삼각형 ${Math.round(A.tris / n / 1000)}k · 배율 ${devicePixelRatio}${crtOn ? ` (CRT ${+crtDpr().toFixed(2)})` : ''}`, 5, 4);
   g.fillStyle = PHC.dim;
-  g.fillText(`게임 ${rt.width}x${rt.height} · 화면 ${_phSz.x}x${_phSz.y}`, 4, 16);
+  g.fillText(`게임 ${rt.width}x${rt.height} · 화면 ${_phSz.x}x${_phSz.y}`, 5, 20);
   const fps = Math.round(n * 1000 / (now - A.t0)), fa = A.frame / n;
   g.fillStyle = fa >= 34 ? PHC.bad : fa >= 17.5 ? PHC.warn : PHC.ok;
-  g.fillText(`${fps} fps  ${f(A.frame)}ms`, 4, PH_HEAD + 3);
-  g.fillStyle = PHC.text; g.fillText(`JS ${f(A.js)} / ${A.jsMax.toFixed(0)}`, 4, PH_HEAD + 17);
+  g.fillText(`${fps} fps  ${f(A.frame)}ms`, 5, PH_HEAD + 3);
+  g.fillStyle = PHC.text; g.fillText(`JS ${f(A.js)} / ${A.jsMax.toFixed(0)}`, 5, PH_HEAD + 20);
   PH_GROUPS.forEach(([name, , w, b], i) => {
-    const av = A.g[i][0] / n, y = PH_HEAD + PH_FH + i * PH_RH + 4;
+    const av = A.g[i][0] / n, y = PH_HEAD + PH_FH + i * PH_RH + 3;
     g.fillStyle = av >= b ? PHC.bad : av >= w ? PHC.warn : PHC.text;
     g.fillText(`${name} ${av.toFixed(1)}/${A.g[i][1].toFixed(1)}`, 4, y);
   });
@@ -10790,8 +10801,9 @@ function frame() {
   renderer.setRenderTarget(postRT);
   renderer.render(postScene, postCam);
   renderer.setRenderTarget(null);
+  perfMark('후처리');
   finalPass();   // 게임 해상도 → 화면 (샤프 바이리니어, CRT 표현이면 HUD·UI와 합쳐 CRT로)
-  perfMark('후처리·CRT');
+  perfMark('화면 늘리기');   // (CRT면 그 단계들은 10a_crt.js가 따로 표시하고 여기엔 거의 남지 않는다)
   camera.position.sub(_shake);
   if (frozen) pauseScene = true;   // 멈춘 장면을 한 번 그렸다
   if (!frozen) perfFrame(rawDt * 1000, performance.now() - tr0, renderer.info.programs.length - progs0, performance.now() - fj0);

@@ -330,8 +330,9 @@ function frame() {
   renderer.setRenderTarget(postRT);
   renderer.render(postScene, postCam);
   renderer.setRenderTarget(null);
+  perfMark('후처리');
   finalPass();   // 게임 해상도 → 화면 (샤프 바이리니어, CRT 표현이면 HUD·UI와 합쳐 CRT로)
-  perfMark('후처리·CRT');
+  perfMark('화면 늘리기');   // (CRT면 그 단계들은 10a_crt.js가 따로 표시하고 여기엔 거의 남지 않는다)
   camera.position.sub(_shake);
   if (frozen) pauseScene = true;   // 멈춘 장면을 한 번 그렸다
   if (!frozen) perfFrame(rawDt * 1000, performance.now() - tr0, renderer.info.programs.length - progs0, performance.now() - fj0);

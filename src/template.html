@@ -32,7 +32,7 @@
   #title canvas { image-rendering: crisp-edges; image-rendering: pixelated; }
   #tCall { left: 0; top: 0; }
   /* 터치 조작 (스마트폰 세로 화면 하단): 왼쪽 아날로그 패드, 오른쪽 포각·발사·자세 버튼 */
-  #perfHud { position: fixed; left: 8px; top: 8px; z-index: 60; pointer-events: none; }   /* 성능 표시 (설정 메뉴) */
+  #perfHud { position: fixed; left: 8px; top: 8px; z-index: 60; pointer-events: none; opacity: .95; }   /* 게임이 아주 살짝 비치게 */   /* 성능 표시 (설정 메뉴) */
   #touchUI { position: fixed; left: 0; right: 0; bottom: 0; height: 0; z-index: 5; user-select: none; -webkit-user-select: none; }
   #touchUI * { touch-action: none; -webkit-tap-highlight-color: transparent; }
   #stick { position: fixed; left: 18px; bottom: 22px; width: 132px; height: 132px; border-radius: 50%;
@@ -130,7 +130,7 @@
 </div>
 <script>
   // 버전·빌드 시각: 여기 한 곳만 고치면 로딩 화면과 설정 메뉴에 같이 나온다
-  const VERSION = '0.8.049', BUILD = '2026-11-11', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
+  const VERSION = '0.8.051', BUILD = '2026-11-11', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
   for (const e of document.querySelectorAll('.ver')) e.textContent = BUILD_TXT;
 </script>
 <canvas id="perfHud" style="display:none"></canvas>

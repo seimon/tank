@@ -13,6 +13,8 @@
 const CRT = Object.assign({ enabled: false, lineSize: 4, scan: 0.85, maskType: 3, maskStr: 0.55, maskSize: 1, curv: 0.04, corner: 0.07, bloom: 0.55, vig: 0.4,
   soft: 0.8, conv: 0.5, bleed: 0, persist: 0.5, sat: 1.15, noise: 0.08, flicker: 0.2, roll: 0.4, tape: 0.2, bright: 1.25, margin: 8, maxScale: 1.5 }, CFG.crt);
 // CRT 계산 해상도: 화면 배율(devicePixelRatio)이 maxScale보다 크면 그만큼만 (아이패드 2배 화면에서 CRT 두 단계를 기기 해상도 그대로 계산하던 게 무거웠다). 브라우저가 부드럽게 늘린다
+// 성능 표시용 단계 표시. 로딩 중(81_ui.js의 perfT가 아직 없을 때)에도 CRT가 돌아서 오류를 삼킨다
+const crtMark = (n) => { try { perfMark(n); } catch (_) {} };
 const crtDpr = () => Math.min(devicePixelRatio || 1, CRT.maxScale || 99);
 const crtA = document.createElement('canvas'), crtAg = crtA.getContext('2d');   // 보통(source-over)으로 얹는 레이어
 const crtB = document.createElement('canvas'), crtBg = crtB.getContext('2d');   // 스크린·더하기로 얹는 레이어
@@ -244,9 +246,11 @@ function crtFail(e) {
 function crtFinal() {
   const W = postRT.width, H = postRT.height;
   crtLayers(W, H);
+  crtMark('CRT 레이어');   // HUD·UI 캔버스를 텍스처로 올리기 (성능 표시)
   if (compRT.width !== W || compRT.height !== H) compRT.setSize(W, H);
   crtCompMat.uniforms.uScreen.value = HC.blend === 'screen' ? 1 : 0; crtCompMat.uniforms.uScreen2.value = (pui.style.mixBlendMode || HC.blend) === 'screen' ? 1 : 0; crtCompMat.uniforms.tSrc.value = postRT.texture;
   renderer.setRenderTarget(compRT); renderer.render(crtCompScene, crtCam); renderer.setRenderTarget(null);
+  crtMark('CRT 합치기');
   crtReady = true;
   crtPresent();
 }
@@ -266,6 +270,7 @@ function crtPresent0() {
   P.uOutRes.value.set(W, H); P.uLines.value = lines; P.uSoft.value = CRT.soft * dpr; P.uConv.value = CRT.conv * dpr; P.uBleed.value = CRT.bleed;
   P.uSat.value = CRT.sat; P.uPersist.value = CRT.persist; P.uTime.value = t; P.uTape.value = CRT.tape;
   renderer.setRenderTarget(next); renderer.render(crtPrepScene, crtCam); renderer.setRenderTarget(null);
+  crtMark('CRT 1단계');
   crtCur ^= 1;
   const C = crtMat.uniforms;
   C.uPrep.value = next.texture; C.uRes.value.set(W, H); C.uLines.value = lines; C.uTime.value = t;
@@ -273,6 +278,7 @@ function crtPresent0() {
   C.uBloom.value = CRT.bloom; C.uBright.value = CRT.bright; C.uVig.value = CRT.vig; C.uNoise.value = CRT.noise; C.uFlicker.value = CRT.flicker;
   C.uCorner.value = CRT.corner; C.uRoll.value = CRT.roll; C.uMargin.value = CRT.margin * dpr;
   renderer.render(crtScene, crtCam);
+  crtMark('CRT 2단계');
 }
 // 화면 좌표(CSS) → CRT 화면 휨·테두리를 되짚은 좌표 (클릭이 보이는 자리에 맞게)
 function crtPoint(x, y) {
