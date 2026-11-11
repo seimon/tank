@@ -131,7 +131,7 @@
 </div>
 <script>
   // 버전·빌드 시각: 여기 한 곳만 고치면 로딩 화면과 설정 메뉴에 같이 나온다
-  const VERSION = '0.8.048', BUILD = '2026-11-11', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
+  const VERSION = '0.8.049', BUILD = '2026-11-11', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
   for (const e of document.querySelectorAll('.ver')) e.textContent = BUILD_TXT;
 </script>
 <canvas id="perfHud" style="display:none"></canvas>
@@ -3988,13 +3988,22 @@ const burning = [];    // 이번 틱에 타고 있는 칸
 let fireBins = [];     // 화재 광원 배치용 (10x10 구역별 합)
 const fireGlow = new Map();   // 구역 번호 → 지금 비추는 불빛 { x, z, I } (updateLights가 부드럽게 따라간다)
 const NB = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 0.7], [1, -1, 0.7], [-1, 1, 0.7], [-1, -1, 0.7]];
+// 번지기 계산용으로 풀어 둔 이웃: [di, dj, 가중치, 방향 x, 방향 z] × 8 (매번 배열 풀어 쓰기·Math.hypot을 하지 않게: 아이패드(WebKit)에서 특히 느렸다)
+const NBF = new Float32Array(NB.flatMap(([di, dj, w]) => [di, dj, w, di / Math.hypot(di, dj), dj / Math.hypot(di, dj)]));
+const fRowAct = new Uint8Array(FN);   // 이번 계산에서 값이 바뀌었을 수 있는 줄 (그 줄만 텍스처로 옮긴다)
 // 비가 오면 풀이 잘 안 탄다: 젖은 정도 0~1 (config map.fireRain = 보통 비(rain 1)일 때 줄이는 정도. 폭우는 더 줄인다)
 const fireWet = () => Math.min(1, (CFG.map.fireRain ?? 0.8) * Math.min(1.25, WEATHER.rain) );
+let fieldAll = true;   // 다음 계산에서 모든 줄을 옮긴다 (처음 한 번)
 function fieldTick(dt) {
   burning.length = 0;
   const wd = U.uWindDir.value, wet = fireWet(), wetSpread = 1 - wet, wetPower = 0.72 * (1 - 0.35 * wet);   // 젖으면 덜 번지고, 번져도 금방 힘이 빠진다
-  for (let k = 0; k < FN * FN; k++) {
-    if (fTr[k] > 0) fTr[k] = Math.max(0, fTr[k] - dt / CFG.map.grassTrampleTime);   // 밟혀 눌린 풀은 30초(설정)에 걸쳐 일어선다
+  const trD = dt / CFG.map.grassTrampleTime;
+  let anyAct = false;
+  for (let j = 0, k = 0; j < FN; j++) { let rowAct = 0; for (let i = 0; i < FN; i++, k++) {
+    // 아무 일도 없는 칸(눌리지 않음·안 탐·다 자람)은 바로 건너뛴다. 무언가 하는 칸이 있으면 그 줄을 텍스처로 옮긴다
+    if (fTr[k] === 0 && fFire[k] === 0 && fRegrow[k] <= 0 && fGrow[k] >= 1 && fChar[k] <= 0) continue;
+    rowAct = 1;
+    if (fTr[k] > 0) fTr[k] = Math.max(0, fTr[k] - trD);   // 밟혀 눌린 풀은 30초(설정)에 걸쳐 일어선다
     if (fFire[k] > 0) {
       if (fFuel[k] > 0) {
         fFire[k] = Math.min(1, fFire[k] + dt * 5);
@@ -4003,13 +4012,13 @@ function fieldTick(dt) {
         fChar[k] = Math.max(fChar[k], 1 - fGrow[k]);
         // 이웃으로 번지되 세대마다 힘이 약해져서 결국 멈춘다. 바람 방향으로 더 잘 번짐
         if (fPower[k] > 0.05) {
-          const i = k % FN, j = (k / FN) | 0;
-          for (const [di, dj, w] of NB) {
-            const ni = i + di, nj = j + dj;
+          for (let q = 0; q < 40; q += 5) {
+            const di = NBF[q], dj = NBF[q + 1], w = NBF[q + 2], ni = i + di, nj = j + dj;
             if (ni < 0 || nj < 0 || ni >= FN || nj >= FN) continue;
             const n = nj * FN + ni;
             if (fFire[n] > 0 || fFuel[n] < 0.15) continue;
-            const wb = Math.max(0.15, 1 + 1.8 * (di * wd.x + dj * wd.y) / Math.hypot(di, dj));
+            if (nj !== j) fRowAct[nj] = 1;   // 옆 줄에 불이 옮겨붙으면 그 줄도 옮긴다
+            const wb = Math.max(0.15, 1 + 1.8 * (NBF[q + 3] * wd.x + NBF[q + 4] * wd.y));
             if (rand() < 1.9 * dt * w * wb * fFire[k] * fFuel[n] * wetSpread) { fFire[n] = 0.05; fPower[n] = fPower[k] * wetPower; }   // 세대마다 0.72배: 번지는 범위 약 85% (비 오면 더 빨리 약해진다)
           }
         }
@@ -4024,11 +4033,20 @@ function fieldTick(dt) {
       fChar[k] = Math.max(0, fChar[k] - dt / 10);
     }
   }
-  for (let k = 0, o = 0; k < FN * FN; k++, o += 4) {
-    fieldData[o] = fTr[k] * 255; fieldData[o + 1] = fFire[k] * 255;
-    fieldData[o + 2] = fChar[k] * 255; fieldData[o + 3] = fGrow[k] * 255;
+  if (rowAct) { fRowAct[j] = 1; anyAct = true; } }
+  // 값이 바뀐 줄만 텍스처 자료로 옮기고, 아무것도 안 바뀌었으면 올리지도 않는다 (예전엔 9만 칸을 매번 다 옮기고 올렸다)
+  if (anyAct || fieldAll) {
+    for (let j = 0; j < FN; j++) {
+      if (!fRowAct[j] && !fieldAll) continue;
+      fRowAct[j] = 0;
+      for (let k = j * FN, o = k * 4, e = k + FN; k < e; k++, o += 4) {
+        fieldData[o] = fTr[k] * 255; fieldData[o + 1] = fFire[k] * 255;
+        fieldData[o + 2] = fChar[k] * 255; fieldData[o + 3] = fGrow[k] * 255;
+      }
+    }
+    fieldAll = false;
+    fieldTex.needsUpdate = true;
   }
-  fieldTex.needsUpdate = true;
   const bins = new Map();
   for (const k of burning) {
     const i = k % FN, j = (k / FN) | 0, b = ((j / 20) | 0) * 10 + ((i / 20) | 0), w = fFire[k];
