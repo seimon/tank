@@ -2705,9 +2705,9 @@ function updateTankLamps(thr) {
 }
 const STACK_DIR = new THREE.Vector3(0, Math.cos(Math.PI / 3), -Math.sin(Math.PI / 3));   // 굴뚝 끝은 뒤로 60도 꺾였다
 // spg = 자주포: 포탑이 차체 뒤쪽, 포신이 3배 길다 (굴뚝은 포탑에 가리지 않게 앞쪽 옆으로)
-// 바퀴 바깥면 무늬 (스포크 6개, mockups/20261112_wheel_faces.png 의 A): 회색 명암 × 바퀴 색. 텍스처는 1을 넘을 수 없어 WHEEL_TEX_K배 밝은 색을 곱한다
+// 바퀴 바깥면 무늬 (스포크 6개, _mockups/20261112_wheel_faces.png 의 A): 회색 명암 × 바퀴 색. 텍스처는 1을 넘을 수 없어 WHEEL_TEX_K배 밝은 색을 곱한다
 const WHEEL_TEX_K = 2.4;
-// 고무 테두리(3칸) → 밝은 면 → 방사형으로 길쭉한 구멍 6개 → 짙은 허브 고리 → 밝은 허브 (mockups/20261112_wheel_face_v2.png)
+// 고무 테두리(3칸) → 밝은 면 → 방사형으로 길쭉한 구멍 6개 → 짙은 허브 고리 → 밝은 허브 (_mockups/20261112_wheel_face_v2.png)
 const wheelTex = canvasTex(32, 32, (g) => {
   const shade = (v) => { g.fillStyle = `rgb(${v},${v},${v})`; };
   const disc = (x, y, r, v) => { shade(v); g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill(); };

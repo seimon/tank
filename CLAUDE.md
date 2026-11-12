@@ -6,18 +6,20 @@
 ## 작업 규칙 (꼭 지킬 것)
 - **답변은 한국어.** 사용자에게 하는 말은 모두 한국어로.
 - **버전:** 작업할 때마다 `src/template.html`의 `VERSION`을 0.0.001씩 올리고(끝자리 세 자리, 예 0.5.016 → 0.5.017), `BUILD`는 그날 날짜(YYYY-MM-DD)만. 큰 단계는 사용자가 정한다 (예 0.5.000).
+- **변경 기록:** 버전을 올릴 때마다 `CHANGELOG.md` 맨 위(그날 날짜 아래, 새 날짜면 제목을 새로)에 그 버전에서 바뀐 것을 한 줄로 적는다. 새 config 키가 생기면 이름도 함께. 커밋 메시지·업데이트 노트는 여기서 뽑는다.
 - **성능 목표:** PC·맥·아이패드에서 60fps. CPU·GPU를 최대한 적게 쓴다. 기능을 넣을 때마다 비용을 따진다.
 - **config.js는 사용자가 직접 고친다.** 사용자가 바꾼 값은 그대로 두고, 새 설정만 주석과 함께 추가한다.
 - 탱크 물리 메모: 탱크 중력은 `GT = G × physics.gravity`(포탄·부스러기는 `G` 그대로). 벽·물체에 붙어 거의 멈춘 평지에서는 궤도 마찰을 `physics.wallSlip`배로 줄인다(`physStep`의 `_ws`, 벽에 붙어 제자리 회전이 느린 문제). 경사면 아래로 끌리는 힘은 `physics.slopePull`배(법선 성분은 그대로, `physStep`). 마찰 한계는 땅을 누르는 힘에 비례해서 중력 배율을 올리면 마찰도 같이 세진다. 궤도 속도는 '공통 속도(W/S)'와 '좌우 차이(A/D)'로 나눠 따로 따라간다(달리다 W를 떼고 돌아도 회전이 바로 시작되도록). 달리던 반대 방향 키를 누르면 헛돌던 궤도를 실제 속도로 맞춘 뒤 `physics.brake`배로 줄인다(`physStep`). G키(`uprightTank` → `openHopSpot`): 주변 16방향 중 6m 넘게 열린 방향이 8개 미만이면 가장 트인 쪽으로 고른 자리까지의 절반만큼 45도 포물선으로 쏘아 올려(`hopUpright(.., move)`, 수평은 일정 속도·높이는 식 그대로, `updateFall`) 차체 방향 그대로 내려앉고, 이미 트여 있으면 제자리에서 위로. 떠오르는 순간에도 착지 연출(`landFx`), 세우면 남은 HP가 1이 된다. 후진할 때 A/D 반대는 S를 누르고 실제로도 뒤로 가거나 거의 멈췄을 때만(tick의 `tAlong`). 회전 방향이 뒤집히면 좌우 차이도 `physics.brake`배로 빨리 바꾸고, 궤도가 땅을 미끄러지는 만큼(궤도 공통 속도와 차체 앞뒤 속도의 차이, `TURN_SLIP` m/s면 최대) 조향 돕는 힘의 상한과 세기를 `physics.brakeTurn`배까지 올린다(`B.ya`, 줄 때는 `TURN_ASSIST_FALL`초에 걸쳐 서서히). 가속·감속·멈추는 순간 두 궤도가 땅을 잡는 힘을 앞뒤로 써 버려 회전이 약해지던 문제. 빠를수록 회전 목표를 올린다(최고 속도에서 `physics.turnAtSpeed`배, 최고 속도 1.3배 넘으면 다시 줄임). 탱크끼리 충돌은 파고든 깊이를 `physics.tankHitPen`까지만 힘으로 쓰고 넘친 만큼은 위치를 떼어 내며, 힘은 무게중심 높이에 건다 (가볍게 튕겨 날아가던 문제). 보급품은 들이받으면 `pushTarget`/`slideTarget`(30_combat.js)으로 미끄러지며 기운다 (`physics.boxPush`·`boxFriction`·`boxTilt`, 기울기는 그림만). 차체 기울기(보이는 것만): 탱크 모델은 궤도·바퀴(`userData.track`)를 뺀 나머지를 몸통 그룹 `P.body`(축 높이 `LEAN_Y`)로 묶고, `leanStep`(앞뒤 가속도 → 앞뒤, 달리며 돌 때 옆 가속도 → 좌우 `roll`)·`leanKick`(대포 반동: 포 방향의 앞뒤 성분 → 앞뒤, 좌우 성분 → 좌우)이 스프링처럼 기울인다(config `physics.lean`). 임무 완료 화면에서도 `clearTick`이 돌린다. 조준(`muzzle`)에도 기울기가 들어간다(출렁이는 동안 쏘면 위아래로 빗나간다. 조준선·적 예측 사격도 같은 muzzle). 물리는 초당 480번(`PHYS_H`, 마찰·접촉 스프링이 안정적이려면 필요해서 낮추지 않기로 함). 스텝마다 차체 근처(`BODY_R`)의 물체(`_nearFp`)·8m 안 탱크(`_nearT`, 역회전 `O._qinv`는 스텝마다 한 번)만 골라 접촉점과 비교하고, 그 차체를 감싸는 구(`TANK_R2`) 밖의 접촉점은 바로 건너뛴다 (모든 물체와 비교하던 것, 탱크가 몰렸을 때 접촉점마다 역회전하던 것이 비쌌다).
 - **file://로 열어도 동작해야 한다.** 그래서 로컬 ES 모듈(import)로 나누지 않는다 (아래 '구조').
 - **index.html은 직접 고치지 않는다.** `src/`를 고치고 `python tools/build.py`로 합친다.
-- 사용자에게 시안을 보여 줄 때는 `mockups/`에 `YYYYMMDD_` 접두어로 저장한다.
+- 사용자에게 시안을 보여 줄 때는 `_mockups/`에 `YYYYMMDD_` 접두어로 저장한다.
 - 디자인 수치(여백 몇 칸 등)는 사용자가 아주 구체적으로 정한다. 임의로 바꾸지 말고, 정한 것이 있으면 따로 알린다.
 
 ## 구조
 ```
 index.html          ← 자동 생성 (src/를 합친 결과). 직접 고치지 말 것
 config.js           ← 사용자가 고치는 설정 (window.CONFIG)
+CHANGELOG.md        ← 버전별 변경 기록 (버전을 올릴 때마다 한 줄)
 decals.js           ← 데칼 셋 (window.DECAL_SETS): 포탑 좌우 그림 묶음. 데칼 편집 모드에서 C로 복사해 덮어쓴다
 title_images.js     ← 자동 생성 (images/*.png를 build.py가 data URL로 담음: file://에서 CRT로 올릴 수 있게). 직접 고치지 말 것
 decal_images.js     ← 자동 생성 (images/decals/*.png를 build.py가 data URL로 담음). 직접 고치지 말 것
@@ -47,7 +49,8 @@ src/90_loop.js      ← tick, 로딩 퇴장, 일시정지·정지, 메인 루프
 tools/build.py      ← src/*.js를 이름 순서대로 이어 붙여 index.html 생성 (--watch 지원). images/decals/*.png → decal_images.js도
 fonts/galmuri11c.js ← 갈무리11 장체 비트맵 데이터 (OFL, fonts/LICENSE.txt). fonts/bdf2js.py로 BDF에서 변환
 images/             ← 타이틀 도트 PNG (사용자가 직접 그림). images/decals/ = 데칼 그림 (32x32, 투명 배경)
-mockups/            ← 사용자에게 보여 준 시안 그림
+_mockups/           ← 사용자에게 보여 준 시안 그림 (배포 파일과 구분하려고 _ 접두어)
+_promo/             ← 소개용 스크린샷·문구 (배포 안 함)
 ```
 - 모든 src/*.js는 **하나의 모듈 범위**를 나눠 쓴다. import/export 없이 앞 파일의 이름을 그대로 쓰고, **파일 이름 순서가 곧 실행 순서**다 (let/const는 선언 전에 쓰면 TDZ 오류).
 - config.js·map.js·decals.js 등 앞에서 읽는 데이터 파일은 template.html이 `?v=시각`을 붙여 `document.write`로 읽는다 (브라우저 캐시 때문에 고친 config가 반영되지 않던 문제. 새 파일을 더하면 그 목록에).
