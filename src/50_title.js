@@ -197,7 +197,14 @@ function titleCamEnd() {
   playCamPos.copy(camera.position); playCamTgt.copy(controls.target); camSaved = true;
   const tc = TT.camera || {}, k = titleK;
   _fwd.set(0, 0, 1).applyQuaternion(tank.q);
-  const tYaw = (entr ? entr.yaw : Math.atan2(_fwd.x, _fwd.z)) + (tc.yaw ?? 65) * DEG, tPitch = (tc.pitch ?? 8) * DEG, tDist = tc.distance ?? 16;
+  // 핸드헬드 + 부분 호 (title.camera arc·arcTime·sway·swayRate): 좌우로 EaseInOutSine으로 천천히 오가고, 빠르기가 다른 물결 몇 개로 살짝 흔들린다.
+  // 플레이로 넘어가는 동안(titleK)에는 줄어들어 없어진다
+  const ct = U.uTime.value, sr = (tc.swayRate ?? 0.5) * 2 * Math.PI, sw = (tc.sway ?? 0.4) * DEG * (1 - k);
+  const arcOff = (tc.arc ?? 6) * DEG * (1 - k) * -Math.cos(Math.PI * ct / Math.max(0.1, tc.arcTime ?? 12));
+  const swYaw = sw * (0.6 * Math.sin(ct * sr * 0.53 + 0.4) + 0.4 * Math.sin(ct * sr * 1.37 + 2.1));
+  const swPitch = sw * (0.6 * Math.sin(ct * sr * 0.71 + 1.3) + 0.4 * Math.sin(ct * sr * 1.91 + 0.2));
+  const swRoll = sw * 0.6 * (0.6 * Math.sin(ct * sr * 0.43 + 2.7) + 0.4 * Math.sin(ct * sr * 1.13 + 0.9));
+  const tYaw = (entr ? entr.yaw : Math.atan2(_fwd.x, _fwd.z)) + (tc.yaw ?? 65) * DEG + arcOff + swYaw, tPitch = (tc.pitch ?? 8) * DEG + swPitch, tDist = tc.distance ?? 16;
   _ttg.copy(entr ? entr.home : tank.pos); _ttg.y += tc.height ?? 2;
   _tmp.copy(playCamPos).sub(playCamTgt);
   const pDist = _tmp.length(), pPitch = Math.asin(_tmp.y / pDist), pYaw = Math.atan2(-_tmp.x, -_tmp.z);
@@ -206,6 +213,7 @@ function titleCamEnd() {
   controls.target.lerpVectors(_ttg, playCamTgt, k);
   camera.position.copy(controls.target).add(_tmp.set(-Math.sin(yaw) * Math.cos(pitch) * dist, Math.sin(pitch) * dist, -Math.cos(yaw) * Math.cos(pitch) * dist));
   camera.lookAt(controls.target);
+  if (swRoll) camera.rotateZ(swRoll);   // 손에 든 카메라처럼 아주 살짝 좌우로 기운다
   const fov = lerp(tc.fov ?? 30, CC.fov, k);
   if (camera.fov !== fov) { camera.fov = fov; camera.updateProjectionMatrix(); U.uPointScale.value = lowH / (2 * Math.tan(fov * DEG / 2)); }
 }

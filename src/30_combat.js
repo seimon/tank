@@ -1091,7 +1091,36 @@ function updateBalls(dt) {
 }
 const _tip = new THREE.Vector3(), _piv = new THREE.Vector3();
 // 탱크 상태 → 모델 (내 탱크·적 탱크 공용: T.group, T.P)
+// 차체 기울기 (보이는 것만): 앞뒤 가속도만큼 젖혀지거나 숙여지고, 대포를 쏘면 포 반대쪽으로 툭 밀린다. 스프링처럼 출렁이다 제자리로
+const LEAN = Object.assign({ accel: 0.2, fire: 2, max: 4, spring: 60, damping: 7, side: 1, turn: 0.25 }, PH.lean);
+const LEAN_W = Math.sqrt(LEAN.spring), _up = new THREE.Vector3();
+function leanStep(T, dt) {
+  if (!T.P.body || dt <= 0) return;
+  _fwd.set(0, 0, 1).applyQuaternion(T.q);
+  const along = T.vel.dot(_fwd), a = T.leanV0 === undefined ? 0 : (along - T.leanV0) / dt;
+  T.leanV0 = along;
+  T.leanA = (T.leanA || 0) + ((T.contacts > 0 ? a : 0) - (T.leanA || 0)) * Math.min(1, dt * 12);   // 땅 굴곡에 따른 떨림은 부드럽게
+  // 앞으로 가속하면 앞이 들린다(-), 멈추려고 감속하면 앞이 숙여진다(+). 꾸준히 가속할 때 기울기 = accel° × 가속도(m/s²)
+  const f = -LEAN.accel * DEG * LEAN.spring * T.leanA;
+  T.leanW = (T.leanW || 0) + (f - LEAN.spring * (T.lean || 0) - LEAN.damping * (T.leanW || 0)) * dt;
+  const mx = LEAN.max * DEG;
+  T.lean = Math.max(-mx, Math.min(mx, (T.lean || 0) + T.leanW * dt));
+  // 좌우 기울기(롤): 달리며 돌면 바깥쪽으로 (원심력: 앞뒤 속도 × 세로축 회전 속도 = 옆 가속도). +면 왼쪽(+x)이 들린다 = 오른쪽으로 기운다
+  _up.set(0, 1, 0).applyQuaternion(T.q);
+  const lat = T.contacts > 0 ? along * T.w.dot(_up) : 0;
+  T.rollA = (T.rollA || 0) + (lat - (T.rollA || 0)) * Math.min(1, dt * 12);
+  const fr = LEAN.turn * DEG * LEAN.spring * T.rollA;
+  T.rollW = (T.rollW || 0) + (fr - LEAN.spring * (T.roll || 0) - LEAN.damping * (T.rollW || 0)) * dt;
+  T.roll = Math.max(-mx, Math.min(mx, (T.roll || 0) + T.rollW * dt));
+}
+// 쏘면 포 반대쪽으로 툭: 앞뒤 성분(cos)은 앞이 들리게, 좌우 성분(sin)은 쏜 반대쪽으로 기울게 (왼쪽(+)으로 쏘면 오른쪽으로)
+function leanKick(T) {
+  const a = T.tyaw || 0, v = LEAN.fire * DEG * LEAN_W;
+  T.leanW = (T.leanW || 0) - v * Math.cos(a);
+  T.rollW = (T.rollW || 0) + v * LEAN.side * Math.sin(a);
+}
 function syncBody(T) {
+  if (T.P.body) { T.P.body.rotation.x = T.lean || 0; T.P.body.rotation.z = T.roll || 0; }
   T.P.pivot.rotation.x = -T.elev;
   T.P.turret.rotation.y = T.tyaw || 0;
   T.group.quaternion.copy(T.q);
@@ -1099,7 +1128,7 @@ function syncBody(T) {
 }
 function syncTankVisual() { syncBody(tank); }
 function muzzle(T = tank) {
-  syncBody(T);
+  syncBody(T);   // 차체 기울기(반동·관성)도 포 방향에 들어간다: 출렁이는 동안 쏘면 그만큼 위아래로 빗나간다
   T.group.updateMatrixWorld(true);
   T.P.tip.getWorldPosition(_tip); T.P.pivot.getWorldPosition(_piv);
   return _dir.copy(_tip).sub(_piv).normalize();
@@ -1123,6 +1152,7 @@ const VEL_INHERIT = 0.5;   // 포탄은 탱크 속도의 절반만 이어받는�
 // spread: 일부러 흩뜨리는 각도 (적 탱크 명중률 조절용)
 function fireCannon(T = tank, spread = 0) {
   const dir = muzzle(T).clone();
+  leanKick(T);   // 쏜 반동으로 차체가 툭 기운다
   if (spread) { dir.applyAxisAngle(UP, rr(-spread, spread)); dir.y += rr(-spread, spread) * 0.6; dir.normalize(); }
   const mesh = new THREE.Mesh(ballGeo, ballMat);
   mesh.position.copy(_tip); scene.add(mesh);

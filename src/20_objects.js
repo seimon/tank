@@ -178,6 +178,27 @@ function updateTankLamps(thr) {
 }
 const STACK_DIR = new THREE.Vector3(0, Math.cos(Math.PI / 3), -Math.sin(Math.PI / 3));   // 굴뚝 끝은 뒤로 60도 꺾였다
 // spg = 자주포: 포탑이 차체 뒤쪽, 포신이 3배 길다 (굴뚝은 포탑에 가리지 않게 앞쪽 옆으로)
+// 바퀴 바깥면 무늬 (스포크 6개, mockups/20261112_wheel_faces.png 의 A): 회색 명암 × 바퀴 색. 텍스처는 1을 넘을 수 없어 WHEEL_TEX_K배 밝은 색을 곱한다
+const WHEEL_TEX_K = 2.4;
+// 고무 테두리(3칸) → 밝은 면 → 방사형으로 길쭉한 구멍 6개 → 짙은 허브 고리 → 밝은 허브 (mockups/20261112_wheel_face_v2.png)
+const wheelTex = canvasTex(32, 32, (g) => {
+  const shade = (v) => { g.fillStyle = `rgb(${v},${v},${v})`; };
+  const disc = (x, y, r, v) => { shade(v); g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill(); };
+  const k = (c) => Math.round(Math.min(255, c / 60 / WHEEL_TEX_K * 255));   // 바퀴 색(60) 기준 밝기를 텍스처 값으로
+  shade(k(30)); g.fillRect(0, 0, 32, 32);   // 바깥 = 고무 테두리
+  disc(16, 16, 13, k(83));   // 밝은 면
+  for (let i = 0; i < 6; i++) {   // 구멍: 반지름 방향으로 길이 7.5, 폭 3.6인 타원
+    const a = i * Math.PI / 3 + Math.PI / 6;
+    shade(k(12)); g.beginPath(); g.ellipse(16 + Math.cos(a) * 8.6, 16 + Math.sin(a) * 8.6, 3.75, 1.8, a, 0, Math.PI * 2); g.fill();
+  }
+  disc(16, 16, 5, k(44)); disc(16, 16, 3.6, k(128));
+});
+// 바퀴 둥근 면(원기둥 옆면): 가운데를 어둡게 (홈이 팬 고무 바퀴처럼). 원기둥 옆면 uv의 v = 바퀴 폭 방향
+const wheelSideTex = canvasTex(2, 16, (g) => {
+  g.fillStyle = '#ffffff'; g.fillRect(0, 0, 2, 16);   // 양쪽 가장자리는 바퀴 색 그대로
+  g.fillStyle = '#505050'; g.fillRect(0, 6, 2, 4);   // 가운데 띠: 바퀴 색 : 띠 : 바퀴 색 = 1.5 : 1 : 1.5
+});
+const LEAN_Y = 0.65;   // 몸통이 앞뒤로 기우는 축 높이 (궤도 윗면쯤)
 function buildTank(wreck, tc = TC, spg = false) {
   PS1_NOSNAP = true;   // 탱크 재질은 스내핑 없이 (아래 return 앞에서 되돌린다)
   const root = new THREE.Group(), P = { belts: [] }, cache = new Map();
@@ -189,14 +210,20 @@ function buildTank(wreck, tc = TC, spg = false) {
   };
   const add = (m, x, y, z, par = root) => { m.position.set(x, y, z); par.add(m); return m; };
   const cyl = (r0, r1, h, seg, mat, open = false) => new THREE.Mesh(new THREE.CylinderGeometry(r0, r1, h, seg, 1, open), mat);
+  const wheelDiscs = [];
   [1, -1].forEach((side) => {   // +x = 왼쪽
     let bm;
     if (wreck) bm = M(0x777777, treadTex, THREE.DoubleSide);
     else { const tex = treadTex.clone(); tex.needsUpdate = true; P.belts.push(tex); bm = lambert({ map: tex, side: THREE.DoubleSide, vertexColors: true }); }
-    add(new THREE.Mesh(beltGeo(3.8, 0.5, 0.72), bm), side * TRACK_X, 0, 0).name = 'belt';
+    const belt = add(new THREE.Mesh(beltGeo(3.8, 0.5, 0.72), bm), side * TRACK_X, 0, 0); belt.name = 'belt'; belt.userData.track = true;
     for (const [z, y, r] of [[-1.4, 0.5, 0.43], [-0.72, 0.36, 0.34], [0, 0.36, 0.34], [0.72, 0.36, 0.34], [1.4, 0.5, 0.43]]) {
-      add(cyl(r, r, 0.6, 8, M(tc.wheel, null)), side * TRACK_X, y, z).rotation.z = Math.PI / 2;
-      add(cyl(r * 0.42, r * 0.42, 0.64, 6, M(0x2a2a26, null)), side * TRACK_X, y, z).rotation.z = Math.PI / 2;   // 바퀴 허브
+      const wh = add(cyl(r, r, 0.6, 8, M(tc.wheel, wheelSideTex)), side * TRACK_X, y, z); wh.rotation.z = Math.PI / 2; wh.userData.track = true;
+      // 바깥면 무늬 원판 (스포크 6개). 탱크 하나의 원판 10개를 한 덩어리로 합친다 (아래). 허브는 무늬 가운데로 대신한다
+      const disc = new THREE.CircleGeometry(r * 0.97, 16).rotateY(side * Math.PI / 2).translate(side * (TRACK_X + 0.305), y, z);
+      const n = disc.attributes.position.count, aw = new Float32Array(n * 4);
+      for (let i = 0; i < n; i++) aw.set([side, r * 0.97, z, y], i * 4);
+      disc.setAttribute('aWheel', new THREE.BufferAttribute(aw, 4));
+      wheelDiscs.push(disc);
     }
   });
   add(plateBox(1.5, 0.7, 3.4, M(tc.low)), 0, 0.7, 0);
@@ -217,6 +244,19 @@ function buildTank(wreck, tc = TC, spg = false) {
   if (!wreck) {   // 켜진 등 둘레의 작은 후광
     P.halo = new THREE.SpriteMaterial({ map: glowTex, color: BRAKE_STOP, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
     for (const s of [-1, 1]) { const sp = add(new THREE.Sprite(P.halo), s * TRACK_X, 1.08, -2.08); sp.scale.setScalar(0.9); sp.name = 'halo'; }
+  }
+  {   // 바퀴 무늬 원판 한 덩어리: 텍스처를 궤도가 굴러간 거리 ÷ 반지름만큼 돌린다 (uWheelRot = 왼쪽·오른쪽 궤도 거리, 탱크마다 재질 userData.uRot)
+    const wc = (wreck ? M(tc.wheel, null).color.clone() : new THREE.Color(tc.wheel)).multiplyScalar(WHEEL_TEX_K);
+    const wm = ps1(new THREE.MeshLambertMaterial({ map: wheelTex, color: wc, vertexColors: true }), function (sh) {
+      sh.uniforms.uWheelRot = this.userData.uRot || (this.userData.uRot = { value: new THREE.Vector2() });
+      sh.vertexShader = 'attribute vec4 aWheel; uniform vec2 uWheelRot;\n' + sh.vertexShader.replace('#include <uv_vertex>', `#include <uv_vertex>
+        { float a = (aWheel.x > 0.0 ? uWheelRot.x : uWheelRot.y) / aWheel.y, c = cos(a), s = sin(a);
+          vec2 d = vec2(position.z - aWheel.z, position.y - aWheel.w) / aWheel.y;   // 바퀴 가운데 기준 (z, y), 반지름 1
+          vMapUv = vec2(d.x * c - d.y * s, d.x * s + d.y * c) * 0.5 + 0.5; }`);
+    }, 'wheelFace');
+    wm.userData.uRot = { value: new THREE.Vector2() };
+    const wf = add(new THREE.Mesh(mergeGeometries(wheelDiscs), wm), 0, 0, 0); wf.name = 'wheelFace'; wf.userData.track = true;
+    P.wheelRot = wm.userData.uRot;
   }
   // 여분 바퀴 두 개: 포탑 뒷벽에 기대 세워 둠 (포탑과 함께 돈다)
   const wz = TZ - 1.03;
@@ -270,7 +310,12 @@ function buildTank(wreck, tc = TC, spg = false) {
   root.traverse((o) => { if (o.isMesh && !o.geometry.attributes.aRiv) o.geometry.setAttribute('aRiv', new THREE.BufferAttribute(new Float32Array(o.geometry.attributes.position.count * 4), 4)); });
   bakeAO(root, 1.1, 0.9, wreck ? 0.5 : 0.28);   // 잔해는 새카맣게 그을려 그늘이 덜 보이니 덜 쪼갠다
   root.traverse((o) => { if (o.isMesh && !o.material.isMeshBasicMaterial) o.material.defines = { AO_BAKED: '' }; });
-  for (const k of ['pivot', 'barrel', 'turret', 'tip', 'stack', 'shovel']) P[k].name = k;   // 복제본에서 다시 찾을 수 있게
+  // 몸통: 궤도·바퀴를 뺀 나머지(차체·포탑·포·등·굴뚝)를 한 그룹으로. 이 그룹만 앞뒤로 기울여 반동·관성을 보인다 (physics.lean, leanStep)
+  // 축은 궤도 윗면 높이의 차체 가운데. attach라 모양·자리는 그대로
+  root.updateMatrixWorld(true);
+  const body = P.body = new THREE.Group(); body.position.set(0, LEAN_Y, 0); root.add(body); body.updateMatrixWorld(true);
+  for (const o of [...root.children]) if (o !== body && !o.userData.track) body.attach(o);
+  for (const k of ['pivot', 'barrel', 'turret', 'tip', 'stack', 'shovel', 'body']) P[k].name = k;   // 복제본에서 다시 찾을 수 있게
   PS1_NOSNAP = false;
   return { root, P };
 }
@@ -636,7 +681,7 @@ function mergeByTex(g) {
   return out;
 }
 const wreckModel = (() => { const { root, P } = buildTank(true); P.pivot.rotation.x = 0.16; P.turret.rotation.y = 0.45;   // 포신이 축 처지고 포탑이 비뚤게 돌아갔다
-  return mergeByTex(bake(root, null, ['aRiv', 'color']));
+  return mergeByTex(bake(root, null, ['aRiv', 'color', 'aWheel']));
 })();
 function placeWreck(x, z, yaw) {
   const wg = markOutline(wreckModel.clone());

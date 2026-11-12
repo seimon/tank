@@ -14,14 +14,22 @@ const clrFloor = new THREE.Mesh(new THREE.PlaneGeometry(600, 600).rotateX(-Math.
     void main() {
       float near = 1.0 - smoothstep(5.0, 8.0, distance(vXZ, uTP));   // 내 탱크 둘레만 (보이지 않는 잔해·지프 그림자는 빼고)
       float fl = 1.0 - smoothstep(0.0, 10.0, distance(vXZ, uFl.xz)); fl *= fl * uFl.w;   // 포구 섬광이 바닥에 비치는 빛 (뒷등처럼 흉내: 바닥은 빛을 받지 않아서)
-      if (fl > 0.0) {   // 섬광이 만드는 차체 그림자: 섬광에서 바닥 점으로 가는 선이 차체 높이(uTkS.z)의 1/3·2/3·끝에서 차체 바닥 사각형을 지나면 그늘. 멀수록 넓어진다
-        float sh = 0.0;
-        for (int i = 1; i <= 3; i++) {
-          vec2 q = uFl.xz + (vXZ - uFl.xz) * (1.0 - uTkS.z * float(i) / 3.0 / uTkS.w);   // 그 높이에서 선이 지나는 자리 (uTkS.w = 섬광 높이)
-          vec2 d = q - uTk.xy, l = vec2(d.x * uTk.z - d.y * uTk.w, d.x * uTk.w + d.y * uTk.z), e = abs(l) - uTkS.xy;
-          sh = max(sh, 1.0 - smoothstep(-0.25, 0.35, length(max(e, 0.0)) + min(max(e.x, e.y), 0.0)));
+      if (fl > 0.0) {   // 섬광이 만드는 차체 그림자: 섬광에서 바닥 점으로 가는 선이 차체 높이(uTkS.z)의 여섯 높이에서 차체 바닥 사각형을 지나면 그늘. 멀수록 넓어진다
+        // 화면 한 픽셀 안의 네 점에서 따로 재서 평균 (게임 해상도가 낮아 그늘 경계가 계단처럼 보이던 것을 부드럽게)
+        vec2 px = dFdx(vXZ), py = dFdy(vXZ), so[4];
+        so[0] = (px + py) * 0.25; so[1] = (px - py) * 0.25; so[2] = -so[1]; so[3] = -so[0];
+        float shs = 0.0;
+        for (int s = 0; s < 4; s++) {
+          vec2 p0 = vXZ + so[s];
+          float sh = 0.0;
+          for (int i = 1; i <= 6; i++) {
+            vec2 q = uFl.xz + (p0 - uFl.xz) * (1.0 - uTkS.z * float(i) / 6.0 / uTkS.w);   // 그 높이에서 선이 지나는 자리 (uTkS.w = 섬광 높이)
+            vec2 d = q - uTk.xy, l = vec2(d.x * uTk.z - d.y * uTk.w, d.x * uTk.w + d.y * uTk.z), e = abs(l) - uTkS.xy;
+            sh = max(sh, 1.0 - smoothstep(-0.25, 0.35, length(max(e, 0.0)) + min(max(e.x, e.y), 0.0)));
+          }
+          shs += sh;
         }
-        fl *= 1.0 - 0.9 * sh;
+        fl *= 1.0 - 0.9 * shs * 0.25;
       }
       gl_FragColor = vec4(uC * (1.0 - 0.8 * contactShadow(vXZ) * near) + lampGlow(vXZ) * 0.25 * near + uFlC * fl * 0.5, 1.0);
     }`,
@@ -118,6 +126,7 @@ function clearTick(dt) {
   }
   tank.recoil = Math.max(0, tank.recoil - dt * 3);
   parts.barrel.position.z = -0.5 * tank.recoil;
+  leanStep(tank, dt);   // 대포 반동으로 차체가 기운다 (멈춰 있으니 반동만)
   syncTankVisual();
   updateShadows(); updateTankLamps(0);   // 바닥에 비치는 그림자·뒷등
   sfx.engine(tank.solid, 0, 0);

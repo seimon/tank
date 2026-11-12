@@ -327,7 +327,7 @@ function ps1(mat, extra, key) {
     sh.vertexShader = 'uniform vec2 uSnap;\n' + (lit ? 'varying vec3 vRingW;\n' : '') +
       sh.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n' + (snap ? SNAP : '') +
         (lit ? '\n{ vec4 rw = vec4(transformed, 1.0);\n#ifdef USE_INSTANCING\nrw = instanceMatrix * rw;\n#endif\nvRingW = (modelMatrix * rw).xyz; }' : ''));
-    if (extra) extra(sh);
+    if (extra) extra.call(this, sh);   // (this = 컴파일되는 재질: 재질마다 다른 uniform을 쓸 때)
     if (lit) {
       sh.uniforms.uRing0 = U.uRing0; sh.uniforms.uRing1 = U.uRing1;
       sh.fragmentShader = RING_GLSL + 'varying vec3 vRingW;\n' + sh.fragmentShader.replace('#include <emissivemap_fragment>',

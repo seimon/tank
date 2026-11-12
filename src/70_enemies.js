@@ -44,11 +44,12 @@ const ENEMIES = [];
 function newEnemy(spg = false, idx = 1, level = 0) {
   const lvNo = spg ? 0 : level || levelForIdx(idx), LV = spg ? null : enemyLevel(lvNo);
   const root = markOutline((spg ? spgTemplate : LV_TEMPLATES.get(lvNo) || enemyTemplate).clone(true)), P = { belts: [] };
-  for (const k of ['pivot', 'barrel', 'turret', 'tip', 'stack']) P[k] = root.getObjectByName(k);
+  for (const k of ['pivot', 'barrel', 'turret', 'tip', 'stack', 'body']) P[k] = root.getObjectByName(k);
   let brake = null, halo = null;
   root.traverse((o) => {
     if (o.name === 'belt') { o.material = cloneMat(o.material); o.material.map = o.material.map.clone(); o.material.map.needsUpdate = true; P.belts.push(o.material.map); }
     if (o.name === 'brake') { brake = brake || cloneMat(o.material); o.material = brake; }
+    if (o.name === 'wheelFace') { o.material = cloneMat(o.material); o.material.userData.uRot = P.wheelRot = { value: new THREE.Vector2() }; }   // 바퀴 무늬 회전은 탱크마다
     if (o.name === 'halo') { halo = halo || o.material.clone(); o.material = halo; }
   });
   P.brake = brake; P.halo = halo;
@@ -749,7 +750,9 @@ const _esp = new THREE.Vector3();
 function enemyVisual(E, dt, thr) {
   E.dL += E.sL * dt; E.dR += E.sR * dt;
   E.P.belts[0].offset.x = E.dL / TREAD; E.P.belts[1].offset.x = E.dR / TREAD;
+  if (E.P.wheelRot) E.P.wheelRot.value.set(E.dL, E.dR);
   E.recoil = Math.max(0, E.recoil - dt * 3); E.P.barrel.position.z = -0.5 * E.recoil;
+  leanStep(E, dt);
   syncBody(E);
   trampleUnder(E);
   E.group.updateMatrixWorld(true);

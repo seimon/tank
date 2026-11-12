@@ -966,7 +966,32 @@ function updatePoles(dt) {
   writeWires();
   polesMoving = any;
 }
+// 바람이 map.poleWind.from 이상이면 전봇대를 바람 쪽으로 계속 민다. 세기는 돌풍처럼 오르내리고, 바람이 지나가는 쪽으로 전봇대마다 시차를 둔다.
+// 전깃줄 끝은 전봇대 기울기를 따라가고(poleXform), 전깃줄 자체도 바람만큼 출렁인다
+const POLE_WIND = Object.assign({ from: 2, strength: 0.5, gust: 0.6, wires: 1, sway: 1 }, CFG.map?.poleWind);
+// 흔들림: 전봇대 스프링(32)의 고유 진동(약 0.9Hz) 근처로 밀고 당겨 바람 부는 동안 계속 앞뒤로 흔들린다. 전봇대마다 빠르기(±10%)·위상이 달라 같이 움직이지 않는다
+const POLE_SW = Array.from({ length: NP }, (_, i) => [Math.sqrt(32) * (0.9 + 0.2 * ((i * 0.618) % 1)), i * 2.39996]);
+function windPoles(dt) {
+  const w = U.uWind.value - POLE_WIND.from;
+  if (w < 0 || dt <= 0) return;
+  const wd = U.uWindDir.value, t = U.uTime.value, k = POLE_WIND.strength * (w + 0.5);
+  for (let i = 0; i < NP; i++) {
+    const p = allPoles[i], ph = (p.x * wd.x + p.z * wd.y) * 0.08;   // 바람 불어 가는 쪽으로 늦게
+    const g = (1 - POLE_WIND.gust) + POLE_WIND.gust * (0.5 + 0.5 * Math.sin(t * 0.9 - ph + i * 0.37)) * (0.6 + 0.4 * Math.sin(t * 0.31 + i * 1.7));
+    // 바람 쪽으로 기우는 몫(돌풍처럼 오르내림) + 그 자리에서 앞뒤로 흔들리는 몫(옆으로도 조금)
+    const sw = POLE_SW[i], osc = Math.sin(t * sw[0] + sw[1]) * 0.25 * POLE_WIND.sway * g, side = Math.sin(t * sw[0] * 0.73 + sw[1] * 1.7) * 0.08 * POLE_WIND.sway;
+    const fa = k * (0.5 * g + osc), fs = k * side;
+    poleVel[i * 2] += (wd.x * fa - wd.y * fs) * dt; poleVel[i * 2 + 1] += (wd.y * fa + wd.x * fs) * dt;   // 전봇대 스프링이 32라 기우는 몫 ≈ 0.5·k·g/32, 흔들림은 고유 진동이라 더 크게
+  }
+  polesMoving = true;
+  if (POLE_WIND.wires > 0) {
+    const amp = Math.min(0.5, 0.04 * POLE_WIND.wires * (w + 0.5));
+    for (const sp of wireSpans) if (sp.amp < amp) sp.amp = amp;
+    wiresMoving = true;
+  }
+}
 function updateWires(dt) {
+  windPoles(dt);
   updatePoles(dt);
   if (!wiresMoving) return;
   let any = false;

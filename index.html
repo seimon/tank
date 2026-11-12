@@ -131,7 +131,7 @@
 </div>
 <script>
   // 버전·빌드 시각: 여기 한 곳만 고치면 로딩 화면과 설정 메뉴에 같이 나온다
-  const VERSION = '0.8.054', BUILD = '2026-11-11', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
+  const VERSION = '0.8.062', BUILD = '2026-11-12', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
   for (const e of document.querySelectorAll('.ver')) e.textContent = BUILD_TXT;
 </script>
 <canvas id="perfHud" style="display:none"></canvas>
@@ -479,7 +479,7 @@ function ps1(mat, extra, key) {
     sh.vertexShader = 'uniform vec2 uSnap;\n' + (lit ? 'varying vec3 vRingW;\n' : '') +
       sh.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n' + (snap ? SNAP : '') +
         (lit ? '\n{ vec4 rw = vec4(transformed, 1.0);\n#ifdef USE_INSTANCING\nrw = instanceMatrix * rw;\n#endif\nvRingW = (modelMatrix * rw).xyz; }' : ''));
-    if (extra) extra(sh);
+    if (extra) extra.call(this, sh);   // (this = 컴파일되는 재질: 재질마다 다른 uniform을 쓸 때)
     if (lit) {
       sh.uniforms.uRing0 = U.uRing0; sh.uniforms.uRing1 = U.uRing1;
       sh.fragmentShader = RING_GLSL + 'varying vec3 vRingW;\n' + sh.fragmentShader.replace('#include <emissivemap_fragment>',
@@ -2464,7 +2464,32 @@ function updatePoles(dt) {
   writeWires();
   polesMoving = any;
 }
+// 바람이 map.poleWind.from 이상이면 전봇대를 바람 쪽으로 계속 민다. 세기는 돌풍처럼 오르내리고, 바람이 지나가는 쪽으로 전봇대마다 시차를 둔다.
+// 전깃줄 끝은 전봇대 기울기를 따라가고(poleXform), 전깃줄 자체도 바람만큼 출렁인다
+const POLE_WIND = Object.assign({ from: 2, strength: 0.5, gust: 0.6, wires: 1, sway: 1 }, CFG.map?.poleWind);
+// 흔들림: 전봇대 스프링(32)의 고유 진동(약 0.9Hz) 근처로 밀고 당겨 바람 부는 동안 계속 앞뒤로 흔들린다. 전봇대마다 빠르기(±10%)·위상이 달라 같이 움직이지 않는다
+const POLE_SW = Array.from({ length: NP }, (_, i) => [Math.sqrt(32) * (0.9 + 0.2 * ((i * 0.618) % 1)), i * 2.39996]);
+function windPoles(dt) {
+  const w = U.uWind.value - POLE_WIND.from;
+  if (w < 0 || dt <= 0) return;
+  const wd = U.uWindDir.value, t = U.uTime.value, k = POLE_WIND.strength * (w + 0.5);
+  for (let i = 0; i < NP; i++) {
+    const p = allPoles[i], ph = (p.x * wd.x + p.z * wd.y) * 0.08;   // 바람 불어 가는 쪽으로 늦게
+    const g = (1 - POLE_WIND.gust) + POLE_WIND.gust * (0.5 + 0.5 * Math.sin(t * 0.9 - ph + i * 0.37)) * (0.6 + 0.4 * Math.sin(t * 0.31 + i * 1.7));
+    // 바람 쪽으로 기우는 몫(돌풍처럼 오르내림) + 그 자리에서 앞뒤로 흔들리는 몫(옆으로도 조금)
+    const sw = POLE_SW[i], osc = Math.sin(t * sw[0] + sw[1]) * 0.25 * POLE_WIND.sway * g, side = Math.sin(t * sw[0] * 0.73 + sw[1] * 1.7) * 0.08 * POLE_WIND.sway;
+    const fa = k * (0.5 * g + osc), fs = k * side;
+    poleVel[i * 2] += (wd.x * fa - wd.y * fs) * dt; poleVel[i * 2 + 1] += (wd.y * fa + wd.x * fs) * dt;   // 전봇대 스프링이 32라 기우는 몫 ≈ 0.5·k·g/32, 흔들림은 고유 진동이라 더 크게
+  }
+  polesMoving = true;
+  if (POLE_WIND.wires > 0) {
+    const amp = Math.min(0.5, 0.04 * POLE_WIND.wires * (w + 0.5));
+    for (const sp of wireSpans) if (sp.amp < amp) sp.amp = amp;
+    wiresMoving = true;
+  }
+}
 function updateWires(dt) {
+  windPoles(dt);
   updatePoles(dt);
   if (!wiresMoving) return;
   let any = false;
@@ -2680,6 +2705,27 @@ function updateTankLamps(thr) {
 }
 const STACK_DIR = new THREE.Vector3(0, Math.cos(Math.PI / 3), -Math.sin(Math.PI / 3));   // 굴뚝 끝은 뒤로 60도 꺾였다
 // spg = 자주포: 포탑이 차체 뒤쪽, 포신이 3배 길다 (굴뚝은 포탑에 가리지 않게 앞쪽 옆으로)
+// 바퀴 바깥면 무늬 (스포크 6개, mockups/20261112_wheel_faces.png 의 A): 회색 명암 × 바퀴 색. 텍스처는 1을 넘을 수 없어 WHEEL_TEX_K배 밝은 색을 곱한다
+const WHEEL_TEX_K = 2.4;
+// 고무 테두리(3칸) → 밝은 면 → 방사형으로 길쭉한 구멍 6개 → 짙은 허브 고리 → 밝은 허브 (mockups/20261112_wheel_face_v2.png)
+const wheelTex = canvasTex(32, 32, (g) => {
+  const shade = (v) => { g.fillStyle = `rgb(${v},${v},${v})`; };
+  const disc = (x, y, r, v) => { shade(v); g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill(); };
+  const k = (c) => Math.round(Math.min(255, c / 60 / WHEEL_TEX_K * 255));   // 바퀴 색(60) 기준 밝기를 텍스처 값으로
+  shade(k(30)); g.fillRect(0, 0, 32, 32);   // 바깥 = 고무 테두리
+  disc(16, 16, 13, k(83));   // 밝은 면
+  for (let i = 0; i < 6; i++) {   // 구멍: 반지름 방향으로 길이 7.5, 폭 3.6인 타원
+    const a = i * Math.PI / 3 + Math.PI / 6;
+    shade(k(12)); g.beginPath(); g.ellipse(16 + Math.cos(a) * 8.6, 16 + Math.sin(a) * 8.6, 3.75, 1.8, a, 0, Math.PI * 2); g.fill();
+  }
+  disc(16, 16, 5, k(44)); disc(16, 16, 3.6, k(128));
+});
+// 바퀴 둥근 면(원기둥 옆면): 가운데를 어둡게 (홈이 팬 고무 바퀴처럼). 원기둥 옆면 uv의 v = 바퀴 폭 방향
+const wheelSideTex = canvasTex(2, 16, (g) => {
+  g.fillStyle = '#ffffff'; g.fillRect(0, 0, 2, 16);   // 양쪽 가장자리는 바퀴 색 그대로
+  g.fillStyle = '#505050'; g.fillRect(0, 6, 2, 4);   // 가운데 띠: 바퀴 색 : 띠 : 바퀴 색 = 1.5 : 1 : 1.5
+});
+const LEAN_Y = 0.65;   // 몸통이 앞뒤로 기우는 축 높이 (궤도 윗면쯤)
 function buildTank(wreck, tc = TC, spg = false) {
   PS1_NOSNAP = true;   // 탱크 재질은 스내핑 없이 (아래 return 앞에서 되돌린다)
   const root = new THREE.Group(), P = { belts: [] }, cache = new Map();
@@ -2691,14 +2737,20 @@ function buildTank(wreck, tc = TC, spg = false) {
   };
   const add = (m, x, y, z, par = root) => { m.position.set(x, y, z); par.add(m); return m; };
   const cyl = (r0, r1, h, seg, mat, open = false) => new THREE.Mesh(new THREE.CylinderGeometry(r0, r1, h, seg, 1, open), mat);
+  const wheelDiscs = [];
   [1, -1].forEach((side) => {   // +x = 왼쪽
     let bm;
     if (wreck) bm = M(0x777777, treadTex, THREE.DoubleSide);
     else { const tex = treadTex.clone(); tex.needsUpdate = true; P.belts.push(tex); bm = lambert({ map: tex, side: THREE.DoubleSide, vertexColors: true }); }
-    add(new THREE.Mesh(beltGeo(3.8, 0.5, 0.72), bm), side * TRACK_X, 0, 0).name = 'belt';
+    const belt = add(new THREE.Mesh(beltGeo(3.8, 0.5, 0.72), bm), side * TRACK_X, 0, 0); belt.name = 'belt'; belt.userData.track = true;
     for (const [z, y, r] of [[-1.4, 0.5, 0.43], [-0.72, 0.36, 0.34], [0, 0.36, 0.34], [0.72, 0.36, 0.34], [1.4, 0.5, 0.43]]) {
-      add(cyl(r, r, 0.6, 8, M(tc.wheel, null)), side * TRACK_X, y, z).rotation.z = Math.PI / 2;
-      add(cyl(r * 0.42, r * 0.42, 0.64, 6, M(0x2a2a26, null)), side * TRACK_X, y, z).rotation.z = Math.PI / 2;   // 바퀴 허브
+      const wh = add(cyl(r, r, 0.6, 8, M(tc.wheel, wheelSideTex)), side * TRACK_X, y, z); wh.rotation.z = Math.PI / 2; wh.userData.track = true;
+      // 바깥면 무늬 원판 (스포크 6개). 탱크 하나의 원판 10개를 한 덩어리로 합친다 (아래). 허브는 무늬 가운데로 대신한다
+      const disc = new THREE.CircleGeometry(r * 0.97, 16).rotateY(side * Math.PI / 2).translate(side * (TRACK_X + 0.305), y, z);
+      const n = disc.attributes.position.count, aw = new Float32Array(n * 4);
+      for (let i = 0; i < n; i++) aw.set([side, r * 0.97, z, y], i * 4);
+      disc.setAttribute('aWheel', new THREE.BufferAttribute(aw, 4));
+      wheelDiscs.push(disc);
     }
   });
   add(plateBox(1.5, 0.7, 3.4, M(tc.low)), 0, 0.7, 0);
@@ -2719,6 +2771,19 @@ function buildTank(wreck, tc = TC, spg = false) {
   if (!wreck) {   // 켜진 등 둘레의 작은 후광
     P.halo = new THREE.SpriteMaterial({ map: glowTex, color: BRAKE_STOP, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
     for (const s of [-1, 1]) { const sp = add(new THREE.Sprite(P.halo), s * TRACK_X, 1.08, -2.08); sp.scale.setScalar(0.9); sp.name = 'halo'; }
+  }
+  {   // 바퀴 무늬 원판 한 덩어리: 텍스처를 궤도가 굴러간 거리 ÷ 반지름만큼 돌린다 (uWheelRot = 왼쪽·오른쪽 궤도 거리, 탱크마다 재질 userData.uRot)
+    const wc = (wreck ? M(tc.wheel, null).color.clone() : new THREE.Color(tc.wheel)).multiplyScalar(WHEEL_TEX_K);
+    const wm = ps1(new THREE.MeshLambertMaterial({ map: wheelTex, color: wc, vertexColors: true }), function (sh) {
+      sh.uniforms.uWheelRot = this.userData.uRot || (this.userData.uRot = { value: new THREE.Vector2() });
+      sh.vertexShader = 'attribute vec4 aWheel; uniform vec2 uWheelRot;\n' + sh.vertexShader.replace('#include <uv_vertex>', `#include <uv_vertex>
+        { float a = (aWheel.x > 0.0 ? uWheelRot.x : uWheelRot.y) / aWheel.y, c = cos(a), s = sin(a);
+          vec2 d = vec2(position.z - aWheel.z, position.y - aWheel.w) / aWheel.y;   // 바퀴 가운데 기준 (z, y), 반지름 1
+          vMapUv = vec2(d.x * c - d.y * s, d.x * s + d.y * c) * 0.5 + 0.5; }`);
+    }, 'wheelFace');
+    wm.userData.uRot = { value: new THREE.Vector2() };
+    const wf = add(new THREE.Mesh(mergeGeometries(wheelDiscs), wm), 0, 0, 0); wf.name = 'wheelFace'; wf.userData.track = true;
+    P.wheelRot = wm.userData.uRot;
   }
   // 여분 바퀴 두 개: 포탑 뒷벽에 기대 세워 둠 (포탑과 함께 돈다)
   const wz = TZ - 1.03;
@@ -2772,7 +2837,12 @@ function buildTank(wreck, tc = TC, spg = false) {
   root.traverse((o) => { if (o.isMesh && !o.geometry.attributes.aRiv) o.geometry.setAttribute('aRiv', new THREE.BufferAttribute(new Float32Array(o.geometry.attributes.position.count * 4), 4)); });
   bakeAO(root, 1.1, 0.9, wreck ? 0.5 : 0.28);   // 잔해는 새카맣게 그을려 그늘이 덜 보이니 덜 쪼갠다
   root.traverse((o) => { if (o.isMesh && !o.material.isMeshBasicMaterial) o.material.defines = { AO_BAKED: '' }; });
-  for (const k of ['pivot', 'barrel', 'turret', 'tip', 'stack', 'shovel']) P[k].name = k;   // 복제본에서 다시 찾을 수 있게
+  // 몸통: 궤도·바퀴를 뺀 나머지(차체·포탑·포·등·굴뚝)를 한 그룹으로. 이 그룹만 앞뒤로 기울여 반동·관성을 보인다 (physics.lean, leanStep)
+  // 축은 궤도 윗면 높이의 차체 가운데. attach라 모양·자리는 그대로
+  root.updateMatrixWorld(true);
+  const body = P.body = new THREE.Group(); body.position.set(0, LEAN_Y, 0); root.add(body); body.updateMatrixWorld(true);
+  for (const o of [...root.children]) if (o !== body && !o.userData.track) body.attach(o);
+  for (const k of ['pivot', 'barrel', 'turret', 'tip', 'stack', 'shovel', 'body']) P[k].name = k;   // 복제본에서 다시 찾을 수 있게
   PS1_NOSNAP = false;
   return { root, P };
 }
@@ -3138,7 +3208,7 @@ function mergeByTex(g) {
   return out;
 }
 const wreckModel = (() => { const { root, P } = buildTank(true); P.pivot.rotation.x = 0.16; P.turret.rotation.y = 0.45;   // 포신이 축 처지고 포탑이 비뚤게 돌아갔다
-  return mergeByTex(bake(root, null, ['aRiv', 'color']));
+  return mergeByTex(bake(root, null, ['aRiv', 'color', 'aWheel']));
 })();
 function placeWreck(x, z, yaw) {
   const wg = markOutline(wreckModel.clone());
@@ -5678,7 +5748,36 @@ function updateBalls(dt) {
 }
 const _tip = new THREE.Vector3(), _piv = new THREE.Vector3();
 // 탱크 상태 → 모델 (내 탱크·적 탱크 공용: T.group, T.P)
+// 차체 기울기 (보이는 것만): 앞뒤 가속도만큼 젖혀지거나 숙여지고, 대포를 쏘면 포 반대쪽으로 툭 밀린다. 스프링처럼 출렁이다 제자리로
+const LEAN = Object.assign({ accel: 0.2, fire: 2, max: 4, spring: 60, damping: 7, side: 1, turn: 0.25 }, PH.lean);
+const LEAN_W = Math.sqrt(LEAN.spring), _up = new THREE.Vector3();
+function leanStep(T, dt) {
+  if (!T.P.body || dt <= 0) return;
+  _fwd.set(0, 0, 1).applyQuaternion(T.q);
+  const along = T.vel.dot(_fwd), a = T.leanV0 === undefined ? 0 : (along - T.leanV0) / dt;
+  T.leanV0 = along;
+  T.leanA = (T.leanA || 0) + ((T.contacts > 0 ? a : 0) - (T.leanA || 0)) * Math.min(1, dt * 12);   // 땅 굴곡에 따른 떨림은 부드럽게
+  // 앞으로 가속하면 앞이 들린다(-), 멈추려고 감속하면 앞이 숙여진다(+). 꾸준히 가속할 때 기울기 = accel° × 가속도(m/s²)
+  const f = -LEAN.accel * DEG * LEAN.spring * T.leanA;
+  T.leanW = (T.leanW || 0) + (f - LEAN.spring * (T.lean || 0) - LEAN.damping * (T.leanW || 0)) * dt;
+  const mx = LEAN.max * DEG;
+  T.lean = Math.max(-mx, Math.min(mx, (T.lean || 0) + T.leanW * dt));
+  // 좌우 기울기(롤): 달리며 돌면 바깥쪽으로 (원심력: 앞뒤 속도 × 세로축 회전 속도 = 옆 가속도). +면 왼쪽(+x)이 들린다 = 오른쪽으로 기운다
+  _up.set(0, 1, 0).applyQuaternion(T.q);
+  const lat = T.contacts > 0 ? along * T.w.dot(_up) : 0;
+  T.rollA = (T.rollA || 0) + (lat - (T.rollA || 0)) * Math.min(1, dt * 12);
+  const fr = LEAN.turn * DEG * LEAN.spring * T.rollA;
+  T.rollW = (T.rollW || 0) + (fr - LEAN.spring * (T.roll || 0) - LEAN.damping * (T.rollW || 0)) * dt;
+  T.roll = Math.max(-mx, Math.min(mx, (T.roll || 0) + T.rollW * dt));
+}
+// 쏘면 포 반대쪽으로 툭: 앞뒤 성분(cos)은 앞이 들리게, 좌우 성분(sin)은 쏜 반대쪽으로 기울게 (왼쪽(+)으로 쏘면 오른쪽으로)
+function leanKick(T) {
+  const a = T.tyaw || 0, v = LEAN.fire * DEG * LEAN_W;
+  T.leanW = (T.leanW || 0) - v * Math.cos(a);
+  T.rollW = (T.rollW || 0) + v * LEAN.side * Math.sin(a);
+}
 function syncBody(T) {
+  if (T.P.body) { T.P.body.rotation.x = T.lean || 0; T.P.body.rotation.z = T.roll || 0; }
   T.P.pivot.rotation.x = -T.elev;
   T.P.turret.rotation.y = T.tyaw || 0;
   T.group.quaternion.copy(T.q);
@@ -5686,7 +5785,7 @@ function syncBody(T) {
 }
 function syncTankVisual() { syncBody(tank); }
 function muzzle(T = tank) {
-  syncBody(T);
+  syncBody(T);   // 차체 기울기(반동·관성)도 포 방향에 들어간다: 출렁이는 동안 쏘면 그만큼 위아래로 빗나간다
   T.group.updateMatrixWorld(true);
   T.P.tip.getWorldPosition(_tip); T.P.pivot.getWorldPosition(_piv);
   return _dir.copy(_tip).sub(_piv).normalize();
@@ -5710,6 +5809,7 @@ const VEL_INHERIT = 0.5;   // 포탄은 탱크 속도의 절반만 이어받는�
 // spread: 일부러 흩뜨리는 각도 (적 탱크 명중률 조절용)
 function fireCannon(T = tank, spread = 0) {
   const dir = muzzle(T).clone();
+  leanKick(T);   // 쏜 반동으로 차체가 툭 기운다
   if (spread) { dir.applyAxisAngle(UP, rr(-spread, spread)); dir.y += rr(-spread, spread) * 0.6; dir.normalize(); }
   const mesh = new THREE.Mesh(ballGeo, ballMat);
   mesh.position.copy(_tip); scene.add(mesh);
@@ -7264,7 +7364,14 @@ function titleCamEnd() {
   playCamPos.copy(camera.position); playCamTgt.copy(controls.target); camSaved = true;
   const tc = TT.camera || {}, k = titleK;
   _fwd.set(0, 0, 1).applyQuaternion(tank.q);
-  const tYaw = (entr ? entr.yaw : Math.atan2(_fwd.x, _fwd.z)) + (tc.yaw ?? 65) * DEG, tPitch = (tc.pitch ?? 8) * DEG, tDist = tc.distance ?? 16;
+  // 핸드헬드 + 부분 호 (title.camera arc·arcTime·sway·swayRate): 좌우로 EaseInOutSine으로 천천히 오가고, 빠르기가 다른 물결 몇 개로 살짝 흔들린다.
+  // 플레이로 넘어가는 동안(titleK)에는 줄어들어 없어진다
+  const ct = U.uTime.value, sr = (tc.swayRate ?? 0.5) * 2 * Math.PI, sw = (tc.sway ?? 0.4) * DEG * (1 - k);
+  const arcOff = (tc.arc ?? 6) * DEG * (1 - k) * -Math.cos(Math.PI * ct / Math.max(0.1, tc.arcTime ?? 12));
+  const swYaw = sw * (0.6 * Math.sin(ct * sr * 0.53 + 0.4) + 0.4 * Math.sin(ct * sr * 1.37 + 2.1));
+  const swPitch = sw * (0.6 * Math.sin(ct * sr * 0.71 + 1.3) + 0.4 * Math.sin(ct * sr * 1.91 + 0.2));
+  const swRoll = sw * 0.6 * (0.6 * Math.sin(ct * sr * 0.43 + 2.7) + 0.4 * Math.sin(ct * sr * 1.13 + 0.9));
+  const tYaw = (entr ? entr.yaw : Math.atan2(_fwd.x, _fwd.z)) + (tc.yaw ?? 65) * DEG + arcOff + swYaw, tPitch = (tc.pitch ?? 8) * DEG + swPitch, tDist = tc.distance ?? 16;
   _ttg.copy(entr ? entr.home : tank.pos); _ttg.y += tc.height ?? 2;
   _tmp.copy(playCamPos).sub(playCamTgt);
   const pDist = _tmp.length(), pPitch = Math.asin(_tmp.y / pDist), pYaw = Math.atan2(-_tmp.x, -_tmp.z);
@@ -7273,6 +7380,7 @@ function titleCamEnd() {
   controls.target.lerpVectors(_ttg, playCamTgt, k);
   camera.position.copy(controls.target).add(_tmp.set(-Math.sin(yaw) * Math.cos(pitch) * dist, Math.sin(pitch) * dist, -Math.cos(yaw) * Math.cos(pitch) * dist));
   camera.lookAt(controls.target);
+  if (swRoll) camera.rotateZ(swRoll);   // 손에 든 카메라처럼 아주 살짝 좌우로 기운다
   const fov = lerp(tc.fov ?? 30, CC.fov, k);
   if (camera.fov !== fov) { camera.fov = fov; camera.updateProjectionMatrix(); U.uPointScale.value = lowH / (2 * Math.tan(fov * DEG / 2)); }
 }
@@ -7301,14 +7409,22 @@ const clrFloor = new THREE.Mesh(new THREE.PlaneGeometry(600, 600).rotateX(-Math.
     void main() {
       float near = 1.0 - smoothstep(5.0, 8.0, distance(vXZ, uTP));   // 내 탱크 둘레만 (보이지 않는 잔해·지프 그림자는 빼고)
       float fl = 1.0 - smoothstep(0.0, 10.0, distance(vXZ, uFl.xz)); fl *= fl * uFl.w;   // 포구 섬광이 바닥에 비치는 빛 (뒷등처럼 흉내: 바닥은 빛을 받지 않아서)
-      if (fl > 0.0) {   // 섬광이 만드는 차체 그림자: 섬광에서 바닥 점으로 가는 선이 차체 높이(uTkS.z)의 1/3·2/3·끝에서 차체 바닥 사각형을 지나면 그늘. 멀수록 넓어진다
-        float sh = 0.0;
-        for (int i = 1; i <= 3; i++) {
-          vec2 q = uFl.xz + (vXZ - uFl.xz) * (1.0 - uTkS.z * float(i) / 3.0 / uTkS.w);   // 그 높이에서 선이 지나는 자리 (uTkS.w = 섬광 높이)
-          vec2 d = q - uTk.xy, l = vec2(d.x * uTk.z - d.y * uTk.w, d.x * uTk.w + d.y * uTk.z), e = abs(l) - uTkS.xy;
-          sh = max(sh, 1.0 - smoothstep(-0.25, 0.35, length(max(e, 0.0)) + min(max(e.x, e.y), 0.0)));
+      if (fl > 0.0) {   // 섬광이 만드는 차체 그림자: 섬광에서 바닥 점으로 가는 선이 차체 높이(uTkS.z)의 여섯 높이에서 차체 바닥 사각형을 지나면 그늘. 멀수록 넓어진다
+        // 화면 한 픽셀 안의 네 점에서 따로 재서 평균 (게임 해상도가 낮아 그늘 경계가 계단처럼 보이던 것을 부드럽게)
+        vec2 px = dFdx(vXZ), py = dFdy(vXZ), so[4];
+        so[0] = (px + py) * 0.25; so[1] = (px - py) * 0.25; so[2] = -so[1]; so[3] = -so[0];
+        float shs = 0.0;
+        for (int s = 0; s < 4; s++) {
+          vec2 p0 = vXZ + so[s];
+          float sh = 0.0;
+          for (int i = 1; i <= 6; i++) {
+            vec2 q = uFl.xz + (p0 - uFl.xz) * (1.0 - uTkS.z * float(i) / 6.0 / uTkS.w);   // 그 높이에서 선이 지나는 자리 (uTkS.w = 섬광 높이)
+            vec2 d = q - uTk.xy, l = vec2(d.x * uTk.z - d.y * uTk.w, d.x * uTk.w + d.y * uTk.z), e = abs(l) - uTkS.xy;
+            sh = max(sh, 1.0 - smoothstep(-0.25, 0.35, length(max(e, 0.0)) + min(max(e.x, e.y), 0.0)));
+          }
+          shs += sh;
         }
-        fl *= 1.0 - 0.9 * sh;
+        fl *= 1.0 - 0.9 * shs * 0.25;
       }
       gl_FragColor = vec4(uC * (1.0 - 0.8 * contactShadow(vXZ) * near) + lampGlow(vXZ) * 0.25 * near + uFlC * fl * 0.5, 1.0);
     }`,
@@ -7405,6 +7521,7 @@ function clearTick(dt) {
   }
   tank.recoil = Math.max(0, tank.recoil - dt * 3);
   parts.barrel.position.z = -0.5 * tank.recoil;
+  leanStep(tank, dt);   // 대포 반동으로 차체가 기운다 (멈춰 있으니 반동만)
   syncTankVisual();
   updateShadows(); updateTankLamps(0);   // 바닥에 비치는 그림자·뒷등
   sfx.engine(tank.solid, 0, 0);
@@ -7768,11 +7885,12 @@ const ENEMIES = [];
 function newEnemy(spg = false, idx = 1, level = 0) {
   const lvNo = spg ? 0 : level || levelForIdx(idx), LV = spg ? null : enemyLevel(lvNo);
   const root = markOutline((spg ? spgTemplate : LV_TEMPLATES.get(lvNo) || enemyTemplate).clone(true)), P = { belts: [] };
-  for (const k of ['pivot', 'barrel', 'turret', 'tip', 'stack']) P[k] = root.getObjectByName(k);
+  for (const k of ['pivot', 'barrel', 'turret', 'tip', 'stack', 'body']) P[k] = root.getObjectByName(k);
   let brake = null, halo = null;
   root.traverse((o) => {
     if (o.name === 'belt') { o.material = cloneMat(o.material); o.material.map = o.material.map.clone(); o.material.map.needsUpdate = true; P.belts.push(o.material.map); }
     if (o.name === 'brake') { brake = brake || cloneMat(o.material); o.material = brake; }
+    if (o.name === 'wheelFace') { o.material = cloneMat(o.material); o.material.userData.uRot = P.wheelRot = { value: new THREE.Vector2() }; }   // 바퀴 무늬 회전은 탱크마다
     if (o.name === 'halo') { halo = halo || o.material.clone(); o.material = halo; }
   });
   P.brake = brake; P.halo = halo;
@@ -8473,7 +8591,9 @@ const _esp = new THREE.Vector3();
 function enemyVisual(E, dt, thr) {
   E.dL += E.sL * dt; E.dR += E.sR * dt;
   E.P.belts[0].offset.x = E.dL / TREAD; E.P.belts[1].offset.x = E.dR / TREAD;
+  if (E.P.wheelRot) E.P.wheelRot.value.set(E.dL, E.dR);
   E.recoil = Math.max(0, E.recoil - dt * 3); E.P.barrel.position.z = -0.5 * E.recoil;
+  leanStep(E, dt);
   syncBody(E);
   trampleUnder(E);
   E.group.updateMatrixWorld(true);
@@ -10558,8 +10678,10 @@ function tick(dt) {
   // 탱크 표시: 궤도 텍스처를 벨트 이동 거리만큼 흘린다
   tank.dL += tank.sL * dt; tank.dR += tank.sR * dt;
   parts.belts[0].offset.x = tank.dL / TREAD; parts.belts[1].offset.x = tank.dR / TREAD;
+  parts.wheelRot.value.set(tank.dL, tank.dR);   // 바퀴 무늬도 궤도가 굴러간 만큼 돈다
   tank.recoil = Math.max(0, tank.recoil - dt * 3);
   parts.barrel.position.z = -0.5 * tank.recoil;
+  leanStep(tank, dt);
   syncTankVisual();
 
   trampleUnder(tank);

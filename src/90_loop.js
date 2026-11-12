@@ -64,8 +64,10 @@ function tick(dt) {
   // 탱크 표시: 궤도 텍스처를 벨트 이동 거리만큼 흘린다
   tank.dL += tank.sL * dt; tank.dR += tank.sR * dt;
   parts.belts[0].offset.x = tank.dL / TREAD; parts.belts[1].offset.x = tank.dR / TREAD;
+  parts.wheelRot.value.set(tank.dL, tank.dR);   // 바퀴 무늬도 궤도가 굴러간 만큼 돈다
   tank.recoil = Math.max(0, tank.recoil - dt * 3);
   parts.barrel.position.z = -0.5 * tank.recoil;
+  leanStep(tank, dt);
   syncTankVisual();
 
   trampleUnder(tank);
