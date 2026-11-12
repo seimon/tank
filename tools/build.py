@@ -49,16 +49,28 @@ def build_images():
     open(os.path.join(ROOT, 'title_images.js'), 'w', encoding='utf-8', newline='\n').write('\n'.join(lines) + '\n')
     return len(files)
 
+# 보급품 아이콘: images/supply/*.png → supply_images.js (window.SUPPLY_IMAGES). 흰색 그림, 색은 코드가 칠한다 (20_objects.js)
+def build_supply():
+    import base64
+    files = sorted(glob.glob(os.path.join(ROOT, 'images', 'supply', '*.png')))
+    lines = ['// 자동으로 만든 파일입니다. images/supply/*.png를 고친 뒤 python tools/build.py 로 다시 만드세요.', 'window.SUPPLY_IMAGES = {']
+    for f in files:
+        name = os.path.splitext(os.path.basename(f))[0]
+        lines.append(f"  '{name}': 'data:image/png;base64,{base64.b64encode(open(f, 'rb').read()).decode()}',")
+    lines.append('};')
+    open(os.path.join(ROOT, 'supply_images.js'), 'w', encoding='utf-8', newline='\n').write('\n'.join(lines) + '\n')
+    return len(files)
+
 def stamp():
     return max(os.path.getmtime(f) for f in glob.glob(os.path.join(SRC, '*')))
 
 if __name__ == '__main__':
-    print('index.html', build(), '줄 · 데칼 그림', build_decals(), '장 · 타이틀 그림', build_images(), '장')
+    print('index.html', build(), '줄 · 데칼 그림', build_decals(), '장 · 타이틀 그림', build_images(), '장 · 보급품 아이콘', build_supply(), '장')
     if '--watch' in sys.argv:
         last = stamp()
         while True:
             time.sleep(0.5)
             if stamp() != last:
                 last = stamp()
-                try: print(time.strftime('%H:%M:%S'), 'index.html', build(), '줄'); build_decals(); build_images()
+                try: print(time.strftime('%H:%M:%S'), 'index.html', build(), '줄'); build_decals(); build_images(); build_supply()
                 except Exception as e: print('실패:', e)

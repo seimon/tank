@@ -3,6 +3,7 @@
 const G = 9.8, K = 300, C = 8, KT = 25;
 // config.js의 physics: 마찰·중력(탱크만)·후진 제동·충돌음. 설정이 없어도 이 값으로 돈다
 const PH = Object.assign({ friction: 0.9, sideFriction: 1.0, gravity: 1.5, airGravity: 1.3, slopePull: 0.5, wallSlip: 0.3, brake: 4, crashVolume: 1.8, brakeTurn: 3, turnAtSpeed: 1.4, tankHitPen: 0.12, boxPush: 1.1, boxFriction: 14, boxTilt: 8 }, CFG.physics);
+const runStats = { shots: 0, hits: 0, far: 0, dmg: 0, dist: 0 };   // 이번 판 기록 (임무 완료 화면): 쏜 포탄·명중(적·벙커·보급품 직격)·가장 먼 명중(m)·받은 피해·이동 거리(m)
 const MU = PH.friction, MU_LAT = PH.sideFriction, GT = G * PH.gravity;   // GT: 탱크가 받는 중력 (포탄·부스러기는 G 그대로)
 // 부딪히는 속도(m/s)에 따른 충돌음 세기: 빠를수록 크다
 const crashK = (v) => Math.min(3, (0.7 + v * 0.3) * PH.crashVolume);
@@ -1066,6 +1067,7 @@ function updateBalls(dt) {
     if (!b.clearShot && b.p.y - groundAt(b.p.x, b.p.z) < 1.8) forCells(b.p.x, b.p.z, 0.8, (k) => { fTr[k] = 1; });
     // '저격수': 쏜 자리에서 멀리 맞힐수록 대미지 (15m부터 1m에 2%씩, 최대 설정값)
     if (hit && b.owner && b.owner.sniper && b.from) b.dmg *= 1 + Math.min(b.owner.sniper, Math.max(0, b.p.distanceTo(b.from) - 15) * 0.02);
+    if (hit && !b.harmless && b.owner === tank && (hit.target || hit.enemy || hit.bunker) && !rulesLocked()) { runStats.hits++; if (b.from) runStats.far = Math.max(runStats.far, hit.p.distanceTo(b.from)); }
     if (hit) {
       const pw = 1 + (b.blast || 0) * 0.1;   // 폭발 범위가 넓을수록 커 보이게
       const wreck = hit.group && hit.group.userData.wreck;
@@ -1185,6 +1187,7 @@ function fireCannon(T = tank, spread = 0) {
   flashes.push({ p: _tip.clone(), t: 0, dur: 0.45, I: 700, range: 36, color: 0xffd08a });   // 포구 섬광 (광원). 기관총보다 크고 밝고, 0.45초에 걸쳐 사그라든다
   shake = Math.min(1.2, shake + 0.25 * (T === tank ? 1 : Math.max(0, 1 - camera.position.distanceTo(_tip) / 60)));
   sfx.fire(_tip);
+  if (T === tank && titleState === 'play' && !clearSeq && !rulesLocked()) runStats.shots++;
   if (T === tank && titleState === 'play' && !clearSeq) padRumble(0.5, 0.5, 140);   // 패드 진동: 내가 쏠 때 (중간 세기. 타이틀·임무 완료 화면의 저절로 쏘는 포는 빼고)
   return ball;
 }
@@ -1297,7 +1300,7 @@ function exhaust(dt, thr, turn) {
     const lag = Math.max(0, Math.min(1, 1 - tank.vel.dot(_ef) * dir / vmax));         // 속도가 덜 붙은 만큼
     want = 0.45 + 0.55 * Math.min(1, Math.max(hill, lag * 0.75) + hill * lag * 0.5);
   }
-  if (titleState === 'title') want = Math.max(want, TDET.smoke);   // 타이틀: 굴뚝 연기를 짙게
+  if (titleState === 'title' || clearSeq) want = Math.max(want, TDET.smoke);   // 타이틀·임무 완료: 굴뚝 연기를 짙게 (title.details.smoke)
   tank.load += (want - tank.load) * Math.min(1, dt * (want > tank.load ? 6 : 2.5));
   const L = tank.load, wd = U.uWindDir.value;
   parts.stack.getWorldPosition(_sp);

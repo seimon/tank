@@ -132,9 +132,14 @@ function startGame() {
   hudRevealT = CFG.mission?.enabled === false ? CFG.hud?.showDelay ?? 3 : 1e9;   // 작전 정보가 사라진 뒤에 HUD
 }
 // 타이틀 그림 하나를 지금 사라진 정도(titleFadeF)로: 화면 아래쪽 줄부터
+let titleKeysK = 0, titleKeysQ = -1;   // 우하단(시작 버튼·키 안내)이 나타난 정도 (0~1, 0.5초 디더링 페이드인)
 function titleWipe(c) {
   if (!c || !c._src || !c._css) return;
-  if (titleFadeF <= 0) { sharpBlit(c, c._src, c._css[0], c._css[1]); return; }
+  if (titleFadeF <= 0) {
+    const k = c.id === 'tPress' || c.id === 'tCamo' ? titleKeysK : 1;
+    sharpBlit(c, k >= 1 ? c._src : ditherWipe(c._src, 1 - k, () => 1 - k), c._css[0], c._css[1]);   // (줄 구분 없이 고르게: 줄마다 같은 값이면 비우는 정도가 1 - k에 정확히 비례)
+    return;
+  }
   const r = c.getBoundingClientRect(), H = c._src.height;
   sharpBlit(c, ditherWipe(c._src, titleFadeF, (y) => 1 - (r.top + y / H * r.height) / innerHeight), c._css[0], c._css[1]);
 }
@@ -144,8 +149,10 @@ function updateTitle(dt) {
   if (titleState === 'title') {   // PRESS ANY KEY: 입력을 받기 시작할 때 나타나 깜빡인다
     if (!document.getElementById('loading')) titleWait += dt;
     const t = titleWait - TITLE_DELAY;
-    tPressEl.style.visibility = t >= 0 && t % 1.1 < 0.72 ? '' : 'hidden';
-    tCamoEl.style.visibility = t >= 0 ? '' : 'hidden';   // 위장색 안내는 깜빡이지 않는다
+    tPressEl.style.visibility = t >= 0 && (titleBtnHot || t % 1.1 < 0.72) ? '' : 'hidden';   // 시작 버튼은 깜빡인다 (마우스를 올리면 멈춤)
+    tCamoEl.style.visibility = t >= 0 ? '' : 'hidden';   // 키 안내는 깜빡이지 않는다
+    const q = t >= 0 ? Math.min(16, Math.floor(t / 0.5 * 16)) : -1;   // 0.5초 동안 4x4 디더링으로 나타난다
+    if (q !== titleKeysQ) { titleKeysQ = q; titleKeysK = Math.max(0, q) / 16; titleWipe(tPressEl); titleWipe(tCamoEl); }
   }
   if (titleState !== 'trans') return;
   titleT = Math.min(1, titleT + dt / (TT.transition ?? 2.2));
@@ -162,6 +169,14 @@ function updateTitle(dt) {
   titleK = easeInOutCubic(titleT); applyEnv();
   if (titleT >= 1) { titleState = 'play'; controls.enabled = true; }
 }
+// 시작 버튼 위에 마우스를 올리면 버튼을 칠해 보인다 (CRT면 화면 휨을 되짚은 자리로)
+function titleBtnAt(x, y) { const p = crtPoint(x, y), r = tPressEl.getBoundingClientRect(); return p.x >= r.left && p.x <= r.right && p.y >= r.top && p.y <= r.bottom; }
+addEventListener('pointermove', (e) => {
+  const hot = titleState === 'title' && !paused && titleWait >= TITLE_DELAY && e.pointerType === 'mouse' && titleBtnAt(e.clientX, e.clientY);
+  if (hot === titleBtnHot) return;
+  titleBtnHot = hot; document.body.style.cursor = hot ? 'pointer' : '';
+  drawTitleKeys(titlePad); titleWipe(tPressEl);
+});
 // 타이틀에서는 키·클릭이 게임에 가지 않는다 (설정 메뉴 ` 키와 메뉴 클릭은 그대로): SPACE(또는 클릭·터치)로 시작, Q/E로 위장색
 addEventListener('keydown', (e) => {
   if (titleState !== 'title' || e.code === 'Backquote' || (e.code === 'Digit1' && e.shiftKey) || decalMode || paused) return;   // (! = 성능 표시, 81_ui.js)   // 데칼 편집 중이면 그쪽 처리로. 메뉴 창(ESC)이 떠 있으면 창으로
@@ -183,6 +198,11 @@ addEventListener('pointerdown', (e) => {   // 클릭·터치는 게임에 가지
   setInputPad(false);
   e.stopImmediatePropagation();
   sfx.unlock();
+  // '게임 시작' 버튼을 누르면 시작 (모바일: 키보드가 없어도 시작할 수 있게). CRT면 화면 휨을 되짚은 자리로
+  if (titleWait >= TITLE_DELAY && titleBtnAt(e.clientX, e.clientY)) {   // (깜빡여 잠깐 안 보일 때 눌러도)
+    if (titleBtnHot) { titleBtnHot = false; document.body.style.cursor = ''; }
+    sfx.ui('button'); startGame();
+  }
 }, true);
 // 카메라: 플레이 카메라는 늘 하던 대로 따라가게 두고(값은 따로 보관), 화면에는 타이틀 카메라와 섞은 자리를 쓴다.
 // 섞기는 화면 가운데 점과 거리·내려다보는 각·방향을 따로 보간 (탱크 둘레로 호를 그리며 넘어간다)

@@ -389,16 +389,33 @@ const CLR_M = 14, CLR_BTN_GAP = 4, CLR_BTN_N = 4;   // 가장자리 여백, 버�
 const clearUI = {
   win: true, passive: true, info: { kills: 20, jeeps: 0, time: 0, lv: 0, bunkers: 0, bunkerAll: 0 }, t: 0, shown: -1,
   reset() { this.t = -(CFG.clear?.textDelay ?? 1); this.shown = -1; },
-  lines() {   // [글자 조각들] 또는 버튼. 조각 = [글자, 색]
-    const I = this.info, kG = PK('G', 'Y'), kT = PK('T', 'BACK');
-    const rows = [['격파한 적 탱크/자주포', `${I.kills}대`], ['격파한 적 지프', `${I.jeeps}대`]];
-    if (I.bunkerAll > 0) rows.push(['격파한 벙커', `${I.bunkers}개`]);   // 맵에 벙커가 없으면 빼고
-    rows.push(['걸린 시간', fmtTime(I.time)], ['성장', `LV. ${I.lv}`]);
-    return [{ big: true, parts: [['임무 완료', ENDC.clear]] }, ...rows.map(([a, b]) => ({ parts: [[a, ENDC.txt], [' ' + b, ENDC.clear]] })),
-      { btn: 'restart', key: kG, label: '새로 시작' }, { btn: 'title', key: kT, label: '첫 화면으로' }];
+  // 줄 = { parts: [[글자, 색], ...], big, tally: 킬마크 개수, pad: 위 여백 } 또는 버튼. 킬마크 하나도 글자 하나처럼 타이핑 박자로 나타난다
+  lines() {
+    const I = this.info, S = I.stats || {}, kG = PK('G', 'Y'), kT = PK('T', 'BACK');
+    // 걸린 시간: 1분 미만이면 '00.0초', 넘으면 '00분 00.0초' (최대 999분 59.9초). 0.1초 단위로 먼저 끊어 59.95초가 '60.0초'로 올라가지 않게
+    const ds = Math.min(999 * 600 + 599, Math.floor((I.time || 0) * 10)), mm = Math.floor(ds / 600), ss = ((ds % 600) / 10).toFixed(1).padStart(4, '0');
+    const time = mm > 0 ? `${String(mm).padStart(2, '0')}분 ${ss}초` : `${ss}초`;
+    const tal = (lab, n) => n > 0 ? { parts: [[lab, ENDC.txt]], tally: n } : { parts: [[lab, ENDC.txt], [' 0', ENDC.clear]] };
+    const val = (lab, v, pad) => ({ parts: [[lab, ENDC.txt], [' ' + v, ENDC.clear]], pad });
+    const L = [{ big: true, parts: [['임무 완료', ENDC.clear]] }, { big: true, parts: [[time, ENDC.txt]] },
+      tal('격파한 전차', I.kills), tal('격파한 지프', I.jeeps)];
+    if (I.bunkerAll > 0) L.push(tal('격파한 벙커', I.bunkers));   // 맵에 벙커가 없으면 빼고
+    const dist = S.dist || 0;
+    L.push(val('포탄 명중률', S.shots ? `${(S.hits / S.shots * 100).toFixed(1)}%` : '-', 4), val('가장 먼 명중', S.far ? `${Math.round(S.far)}m` : '-'),
+      val('받은 피해', String(Math.round(S.dmg || 0))), val('이동 거리', dist >= 1000 ? `${(dist / 1000).toFixed(1)}km` : `${Math.round(dist)}m`), val('성장', `LV. ${I.lv}`),
+      { btn: 'restart', key: kG, label: '새로 시작' }, { btn: 'title', key: kT, label: '첫 화면으로' });
+    return L;
   },
-  len: (l) => l.btn ? CLR_BTN_N : l.parts.reduce((n, [t]) => n + [...t].length, 0),
+  len: (l) => l.btn ? CLR_BTN_N : l.parts.reduce((n, [t]) => n + [...t].length, 0) + (l.tally || 0),
   total() { return this.lines().reduce((n, l) => n + this.len(l), 0); },
+  // 킬마크: 네 개는 세로 막대(9칸)를 왼쪽으로 조금 기울여 (위가 2칸 왼쪽) 3칸 간격, 다섯 번째는 네 개를 반대 방향으로 가로지르는 사선. 묶음 사이 6칸
+  tally(ui, x, y, n, col) {
+    for (let i = 0; i < n; i++) {
+      const g = Math.floor(i / 5), j = i % 5, gx = x + g * 18;
+      if (j < 4) { const mx = gx + j * 3; for (let r = 0; r < 9; r++) ui.fill(mx + Math.round(r * 2 / 8), y + r, 1, 1, col); }
+      else for (let s = 0; s <= 13; s++) ui.fill(gx - 1 + s, y + 7 - Math.round(s * 5 / 13), 1, 1, col);   // 왼쪽 아래 → 오른쪽 위
+    }
+  },
   draw(ui) {
     let left = Math.floor(Math.max(0, this.t) * MIS.typeSpeed), y = CLR_M, first = true;   // 지금까지 나타난 글자 수
     for (const l of this.lines()) {
@@ -407,17 +424,19 @@ const clearUI = {
         if (first) { y += 6; first = false; }   // 항목과 버튼 사이
         if (left >= CLR_BTN_N) ui.keyButton(l.btn, CLR_M, y, l.key, l.label, ENDC.clear);
         y += 21 + CLR_BTN_GAP;
-      } else {
-        let x = CLR_M;
-        for (const [t, col] of l.parts) {
-          const part = [...t].slice(0, Math.max(0, left)).join(''); left -= [...t].length;
-          if (!part) break;
-          x = l.big ? ui.textK(part, x, y, 2, col) : ui.text(part, x, y, col);
-        }
-        y += l.big ? 30 : GF_LINE;   // 제목 아래 (창에서와 같은 간격)
+        left -= CLR_BTN_N;
         continue;
       }
-      left -= CLR_BTN_N;
+      y += l.pad || 0;
+      let x = CLR_M;
+      for (const [t, col] of l.parts) {
+        const part = [...t].slice(0, Math.max(0, left)).join(''); left -= [...t].length;
+        if (!part) break;
+        x = l.big ? ui.textK(part, x, y, 2, col) : ui.text(part, x, y, col);
+      }
+      if (l.tally && left > 0) { const n = Math.min(l.tally, left); this.tally(ui, x + 5, y + 1, n, ENDC.clear); }
+      left -= l.tally || 0;
+      y += l.big ? 30 : GF_LINE;   // 제목 아래 (창에서와 같은 간격)
     }
   },
   tick() {
@@ -521,10 +540,9 @@ const pauseUI = {
         desc: () => ({ auto: '키보드는 포탑, 게임패드는 차체 방향을 따라갑니다.', hull: '카메라가 늘 차체 뒤에서 따라갑니다.', turret: '카메라가 포탑이 향한 쪽을 따라 돕니다.' })[camMode] },
       { label: '자동 카메라', opts: ONOFF, names: OX, get: () => autoCam, set: setAutoCam,
         desc: () => autoCam ? '마우스로 바꾼 카메라가 2초 뒤 제자리로 돌아갑니다.' : '마우스로 바꾼 카메라 방향·거리를 그대로 둡니다.' },
-      { label: '화면 흔들림', opts: ONOFF, names: OX, get: () => shakeOn, set: setShakeOn, desc: () => '폭발·피격 때 화면이 흔들립니다.' },
       { label: '패드 진동', opts: ONOFF, names: OX, get: () => rumbleOn, set: setRumbleOn, desc: () => '게임패드로 조작할 때 폭발·피격 등에 진동합니다.' },
-      { label: '대미지 숫자', opts: ONOFF, names: OX, get: () => dmgTextOn, set: setDmgTextOn, desc: () => '머리 위에 피해·회복·골드 숫자를 띄웁니다.' },
       { label: 'CRT 표현', opts: ONOFF, names: OX, get: () => crtOn, set: setCrt, desc: () => '오락실 브라운관 모니터처럼 보이게 합니다.' },
+      { label: '아웃포커싱', opts: ONOFF, names: OX, get: () => dofOn, set: setDofOn, desc: () => '탱크는 또렷하게, 앞뒤 멀리는 흐리게 (미니어처 사진처럼). 무거우면 끄세요.' },
       { label: '화면 밝기', gauge: () => brightness - 0.5, set: (v) => setBright(0.5 + v), val: () => `${Math.round(brightness * 100)}%`, desc: () => '어두운 곳이 잘 안 보이면 올립니다.' },
     ];
   },
@@ -663,7 +681,7 @@ const confirmUI = {
   yes() { if (this.mode === 'reset') { resetSettings(); uiShow(pauseUI); } else restartGame(true); },
   click(id) { if (id === 'yes') this.yes(); else if (id === 'no') uiShow(pauseUI); },
   draw(ui) {
-    const [title, body] = this.mode === 'reset' ? ['설정을 모두 초기 값으로 되돌릴까요?', '설정 탭의 모든 항목이 처음 값으로 바뀝니다.'] : ['첫 화면으로 돌아갈까요?', '작전 진행 상황이 모두 수포로 돌아갑니다!'];
+    const [title, body] = this.mode === 'reset' ? ['설정을 모두 초기 값으로 되돌릴까요?', '설정 탭의 모든 항목이 처음 값으로 바뀝니다.'] : ['첫 화면으로 돌아갈까요?', '수행 중인 작전이 모두 수포로 돌아갑니다.'];
     const kY = PK('Y', 'A'), kN = PK('N', 'B');
     const b1 = keyButtonW(kY, '예'), b2 = keyButtonW(kN, '아니오'), bgap = 8;
     const pw = Math.max(gfWidth(title) * 2, gfWidth(body), b1 + bgap + b2) + 28, ph = 12 + 22 + 8 + GF_LINE + 6 + 21 + 12;

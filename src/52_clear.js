@@ -76,8 +76,14 @@ function clearUpdate(dt) {
   camera.updateProjectionMatrix();
   // 포즈: 포탑·포신을 천천히 (타이틀 등장과 같은 빠르기)
   const P = CLR.pose || {}, side = wrapA((c.yaw + 180) * DEG) < 0 ? -1 : 1;   // 카메라가 있는 쪽 (포탑 각의 부호)
-  tank.tyaw = stepTo(wrapA(tank.tyaw || 0), side * (P.turret ?? 15) * DEG, (tank.turretRate || TURRET_RATE) * dt); tank.tvel = 0;
-  tank.elev = stepTo(tank.elev, (P.elev ?? 10) * DEG, 0.55 * dt);
+  // EaseInOutCubic으로: 처음 한 번 시작·목표 각도와 걸리는 시간(평소 회전 빠르기로 걸릴 시간의 1.6배: 가운데에서 더 빨라졌다 부드럽게 멈춘다)을 정한다
+  if (!S.pose) {
+    const ty0 = wrapA(tank.tyaw || 0), ty1 = side * (P.turret ?? 15) * DEG, el0 = tank.elev, el1 = (P.elev ?? 10) * DEG;
+    S.pose = { ty0, ty1, el0, el1, td: Math.max(0.3, Math.abs(wrapA(ty1 - ty0)) / (tank.turretRate || TURRET_RATE) * 1.6), ed: Math.max(0.3, Math.abs(el1 - el0) / 0.55 * 1.6) };
+  }
+  const po = S.pose;
+  tank.tyaw = po.ty0 + wrapA(po.ty1 - po.ty0) * easeInOutCubic(Math.min(1, S.t / po.td)); tank.tvel = 0;
+  tank.elev = lerp(po.el0, po.el1, easeInOutCubic(Math.min(1, S.t / po.ed)));
   // 자세: 카메라가 넘어가는 동안 똑바로 세운다 (물리는 끈다: tick)
   if (tank.solid) { tank.q.slerpQuaternions(S.q0, S.q1, k); tank.pos.y = lerp(S.y0, S.y1, k); tank.vel.set(0, 0, 0); tank.w.set(0, 0, 0); }
   syncTankVisual();
@@ -85,11 +91,18 @@ function clearUpdate(dt) {
 }
 // 탱크만 cutRT에: 다른 물체는 잠깐 숨기고, 배경은 단색, 안개는 멀리
 // (배경을 다 지운 뒤로는 파티클·포탄도: 그때 남아 있던 것은 지우고 새로 쏜 것만)
+const _cutOff = [];
 function clearRenderCut() {
   const bg = scene.background, fn = scene.fog.near, ff = scene.fog.far, pn = FOGN.value, pf = FOGF.value;
   scene.background = CLR_BG; scene.fog.near = FOGN.value = 1e4; scene.fog.far = FOGF.value = 2e4; clrFloor.visible = true;
   camera.layers.set(CUT_LAYER);
+  // 바닥에는 내 탱크의 그림자·뒷등 빛만: 둘레의 잔해·보급품·지프 것은 이 그리기 동안만 끈다 (그림자 목록은 지형과 함께 쓰는 uniform이라 끝나면 되돌린다)
+  const sh0 = U.uSh0.value, sh1 = U.uSh1.value, l0 = U.uLamp0.value, l1 = U.uLamp1.value, off = _cutOff;
+  off.length = 0;
+  for (let i = 0; i < sh1.length; i++) if (sh1[i].z > 0 && Math.hypot(sh0[i].x - tank.pos.x, sh0[i].y - tank.pos.z) > 0.5) { off.push(sh1[i], sh1[i].z); sh1[i].z = 0; }
+  for (let i = 0; i < l1.length; i++) if (l1[i].w > 0 && Math.hypot(l0[i].x - tank.pos.x, l0[i].y - tank.pos.z) > 0.5) { off.push(l1[i], -l1[i].w); l1[i].w = 0; }
   renderer.setRenderTarget(cutRT); renderer.render(scene, camera);
+  for (let i = 0; i < off.length; i += 2) { const v = off[i + 1]; if (v > 0) off[i].z = v; else off[i].w = -v; }
   camera.layers.set(0);
   scene.background = bg; scene.fog.near = fn; scene.fog.far = ff; FOGN.value = pn; FOGF.value = pf; clrFloor.visible = false;
 }
@@ -126,6 +139,7 @@ function clearTick(dt) {
   }
   tank.recoil = Math.max(0, tank.recoil - dt * 3);
   parts.barrel.position.z = -0.5 * tank.recoil;
+  if (tank.solid) exhaust(dt, 0, 0);   // 굴뚝 연기 (타이틀처럼 짙게: exhaust)
   leanStep(tank, dt);   // 대포 반동으로 차체가 기운다 (멈춰 있으니 반동만)
   syncTankVisual();
   updateShadows(); updateTankLamps(0);   // 바닥에 비치는 그림자·뒷등

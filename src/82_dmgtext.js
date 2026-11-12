@@ -1,16 +1,15 @@
-// ---------------------------------------------------------------- 대미지 숫자 (정보 창 설정 탭 '대미지 숫자', config damageText)
+// ---------------------------------------------------------------- 대미지 숫자 (config damageText)
 // 맞은 대상 머리 위에서 숫자가 뿅 튀어 오른다 (EaseOutExpo). 오르는 쪽은 화면에서 본 공격 방향의 반대쪽으로 기울고(↗), 각도는 조금씩 제각각.
 // 피해 = 빨강 '14' (bigDamage 이상은 bigScale배 크게), 막힘 = 회색 'NO DAMAGE', 회복 = 초록 '+20', 골드 = 금색 '1G'.
 // 금화·수리 도구는 날아온 쪽을 공격 방향처럼 본다. 픽셀 UI와 같은 배율(1칸 = 게임 화면 1픽셀 × hk)의 따로 된 캔버스에 HUD 글꼴(5x7)로 (블렌딩·그림자는 config)
 const DTC = Object.assign({ enabled: false, blend: 'normal', shadow: 0.3, letterSpacing: 1, bigDamage: 100, bigScale: 2, damageColor: '#ff4a3a', noDamageColor: '#9c9c9c', healColor: '#4ad86a', goldColor: '#ffd040',
   noDamageText: 'NO DAMAGE', height: 3.2, rise: 26, moveTime: 0.6, time: 1.0, push: 0.55, spread: 18 }, CFG.damageText);
-let dmgTextOn = loadOpt('dmgText', !!DTC.enabled), dmgFromP = null;   // (설정에서 바꾸면 기억한다. 처음엔 config)   // dmgFromP: 다음 대미지의 공격 위치 (폭발 자리·벙커 총구처럼 쏜 탱크 자리가 아닐 때 부르는 쪽이 넣는다)
+let dmgTextOn = !!DTC.enabled, dmgFromP = null;   // (켜고 끄기는 config만: 설정 탭에서 뺐다)   // dmgFromP: 다음 대미지의 공격 위치 (폭발 자리·벙커 총구처럼 쏜 탱크 자리가 아닐 때 부르는 쪽이 넣는다)
 const dmgCv = document.createElement('canvas'), dmgG = cv2d(dmgCv);
 dmgCv.id = 'pdmg'; Object.assign(dmgCv.style, { position: 'fixed', pointerEvents: 'none', zIndex: 3,   /* HUD(2) 위, 픽셀 UI·창(5) 아래 */ imageRendering: 'pixelated', mixBlendMode: DTC.blend });
 document.body.appendChild(dmgCv);
 const dmgTexts = [];
 const _dtA = new THREE.Vector3(), _dtB = new THREE.Vector3();
-function setDmgTextOn(v) { dmgTextOn = v; saveOpt('dmgText', v); if (!v) dmgTexts.length = 0; }   // (정보 창 설정 탭 '대미지 숫자')
 // 숫자 하나 띄우기. at = 머리 위 기준점 (월드), from = 공격한 자리 (월드, 없으면 바로 위로)
 function dmgText(at, text, color, from = null, scale = 1) {   // scale: 글자 배율
   if (!dmgTextOn || clearSeq) return null;   // (임무 완료 화면에서는 띄우지 않는다)

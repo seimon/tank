@@ -69,7 +69,7 @@
   .ver { color: #e8dcc0; opacity: .6; font: 12px monospace; }
 </style>
 <!-- 사용자가 고치는 파일(config.js·map.js·decals.js)은 브라우저 캐시를 거치지 않게 매번 다른 주소로 읽는다 (아이패드 사파리가 예전 config.js를 계속 쓰던 문제). document.write라 순서대로 바로 실행된다 -->
-<script>for (const f of ['config.js', 'map.js', 'decal_images.js', 'title_images.js', 'decals.js']) document.write(`<script src="${f}?v=${Date.now()}"><\/script>`);</script>
+<script>for (const f of ['config.js', 'map.js', 'decal_images.js', 'title_images.js', 'supply_images.js', 'decals.js']) document.write(`<script src="${f}?v=${Date.now()}"><\/script>`);</script>
 <script src="fonts/galmuri11c.js"></script>
 <script type="importmap">
 { "imports": {
@@ -131,7 +131,7 @@
 </div>
 <script>
   // 버전·빌드 시각: 여기 한 곳만 고치면 로딩 화면과 설정 메뉴에 같이 나온다
-  const VERSION = '0.8.062', BUILD = '2026-11-12', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
+  const VERSION = '0.8.076', BUILD = '2026-11-12', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
   for (const e of document.querySelectorAll('.ver')) e.textContent = BUILD_TXT;
 </script>
 <canvas id="perfHud" style="display:none"></canvas>
@@ -841,10 +841,38 @@ THREE.ShaderChunk.fog_fragment = `#ifdef USE_FOG
   gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, 1.0 - exp(-fogK * fogK));
 #endif`;
 const FOG = new THREE.Color(MAP0.fogColor);
-scene.background = FOG;
+const SKY = new THREE.Color(MAP0.fogColor);   // 하늘(배경) 색: 플레이는 맵 셋팅 bgColor (없으면 안개색을 map.bgDark만큼 어둡게), 타이틀은 타이틀 안개색. applyEnv가 정한다
+scene.background = SKY;
 scene.fog = new THREE.Fog(FOG, 0, 2 / MAP0.fog);
 const FOGN = { value: 0 }, FOGF = { value: scene.fog.far };
 const camera = new THREE.PerspectiveCamera(CFG.camera.fov, 1, 0.5, 600);
+// 원경: 보드 바깥 먼 거리를 두른 산 실루엣 한 겹 (config map.backdrop). 빛·안개를 받지 않고 지금 안개색(FOG, 맵 셋팅·타이틀·폭풍우를 따라 바뀐다) 그대로:
+// 안개에 묻힌 먼 땅과 이어지고, 하늘(SKY)과의 차이로만 실루엣이 보인다. 아래 끝은 팔각형 바닥으로 막아 그릇 모양. 임무 완료 화면(레이어 3만 그림)에서는 보이지 않는다
+const BACKDROP = Object.assign({ enabled: true, distance: 320, height: 34, relief: 1, jag: 1 }, CFG.map?.backdrop);
+if (BACKDROP.enabled) {
+  const N = 240, R = BACKDROP.distance, Hh = BACKDROP.height, RL = BACKDROP.relief, JG = BACKDROP.jag, p = [], idx = [];
+  for (let i = 0; i <= N; i++) {
+    const a = i / N * Math.PI * 2;
+    // 능선: 큰 봉우리 몇 개 + 중간 굴곡(× relief) + 잔 들쭉날쭉(× jag). 각도 함수라 한 바퀴가 이어진다. 둘 다 0이면 높이 0.55 × height로 평평
+    const h = Hh * Math.max(0.15, 0.55 + RL * (0.25 * Math.sin(3 * a + 1.3) + 0.15 * Math.sin(7 * a + 0.4)) + JG * (0.08 * Math.sin(17 * a + 2.1) + 0.04 * Math.sin(41 * a + 0.7)));
+    const r = R * (1 + 0.06 * Math.sin(5 * a + 0.9));
+    p.push(Math.cos(a) * r, -80, Math.sin(a) * r, Math.cos(a) * r, h, Math.sin(a) * r);
+    if (i < N) { const b = i * 2; idx.push(b, b + 1, b + 2, b + 1, b + 3, b + 2); }
+  }
+  // 바닥: 링 아래 끝(y -80)을 팔각형 하나로 막는다 (지형 끝 너머를 내려다볼 때 링 아래로 하늘이 뚫려 보이지 않게). 링 반지름(최대 1.06배)을 다 덮게
+  const b0 = p.length / 3, RO = R * 1.07 / Math.cos(Math.PI / 8);
+  p.push(0, -80, 0);
+  for (let k = 0; k < 8; k++) { const a = (k + 0.5) / 8 * Math.PI * 2; p.push(Math.cos(a) * RO, -80, Math.sin(a) * RO); }
+  for (let k = 0; k < 8; k++) idx.push(b0, b0 + 1 + (k + 1) % 8, b0 + 1 + k);
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(p, 3)); g.setIndex(idx);
+  const m = new THREE.Mesh(g, new THREE.ShaderMaterial({
+    uniforms: { uFogC: { value: FOG } }, side: THREE.DoubleSide, fog: false,
+    vertexShader: 'void main() { gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: 'uniform vec3 uFogC; void main() { gl_FragColor = vec4(uFogC, 1.0); }',
+  }));
+  m.userData.noOutline = true; m.frustumCulled = false; m.renderOrder = -1;
+  scene.add(m);
+}
 camera.position.set(100, TOWN_H + 100, 130);
 const controls = new OrbitControls(camera, canvas);
 controls.target.set(0, TOWN_H, 0);
@@ -2550,8 +2578,8 @@ const plateTex = canvasTex(64, 64, (g) => {
 plateTex.generateMipmaps = true; plateTex.minFilter = THREE.NearestMipmapNearestFilter;   // 멀리서 얼룩이 반짝이지 않게
 // 리벳: 정점마다 (면 안의 위치 m, 면 크기 m)를 받아, 네 변을 따라 가장자리에서 0.1m 안쪽에 약 0.5m 간격으로 (네 모서리 포함).
 // 작고(반지름 약 5cm) 진한 점: 가운데만 살짝 밝게
-function rivetMat(o) {
-  return ps1(new THREE.MeshLambertMaterial(o), (sh) => {
+function rivetMat(o, Mat = THREE.MeshLambertMaterial) {   // Mat: 빛 반사가 필요하면 MeshPhongMaterial (수리 보급품의 초록 부분)
+  return ps1(new Mat(o), (sh) => {
     sh.vertexShader = 'attribute vec4 aRiv; varying vec4 vRiv;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvRiv = aRiv;');
     sh.fragmentShader = 'varying vec4 vRiv;\n' + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
       if (vRiv.z > 0.0) {
@@ -2950,73 +2978,131 @@ function supplyModel(build) {
   g.traverse((o) => { if (o.isMesh && !o.geometry.attributes.aRiv) o.geometry.setAttribute('aRiv', new THREE.BufferAttribute(new Float32Array(o.geometry.attributes.position.count * 4), 4)); });
   return bake(g, null, ['aRiv']);
 }
-// 도트 그림 한 장 (문자열 줄: '#' = 칠함)을 k배로 찍는다
-const pixArt = (g, rows, x, y, k, col) => { g.fillStyle = col; rows.forEach((r, j) => { for (let i = 0; i < r.length; i++) if (r[i] === '#') g.fillRect(x + i * k, y + j * k, k, k); }); };
-const WRENCH = [   // 수리 도구 (스패너): 오른쪽 위 벌린 입, 왼쪽 아래 고리
-  '................', '..........##.##.', '.........###.###', '.........###.###', '.........#######', '..........#####.', '.........###....', '........###.....',
-  '.......###......', '......###.......', '.....###........', '....###.........', '.#####..........', '##..##..........', '##..##..........', '.####...........',
-];
-// 골드 보급품: 붉은 칠 금고. 금박 테두리·금화 문장, 어두운 받침과 리벳 박힌 윗 테 (가운데 금색 원에 별 모양 구멍), 황동 다이얼
-const goldIconTex = canvasTex(32, 32, (g) => {   // 금색으로 채운 원에 ★ 모양으로 뚫린 구멍 (구멍으로 윗판이 보인다. 흰색은 재질의 금색으로 물든다)
-  const st = [];   // 다섯 꼭짓점 별 (위가 꼭짓점): 바깥 11.5, 안쪽 4.8
-  for (let i = 0; i < 10; i++) { const r = i % 2 ? 4.8 : 11.5, a = -Math.PI / 2 + i * Math.PI / 5; st.push([16 + Math.cos(a) * r, 16.6 + Math.sin(a) * r]); }
-  const inStar = (x, y) => {   // 다각형 안쪽 판정 (광선 교차)
-    let inside = false;
-    for (let i = 0, j = st.length - 1; i < st.length; j = i++) {
-      const [xi, yi] = st[i], [xj, yj] = st[j];
-      if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
-    }
-    return inside;
-  };
-  g.fillStyle = '#ffffff';
-  for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) if (Math.hypot(x - 15.5, y - 15.5) <= 15.2 && !inStar(x + 0.5, y + 0.5)) g.fillRect(x, y, 1, 1);
-});
-const safeModel = supplyModel(({ add, box, cyl, frame }) => {
+// 보급품 면 그림: images/supply/*.png (흰색 + 알파) → supply_images.js (build.py가 data URL로 담는다: file://에서 PNG를 WebGL 텍스처로 못 올려서).
+// 그림 한 장 = 면 하나 전체 (그림 크기 = 텍스처 크기, 면 크기에 맞춰 늘린다. 작게 그리면 작게 보인다). 코드가 바탕(철판·회색)을 칠하고
+// 그 위에 그림을 강조색(금색·초록)으로 알파만큼 섞는다. 알파는 8비트 그대로: 0 = 바탕, 255 = 강조색, 그 사이는 섞임. 빛 반사(specularMap)도 알파만큼.
+// 고치는 법: PNG를 고치고 python tools/build.py
+//   gold_side · gold_front · gold_top        골드 보급품 옆면(좌우·뒤) · 앞면 · 윗면 (보이는 판 3 x 2.25m · 3 x 2.25m · 3.14 x 3.14m. 지금 120x90 · 120x90 · 128x128)
+//   repair_side · repair_front · repair_top  수리 보급품 옆면(좌우) · 앞뒤면 · 윗면 (3 x 2.75m · 3 x 2.75m · 3 x 3m. 지금 120x110 · 120x110 · 120x120. 네 귀퉁이 0.3m씩은 깎여 안 보인다)
+const SUPPLY_IMG = window.SUPPLY_IMAGES || {};
+const SUPPLY_SHINE = 36;   // 보급품 금색·초록 부분의 반짝임 (클수록 하이라이트가 작고 날카롭다)
+function pngSize(name, w0, h0) {   // PNG 머리에서 가로·세로를 바로 읽는다 (그림이 다 읽히기 전에 텍스처·UV 크기를 정하려고). 그림이 없으면 처음 값
+  const u = SUPPLY_IMG[name];
+  try {
+    const i = u.indexOf(',') + 1, b = atob(u.slice(i, i + 44));
+    const n = (k) => ((b.charCodeAt(k) << 24) | (b.charCodeAt(k + 1) << 16) | (b.charCodeAt(k + 2) << 8) | b.charCodeAt(k + 3)) >>> 0;
+    return [n(16), n(20)];
+  } catch (_) { return [w0, h0]; }
+}
+function supplyImg(name, onload) {   // 다 읽히면 onload(img). 그림이 없으면 부르지 않는다
+  if (!SUPPLY_IMG[name]) return;
+  const im = new Image(); im.onload = () => onload(im); im.src = SUPPLY_IMG[name];
+}
+const _tintC = document.createElement('canvas');
+function drawTinted(g, im, x, y, w, h, col) {   // 흰 그림을 col로 칠해 (x, y)에 w×h로 (알파는 그대로, 니어리스트로 늘림)
+  _tintC.width = w; _tintC.height = h;
+  const t = _tintC.getContext('2d'); t.imageSmoothingEnabled = false; t.drawImage(im, 0, 0, w, h);
+  t.globalCompositeOperation = 'source-in'; t.fillStyle = col; t.fillRect(0, 0, w, h);
+  g.imageSmoothingEnabled = false; g.drawImage(_tintC, x, y);
+}
+// 바탕: 철판 무늬(plateTex)를 1.2m마다 되풀이하고 col을 곱한다 (pxm = 1m가 몇 px. 셰이더에서 재질 색 × 텍스처와 같은 값)
+function paintPlate(g, x, y, w, h, col, pxm) {
+  g.save(); g.beginPath(); g.rect(x, y, w, h); g.clip(); g.imageSmoothingEnabled = false;
+  const t = Math.max(1, Math.round(1.2 * pxm));
+  for (let yy = y; yy < y + h; yy += t) for (let xx = x; xx < x + w; xx += t) g.drawImage(plateTex.image, xx, yy, t, t);
+  g.globalCompositeOperation = 'multiply'; g.fillStyle = col; g.fillRect(x, y, w, h);
+  g.restore();
+}
+// 면 그림 묶음: 한 장에 가로로 이어 붙이고 끝에 바탕만 칠한 2px (깎인 꼭짓점 등). cells = [{ img, w, h(그림 없을 때), col(강조색), paint(g, x, y, w, h) }]
+// → { map, spec, uv(칸, fu, fv) → [u, v], flat: [u, v] }. 그림이 읽히면 그 칸만 다시 칠한다
+function supplyAtlas(cells) {
+  let W = 0, H = 1;
+  for (const c of cells) { [c.w, c.h] = pngSize(c.img, c.w, c.h); c.x = W; W += c.w; H = Math.max(H, c.h); }
+  W += 2;
+  const map = canvasTex(W, H, (g) => { for (const c of cells) c.paint(g, c.x, 0, c.w, c.h); cells[0].paint(g, W - 2, 0, 2, H); });
+  map.generateMipmaps = true; map.minFilter = THREE.NearestMipmapNearestFilter;   // 멀리서 반짝이지 않게
+  const sc = document.createElement('canvas'); sc.width = W; sc.height = H;
+  const sg = sc.getContext('2d'); sg.fillStyle = '#000'; sg.fillRect(0, 0, W, H);
+  const spec = new THREE.CanvasTexture(sc); spec.magFilter = THREE.NearestFilter; spec.minFilter = THREE.NearestMipmapNearestFilter;   // (반사 세기라 색 공간 변환 없음)
+  cells.forEach((c) => supplyImg(c.img, (im) => {
+    const g = map.image.getContext('2d');
+    c.paint(g, c.x, 0, c.w, c.h); drawTinted(g, im, c.x, 0, c.w, c.h, c.col);
+    sg.fillStyle = '#000'; sg.fillRect(c.x, 0, c.w, c.h); drawTinted(sg, im, c.x, 0, c.w, c.h, '#ffffff');   // 반사 = 알파만큼
+    map.needsUpdate = spec.needsUpdate = true;
+  }));
+  return { map, spec, flat: [(W - 1) / W, 1 - 0.5 / H], uv: (i, fu, fv) => { const c = cells[i]; return [(c.x + fu * c.w) / W, 1 - c.h / H + fv * c.h / H]; } };
+}
+// 골드 보급품: 붉은 칠 금고. 몸통과 리벳 박힌 윗 테를 한 덩어리 메시로 만들고 면마다 그림을 바로 입힌다 (금박 테두리·문·금화 문장·윗면 별 문장).
+// 따로 얹는 폴리곤은 앞면 황동 다이얼만. 어두운 받침과 발은 상자
+const GOLD_FY = [-0.95, 1.30];   // 몸통 옆면의 아래·위 (받침 위 ~ 윗 테 아래 = 그림이 덮는 범위)
+const GOLD_RIM = 0.24;           // 윗 테 두께 (몸통보다 사방 0.07m 넓다)
+const goldAtlas = supplyAtlas([
+  { img: 'gold_side', w: 120, h: 90, col: '#e0b450', paint: (g, x, y, w, h) => paintPlate(g, x, y, w, h, '#a8241a', w / TARGET_S) },
+  { img: 'gold_front', w: 120, h: 90, col: '#e0b450', paint: (g, x, y, w, h) => paintPlate(g, x, y, w, h, '#a8241a', w / TARGET_S) },
+  { img: 'gold_top', w: 128, h: 128, col: '#e0b450', paint: (g, x, y, w, h) => paintPlate(g, x, y, w, h, '#473d3d', w / (TARGET_S + 0.14)) },
+  { img: null, w: 126, h: 10, col: '#000', paint: (g, x, y, w, h) => paintPlate(g, x, y, w, h, '#473d3d', w / (TARGET_S + 0.14)) },   // 윗 테 옆·아랫면 (그림 없음)
+]);
+const safeModel = supplyModel(({ add, box }) => {
   const S = TARGET_S, fz = S / 2;
-  const red = lambert({ color: 0xa8241a, emissive: 0x340604, map: plateTex }), dark = lambert({ color: 0x473d3d, map: plateTex }), darkRiv = rivetMat({ color: 0x473d3d, map: plateTex });   // 위아래 판 (15% 밝게)
-  darkRiv.defines = { RIVET_LIGHT: '' };   // 검은 판이라 리벳을 밝게
-  const gold = lambert({ color: 0xe0b450, emissive: 0x3a2808 }), brass = lambert({ color: 0xd0a040, emissive: 0x2a1a04 }), black = lambert({ color: 0x141010 });
-  add(box(S, S - 0.5, S, red), 0, 0.05, 0);
-  add(plateBox(S + 0.14, 0.24, S + 0.14, darkRiv), 0, S / 2 - 0.08, 0);   // 윗 테 (윗면 가장자리에 리벳)
-  const icon = add(new THREE.Mesh(new THREE.PlaneGeometry(1.04, 1.04), lambert({ map: goldIconTex, color: 0xe0b450, emissive: 0x3a2808, transparent: true, alphaTest: 0.5, ...DECAL })), 0, S / 2 + 0.045, 0);
-  icon.rotation.x = -Math.PI / 2;
+  const dark = lambert({ color: 0x473d3d, map: plateTex }), black = lambert({ color: 0x141010 });
+  // 몸통 + 윗 테: 면 = 사각형 하나 (밖에서 볼 때 왼쪽 아래·오른쪽 아래·오른쪽 위·왼쪽 위), 그림 칸 i, riv = 가장자리 리벳
+  const P = [], U = [], RV = [];
+  const quad = (i, bl, br, tr, tl, riv, w, h) => {
+    const c = [[bl, 0, 0], [br, 1, 0], [tr, 1, 1], [tl, 0, 1]];
+    for (const k of [0, 1, 2, 0, 2, 3]) { const [p, fu, fv] = c[k]; P.push(...p); U.push(...goldAtlas.uv(i, fu, fv)); RV.push(...(riv ? [fu * w, fv * h, w, h] : [0, 0, 0, 0])); }
+  };
+  const sides = (x, y0, y1, z, iF, iS, riv) => {   // 상자 옆 네 면 (앞 = iF, 좌우·뒤 = iS)
+    const w = x * 2, h = y1 - y0;
+    quad(iF, [-x, y0, z], [x, y0, z], [x, y1, z], [-x, y1, z], riv, w, h);       // 앞
+    quad(iS, [x, y0, -z], [-x, y0, -z], [-x, y1, -z], [x, y1, -z], riv, w, h);   // 뒤
+    quad(iS, [x, y0, z], [x, y0, -z], [x, y1, -z], [x, y1, z], riv, w, h);       // 오른쪽 (+x)
+    quad(iS, [-x, y0, -z], [-x, y0, z], [-x, y1, z], [-x, y1, -z], riv, w, h);   // 왼쪽 (-x)
+  };
+  sides(S / 2, GOLD_FY[0], GOLD_FY[1], S / 2, 1, 0, false);   // 몸통 (아랫면은 받침에 가려 없음)
+  const R = S / 2 + 0.07, r0 = GOLD_FY[1], r1 = r0 + GOLD_RIM;
+  sides(R, r0, r1, R, 3, 3, true);                                              // 윗 테 옆면 (리벳)
+  quad(2, [-R, r1, R], [R, r1, R], [R, r1, -R], [-R, r1, -R], true, R * 2, R * 2);   // 윗면 (리벳, 그림 위쪽 = 뒤)
+  quad(3, [-R, r0, -R], [R, r0, -R], [R, r0, R], [-R, r0, R], false, R * 2, R * 2);  // 윗 테 아랫면 (몸통 밖으로 나온 테두리 밑)
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2));
+  g.setAttribute('aRiv', new THREE.Float32BufferAttribute(RV, 4));
+  g.computeVertexNormals();
+  // 재질 하나: 바탕은 그림 그대로, 금색 부분만 빛을 반사 (달빛·가로등·포구 섬광에 하이라이트). 발광은 그림 밝기에 비례 (예전 재질 색 : 발광 비율과 비슷하게)
+  const mat = rivetMat({ map: goldAtlas.map, specularMap: goldAtlas.spec, specular: 0xffe2a0, shininess: SUPPLY_SHINE, emissive: 0x4a4a4a, emissiveMap: goldAtlas.map }, THREE.MeshPhongMaterial);
+  mat.defines = { RIVET_LIGHT: '' };   // 윗 테는 어두운 판이라 리벳을 밝게
+  add(new THREE.Mesh(g, mat), 0, 0, 0);
   add(box(S + 0.1, 0.34, S + 0.1, dark), 0, -S / 2 + 0.37, 0);           // 받침
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) add(box(0.4, 0.2, 0.4, black), sx * (S / 2 - 0.28), -S / 2 + 0.1, sz * (S / 2 - 0.28));   // 발
-  add(box(S - 0.5, S - 1.15, 0.1, red), 0, 0.05, fz + 0.05);            // 문
-  frame(S - 0.5, S - 1.15, 0.05, gold, 0, 0.05, fz + 0.11);
-  for (const s of [1, -1]) frame(S - 0.4, S - 1.0, 0.05, gold, s * (fz + 0.01), 0.05, 0, s * Math.PI / 2);   // 양옆 테두리
-  add(cyl(0.34, 0.06, 16, gold), -0.45, 0.05, fz + 0.13);                 // 금화 문장
-  add(decalPlane(txtTex('$', '#6a3a08'), 0.32, 0.4), -0.45, 0.05, fz + 0.17);
-  add(cyl(0.26, 0.1, 14, brass), 0.5, 0.25, fz + 0.15); add(cyl(0.15, 0.1, 10, black), 0.5, 0.25, fz + 0.21);   // 다이얼
-  for (const y of [0.5, -0.5]) add(new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.35, 8), black), -1.02, y, fz + 0.1);   // 경첩
+  // 다이얼 (로우폴리): 팔각 황동판 + 육각 손잡이. 앞면에 붙은 쪽 뚜껑은 보이지 않으니 없앤다
+  const brass = ps1(new THREE.MeshPhongMaterial({ color: 0xd0a040, emissive: 0x2a1a04, specular: 0xffe2a0, shininess: SUPPLY_SHINE }));
+  const knob = (r, h, seg, mat, z) => {
+    const c = new THREE.CylinderGeometry(r, r, h, seg, 1, false, Math.PI / seg).rotateX(Math.PI / 2);   // 축 = z, 평평한 변이 위로
+    const keep = c.toNonIndexed(), p = keep.attributes.position, out = [];
+    for (let t = 0; t < p.count; t += 3) { if (p.getZ(t) < -h / 2 + 1e-4 && p.getZ(t + 1) < -h / 2 + 1e-4 && p.getZ(t + 2) < -h / 2 + 1e-4) continue; for (let k = 0; k < 3; k++) out.push(p.getX(t + k), p.getY(t + k), p.getZ(t + k)); }
+    const gg = new THREE.BufferGeometry(); gg.setAttribute('position', new THREE.Float32BufferAttribute(out, 3)); gg.computeVertexNormals();
+    gg.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(out.length / 3 * 2), 2));
+    return add(new THREE.Mesh(gg, mat), 0.5, 0.25, z);
+  };
+  knob(0.26, 0.1, 8, brass, fz + 0.05); knob(0.15, 0.1, 6, black, fz + 0.11);
 });
-// 수리 보급품: 꼭짓점 8개를 깎아 낸 밝은 회색 상자 하나에 그림 한 장 (옆면 / 앞·뒷면 / 윗면 세 칸). 초록 띠·초록 원·수리 도구는 모두 텍스처에 (폴리곤 없음).
+// 수리 보급품: 꼭짓점 8개를 깎아 낸 밝은 회색 상자 하나에 그림 묶음 한 장 (옆면 / 앞·뒷면 / 윗면). 초록 띠·초록 원·수리 도구는 모두 그림 (폴리곤 없음).
 // 발만 따로
-const REP_T = 128, REP_BAND = [0.527, 0.255];   // 칸 크기(px), 띠 가운데 높이·두께 (면 높이 비율)
-const REP_GREEN = '#2f6a3e';   // 초록 띠·원·윗면 수리 도구 (진하고 채도 낮게)
-const repairTex = canvasTex(REP_T * 3, REP_T, (g) => {
-  let sd = 0x1234567;
+const REP_GREEN = '#2f6a3e';   // 초록 (진하고 채도 낮게)
+function repairBase(g, x, y, w, h) {   // 밝은 회색 바탕 + 얼룩 (칸마다 같은 난수: 다시 칠해도 같게)
+  let sd = 0x1234567 + x;
   const r01 = () => { sd = (sd * 1103515245 + 12345) & 0x7fffffff; return sd / 0x7fffffff; };   // 지형 배치 난수와 섞이지 않게 따로
-  for (let k = 0; k < 3; k++) {
-    const x0 = k * REP_T;
-    g.fillStyle = '#b4b8b2'; g.fillRect(x0, 0, REP_T, REP_T);   // 밝은 회색 바탕 (재질 색은 흰색: 흰 원이 바탕보다 밝게)
-    for (let i = 0; i < 140; i++) { g.fillStyle = `rgba(60,58,50,${0.06 + r01() * 0.1})`; g.fillRect(x0 + Math.floor(r01() * REP_T), Math.floor(r01() * REP_T), 1 + Math.floor(r01() * 3), 1); }   // 얼룩
-    if (k < 2) {   // 옆면·앞면: 가운데를 두른 초록 띠
-      const y0 = Math.round((1 - REP_BAND[0] - REP_BAND[1] / 2) * REP_T), h = Math.round(REP_BAND[1] * REP_T);
-      g.fillStyle = REP_GREEN; g.fillRect(x0, y0, REP_T, h);
-    }
-    if (k === 1) {   // 앞면: 띠 가운데 초록 원 + 회색(겉면 색) 수리 도구
-      const cx = x0 + REP_T / 2, cy = (1 - REP_BAND[0]) * REP_T, R = 0.62 * 1.2 / TARGET_S * REP_T;
-      g.fillStyle = REP_GREEN;
-      for (let y = -R; y <= R; y++) for (let x = -R; x <= R; x++) if (x * x + y * y <= R * R) g.fillRect(Math.round(cx + x), Math.round(cy + y), 1, 1);
-      pixArt(g, WRENCH, Math.round(cx - 16), Math.round(cy - 16), 2, '#b4b8b2');
-    }
-    if (k === 2) pixArt(g, WRENCH, x0 + REP_T / 2 - 32, REP_T / 2 - 32, 4, REP_GREEN);   // 윗면: 큰 수리 도구 (멀리서도 보이게. 칸의 절반 크기)
-  }
-});
-repairTex.generateMipmaps = true; repairTex.minFilter = THREE.NearestMipmapNearestFilter;   // 멀리서 반짝이지 않게
+  g.fillStyle = '#b4b8b2'; g.fillRect(x, y, w, h);   // (재질 색은 흰색)
+  const n = Math.round(140 * w * h / (128 * 128));
+  for (let i = 0; i < n; i++) { g.fillStyle = `rgba(60,58,50,${0.06 + r01() * 0.1})`; g.fillRect(x + Math.floor(r01() * w), y + Math.floor(r01() * h), 1 + Math.floor(r01() * 3), 1); }
+}
+const repairAtlas = supplyAtlas([
+  { img: 'repair_side', w: 120, h: 110, col: REP_GREEN, paint: repairBase },
+  { img: 'repair_front', w: 120, h: 110, col: REP_GREEN, paint: repairBase },
+  { img: 'repair_top', w: 120, h: 120, col: REP_GREEN, paint: repairBase },
+]);
 const repairModel = supplyModel(({ add, box }) => {
-  const S = TARGET_S, fz = S / 2, H = S - 0.25, C = 0.3;   // C: 꼭짓점을 깎은 길이 (모서리마다)
+  const S = TARGET_S, H = S - 0.25, C = 0.3;   // C: 꼭짓점을 깎은 길이 (모서리마다)
   const hh = { x: S / 2, y: H / 2, z: S / 2 }, P = [], U = [], RV = [];
   const tri = (a, b, c, out) => {   // 바깥(out)을 보게 넣는다. a·b·c = { p, uv, riv }
     const e1 = [b.p.x - a.p.x, b.p.y - a.p.y, b.p.z - a.p.z], e2 = [c.p.x - a.p.x, c.p.y - a.p.y, c.p.z - a.p.z];
@@ -3026,17 +3112,17 @@ const repairModel = supplyModel(({ add, box }) => {
   // 면 6개: 네 귀퉁이를 깎은 팔각형. a·b = 면 위 가로·세로 축 (부호는 밖에서 볼 때 오른쪽·위), tile = 그림 칸 (0 옆, 1 앞·뒤, 2 위)
   for (const f of [{ n: 'x', sg: 1, a: 'z', as: -1, b: 'y', bs: 1, tile: 0 }, { n: 'x', sg: -1, a: 'z', as: 1, b: 'y', bs: 1, tile: 0 },
     { n: 'y', sg: 1, a: 'x', as: 1, b: 'z', bs: -1, tile: 2 }, { n: 'y', sg: -1, a: 'x', as: 1, b: 'z', bs: 1, tile: 0 },
-    { n: 'z', sg: 1, a: 'x', as: 1, b: 'y', bs: 1, tile: 1 }, { n: 'z', sg: -1, a: 'x', as: -1, b: 'y', bs: 1, tile: 1 }]) {   // 뒷면도 초록 원·수리 도구
+    { n: 'z', sg: 1, a: 'x', as: 1, b: 'y', bs: 1, tile: 1 }, { n: 'z', sg: -1, a: 'x', as: -1, b: 'y', bs: 1, tile: 1 }]) {   // 뒷면도 앞면 그림
     const A = hh[f.a], B = hh[f.b], out = { x: 0, y: 0, z: 0 }; out[f.n] = f.sg;
     const v = [[-A + C, -B], [A - C, -B], [A, -B + C], [A, B - C], [A - C, B], [-A + C, B], [-A, B - C], [-A, -B + C]].map(([u, w]) => {
       const p = { x: 0, y: 0, z: 0 }; p[f.n] = f.sg * hh[f.n]; p[f.a] = u * f.as; p[f.b] = w * f.bs;
       const fu = (u + A) / (2 * A), fv = (w + B) / (2 * B);
-      return { p, uv: [(f.tile + fu) / 3, fv], riv: [fu * 2 * A, fv * 2 * B, 2 * A, 2 * B] };   // 리벳 좌표는 예전 상자 면과 같게
+      return { p, uv: repairAtlas.uv(f.tile, fu, fv), riv: [fu * 2 * A, fv * 2 * B, 2 * A, 2 * B] };   // 리벳 좌표는 예전 상자 면과 같게
     });
     for (let i = 1; i < 7; i++) tri(v[0], v[i], v[i + 1], [out.x, out.y, out.z]);
   }
   // 깎인 꼭짓점: 삼각형 8개 (바탕 회색, 리벳 없음)
-  const flat = { uv: [0.03, 0.97], riv: [0, 0, 0, 0] };
+  const flat = { uv: repairAtlas.flat, riv: [0, 0, 0, 0] };
   for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) {
     const X = hh.x * sx, Y = hh.y * sy, Z = hh.z * sz;
     tri({ ...flat, p: { x: X - C * sx, y: Y, z: Z } }, { ...flat, p: { x: X, y: Y - C * sy, z: Z } }, { ...flat, p: { x: X, y: Y, z: Z - C * sz } }, [sx, sy, sz]);
@@ -3046,7 +3132,7 @@ const repairModel = supplyModel(({ add, box }) => {
   g.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2));
   g.setAttribute('aRiv', new THREE.Float32BufferAttribute(RV, 4));
   g.computeVertexNormals();
-  add(new THREE.Mesh(g, rivetMat({ color: 0xffffff, emissive: 0x161816, map: repairTex })), 0, 0.125, 0);
+  add(new THREE.Mesh(g, rivetMat({ color: 0xffffff, emissive: 0x161816, map: repairAtlas.map, specularMap: repairAtlas.spec, specular: 0xc0ffd0, shininess: SUPPLY_SHINE }, THREE.MeshPhongMaterial)), 0, 0.125, 0);   // 초록 부분만 빛 반사 (알파만큼)
   const iron = lambert({ color: 0x3a3c3c, map: plateTex });
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) add(box(0.42, 0.25, 0.42, iron), sx * (S / 2 - 0.3), -S / 2 + 0.125, sz * (S / 2 - 0.3));   // 발
 });
@@ -4660,6 +4746,7 @@ for (const n of DECAL_NAMES) { const w = new THREE.Mesh(DECAL_GEO, tankDecalMat(
 const G = 9.8, K = 300, C = 8, KT = 25;
 // config.js의 physics: 마찰·중력(탱크만)·후진 제동·충돌음. 설정이 없어도 이 값으로 돈다
 const PH = Object.assign({ friction: 0.9, sideFriction: 1.0, gravity: 1.5, airGravity: 1.3, slopePull: 0.5, wallSlip: 0.3, brake: 4, crashVolume: 1.8, brakeTurn: 3, turnAtSpeed: 1.4, tankHitPen: 0.12, boxPush: 1.1, boxFriction: 14, boxTilt: 8 }, CFG.physics);
+const runStats = { shots: 0, hits: 0, far: 0, dmg: 0, dist: 0 };   // 이번 판 기록 (임무 완료 화면): 쏜 포탄·명중(적·벙커·보급품 직격)·가장 먼 명중(m)·받은 피해·이동 거리(m)
 const MU = PH.friction, MU_LAT = PH.sideFriction, GT = G * PH.gravity;   // GT: 탱크가 받는 중력 (포탄·부스러기는 G 그대로)
 // 부딪히는 속도(m/s)에 따른 충돌음 세기: 빠를수록 크다
 const crashK = (v) => Math.min(3, (0.7 + v * 0.3) * PH.crashVolume);
@@ -5723,6 +5810,7 @@ function updateBalls(dt) {
     if (!b.clearShot && b.p.y - groundAt(b.p.x, b.p.z) < 1.8) forCells(b.p.x, b.p.z, 0.8, (k) => { fTr[k] = 1; });
     // '저격수': 쏜 자리에서 멀리 맞힐수록 대미지 (15m부터 1m에 2%씩, 최대 설정값)
     if (hit && b.owner && b.owner.sniper && b.from) b.dmg *= 1 + Math.min(b.owner.sniper, Math.max(0, b.p.distanceTo(b.from) - 15) * 0.02);
+    if (hit && !b.harmless && b.owner === tank && (hit.target || hit.enemy || hit.bunker) && !rulesLocked()) { runStats.hits++; if (b.from) runStats.far = Math.max(runStats.far, hit.p.distanceTo(b.from)); }
     if (hit) {
       const pw = 1 + (b.blast || 0) * 0.1;   // 폭발 범위가 넓을수록 커 보이게
       const wreck = hit.group && hit.group.userData.wreck;
@@ -5842,6 +5930,7 @@ function fireCannon(T = tank, spread = 0) {
   flashes.push({ p: _tip.clone(), t: 0, dur: 0.45, I: 700, range: 36, color: 0xffd08a });   // 포구 섬광 (광원). 기관총보다 크고 밝고, 0.45초에 걸쳐 사그라든다
   shake = Math.min(1.2, shake + 0.25 * (T === tank ? 1 : Math.max(0, 1 - camera.position.distanceTo(_tip) / 60)));
   sfx.fire(_tip);
+  if (T === tank && titleState === 'play' && !clearSeq && !rulesLocked()) runStats.shots++;
   if (T === tank && titleState === 'play' && !clearSeq) padRumble(0.5, 0.5, 140);   // 패드 진동: 내가 쏠 때 (중간 세기. 타이틀·임무 완료 화면의 저절로 쏘는 포는 빼고)
   return ball;
 }
@@ -5954,7 +6043,7 @@ function exhaust(dt, thr, turn) {
     const lag = Math.max(0, Math.min(1, 1 - tank.vel.dot(_ef) * dir / vmax));         // 속도가 덜 붙은 만큼
     want = 0.45 + 0.55 * Math.min(1, Math.max(hill, lag * 0.75) + hill * lag * 0.5);
   }
-  if (titleState === 'title') want = Math.max(want, TDET.smoke);   // 타이틀: 굴뚝 연기를 짙게
+  if (titleState === 'title' || clearSeq) want = Math.max(want, TDET.smoke);   // 타이틀·임무 완료: 굴뚝 연기를 짙게 (title.details.smoke)
   tank.load += (want - tank.load) * Math.min(1, dt * (want > tank.load ? 6 : 2.5));
   const L = tank.load, wd = U.uWindDir.value;
   parts.stack.getWorldPosition(_sp);
@@ -6526,10 +6615,15 @@ function vfReset() {   // 안개를 끄면 유체를 비운다 (지우는 색은
   renderer.setRenderTarget(null); renderer.setClearColor(c, al);
 }
 const _vfM = new THREE.Matrix4();
+// 아웃포커싱 (config screen.dof, 설정 탭): 초점(카메라 → 내 탱크 거리)에서 range m 밖으로 멀어질수록(앞·뒤 모두) 주변을 섞어 흐리게 (틸트시프트 미니어처 느낌).
+// 세기는 타이틀·플레이·임무 완료마다 따로, 15비트 색·디더링 전에 섞는다. 모바일(터치) 기기는 처음 값을 끈다
+const DOF = Object.assign({ enabled: true, mobile: false, title: 1, play: 0.35, clear: 1, range: 3, fall: 18, px: 2.5 }, CFG.screen?.dof);
+const IS_MOBILE = matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 1 && /Mac|iPad|iPhone|Android/.test(navigator.userAgent);
+let dofOn = loadOpt('dof', !!DOF.enabled && (DOF.mobile || !IS_MOBILE));
 const postMat = new THREE.ShaderMaterial({
   uniforms: { tDrop: { value: LDROP_TEX }, uDrop: { value: 0 }, uDropR: { value: 0.035 * (LD.refract ?? 1) }, tDiffuse: { value: rt.texture }, tCut: { value: cutRT.texture }, tCutD: { value: cutRT.depthTexture }, uCut: { value: 0 }, uFlash: { value: 0 }, tDepth: { value: rt.depthTexture }, tOL: { value: olRT.depthTexture },
     uOL: { value: 0 }, uNear: { value: camera.near }, uFar: { value: camera.far }, uTexel: { value: new THREE.Vector2(1, 1) },
-    uFogN: FOGN, uFogF: FOGF, uFogC: { value: FOG },
+    uFogN: FOGN, uFogF: FOGF, uFogC: { value: FOG }, uDof: { value: 0 }, uFocus: { value: 20 }, uFocusR: { value: DOF.range }, uFocusF: { value: DOF.fall }, uDofPx: { value: DOF.px },
     uGrad: { value: 0 }, uGradA: { value: 0.6 }, uGradB: { value: 0.9 }, uGradC: { value: new THREE.Color(1, 1, 1) },
     uGray: { value: 0 }, uGrayA: { value: hexV3(POP.dark) }, uGrayB: { value: hexV3(POP.light) }, uBright: { value: 1 },
     tHgt: { value: null }, tClr: { value: null }, uVFWarp: { value: VF.flowWarp }, uCamP: { value: new THREE.Vector3() }, uVFMarch: { value: VF.march }, uInvPV: { value: new THREE.Matrix4() }, uVF: { value: 0 }, uVFTop: { value: VF.height }, uVFCell: { value: VF.cell }, uVFDen: { value: VF.density },
@@ -6537,6 +6631,7 @@ const postMat = new THREE.ShaderMaterial({
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
   fragmentShader: `
     uniform sampler2D tHgt, tClr; uniform vec3 uCamP; uniform float uVFMarch, uVFWarp; uniform mat4 uInvPV; uniform float uVF, uVFTop, uVFCell, uVFDen, uVFScale, uVFT, uVFSteps; uniform vec3 uVFC;
+    uniform float uDof, uFocus, uFocusR, uFocusF, uDofPx;
     uniform sampler2D tDiffuse, tDepth, tOL, tCut, tCutD, tDrop; uniform float uCut, uDrop, uDropR, uFlash, uOL, uNear, uFar, uFogN, uFogF, uGrad, uGradA, uGradB, uGray, uBright; uniform vec2 uTexel; uniform vec3 uFogC, uGradC, uGrayA, uGrayB; varying vec2 vUv;
     float lin(float d) { return uNear * uFar / (uFar - d * (uFar - uNear)); }   // 깊이 버퍼 값 → 카메라에서 거리
     float bayer2(vec2 a) { a = floor(a); return fract(dot(a, vec2(0.5, a.y * 0.75))); }
@@ -6556,6 +6651,19 @@ const postMat = new THREE.ShaderMaterial({
       vec2 uvR = vUv; float dA = 0.0;
       if (uDrop > 0.0) { vec4 dr = texture2D(tDrop, vUv); dA = dr.a; uvR = clamp(vUv + (dr.rg - 0.5) * 2.0 * uDropR * dA, 0.0, 1.0); }   // 화면에 맺힌 빗방울: 그만큼 어긋나게 읽는다 (22_weather.js)
       vec3 lc = cut ? texture2D(tCut, uvR).rgb : texture2D(tDiffuse, uvR).rgb;
+      if (uDof > 0.0) {   // 아웃포커싱: 초점에서 먼 만큼(coc) 둘레 8곳을 섞는다. 흐린 이웃일수록 많이 (또렷한 물체가 흐린 배경으로 번지지 않게)
+        float coc = clamp((abs(lin(scD(uvR, cut)) - uFocus) - uFocusR) / uFocusF, 0.0, 1.0) * uDof;
+        if (coc > 0.02) {
+          vec3 acc = lc; float ws = 1.0;
+          for (int i = 0; i < 8; i++) {
+            float a = float(i) * 0.785398 + 0.39;
+            vec2 q = clamp(uvR + vec2(cos(a), sin(a)) * uTexel * uDofPx * coc * (i % 2 == 0 ? 1.0 : 0.55), 0.0, 1.0);
+            float w = 0.2 + clamp((abs(lin(scD(q, cut)) - uFocus) - uFocusR) / uFocusF, 0.0, 1.0);
+            acc += (cut ? texture2D(tCut, q).rgb : texture2D(tDiffuse, q).rgb) * w; ws += w;
+          }
+          lc = acc / ws;
+        }
+      }
       if (dA > 0.0) { float b = texture2D(tDrop, vUv).b, db = (b - 0.5) * 2.0; lc = b > 0.99 ? mix(lc, vec3(0.75), dA) : lc * (1.0 + db * 0.6 * dA) + max(db - 0.2, 0.0) * 0.1 * dA; }   // 방울 밝기 (b): 둘레 어둡게, 초승달 밝게, 1 = 반짝 점(단색)
       if (uOL > 0.5) {
         // 외곽선: 물체 픽셀인데 이웃 중 훨씬 먼 곳(배경·뒤의 물체)이 있으면 1픽셀 선. 풀·땅에 가려진 곳은 빼고
@@ -6603,6 +6711,9 @@ postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), postMat));
 postMat.uniforms.uVFC.value.convertSRGBToLinear();   // 장면 색(선형)에 섞는다
 postMat.onBeforeRender = () => {   // 복셀 안개: 화면 → 월드 행렬, 흐르는 시간(게임 시간: 멈추면 같이 멈춘다)
   const u = postMat.uniforms;
+  // 아웃포커싱 세기: 타이틀 → 플레이(titleK) → 임무 완료(clearSeq.k)로 섞는다. 초점은 내 탱크까지 거리
+  u.uDof.value = dofOn ? lerp(lerp(DOF.title, DOF.play, titleK), DOF.clear, clearSeq ? clearSeq.k : 0) : 0;
+  if (u.uDof.value > 0) u.uFocus.value = camera.position.distanceTo(_dofT.copy(tank.pos).setY(tank.pos.y + 0.6));
   u.uVF.value = vfOn ? titleK : 0;   // 타이틀에서는 안 보이고 플레이로 넘어가며 나타난다
   if (!vfOn) return;
   camera.updateMatrixWorld();
@@ -6632,7 +6743,10 @@ upScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), upMat));
 
 // 화면 환경 두 벌: 타이틀(밝은 낮, 가까운 흰 안개, 위쪽 흰 그라데이션)과 플레이(밤. 설정 메뉴 값). titleK로 섞는다 (0 = 타이틀, 1 = 플레이)
 const TT = CFG.title || {};
-const ENV_PLAY = { fog: new THREE.Color(MAP0.fogColor), near: 0, far: 2 / MAP0.fog, moon: MAP0.moon, moonC: new THREE.Color(MAP0.moonColor),
+const BG_DARK = CFG.map.bgDark ?? 0.25;   // 맵 셋팅에 bgColor가 없을 때 하늘을 안개색보다 이만큼 어둡게
+const _bgT = {}, bgDarken = (c) => { c.getRGB(_bgT, THREE.SRGBColorSpace); return c.setRGB(_bgT.r * (1 - BG_DARK), _bgT.g * (1 - BG_DARK), _bgT.b * (1 - BG_DARK), THREE.SRGBColorSpace); };   // (보이는 밝기로 어둡게)
+const bgOf = (p, out) => p.bgColor ? out.set(p.bgColor) : bgDarken(out.set(p.fogColor ?? '#000000'));   // 그 셋팅의 하늘색
+const ENV_PLAY = { bg: new THREE.Color(), bgAuto: !MAP0.bgColor, fog: new THREE.Color(MAP0.fogColor), near: 0, far: 2 / MAP0.fog, moon: MAP0.moon, moonC: new THREE.Color(MAP0.moonColor),
   sky: MAP0.sky, skyC: new THREE.Color(MAP0.skyColor), gndC: new THREE.Color(MAP0.groundColor), grad: 0 };
 const ENV_TITLE = { fog: new THREE.Color(TT.fogColor ?? '#ffffff'), near: TT.fogNear ?? 20, far: TT.fogFar ?? 60, moon: TT.moon ?? 2.6, moonC: new THREE.Color(TT.moonColor ?? '#fff2dc'),
   sky: TT.sky ?? 2.2, skyC: new THREE.Color(TT.skyColor ?? '#eef2f8'), gndC: new THREE.Color(TT.groundColor ?? '#8a7a62'), grad: TT.gradient?.strength ?? 1 };
@@ -6644,6 +6758,8 @@ try { if (sessionStorage.getItem('MightyMolly.skipTitle')) { sessionStorage.remo
 function applyEnv() {
   const A = ENV_TITLE, B = ENV_PLAY, k = titleK;
   FOG.lerpColors(A.fog, B.fog, k); scene.fog.color.copy(FOG);
+  if (B.bgAuto) bgDarken(B.bg.copy(B.fog));   // (bgColor 없는 셋팅: 안개색 슬라이더를 따라간다)
+  SKY.lerpColors(A.fog, B.bg, k);   // 하늘: 타이틀은 타이틀 안개색 그대로
   scene.fog.near = FOGN.value = lerp(A.near, B.near, k); scene.fog.far = FOGF.value = lerp(A.far, B.far, k);
   moon.intensity = lerp(A.moon, B.moon, k); moon.color.lerpColors(A.moonC, B.moonC, k);
   hemi.intensity = lerp(A.sky, B.sky, k); hemi.color.lerpColors(A.skyC, B.skyC, k); hemi.groundColor.lerpColors(A.gndC, B.gndC, k);
@@ -6654,6 +6770,7 @@ function applyEnv() {
     hemi.intensity = lerp(hemi.intensity, A.sky, c); hemi.color.lerp(A.skyC, c); hemi.groundColor.lerp(A.gndC, c);
   }
 }
+bgOf(MAP0, ENV_PLAY.bg);
 applyEnv();
 
 let resMax = false;   // 해상도 '최대': 화면 픽셀 그대로
@@ -6694,7 +6811,7 @@ function layoutTitle() {
   // 아래 요소들은 오른쪽 아래로 1칸 그림자가 있다: 여백 10칸은 그림자를 빼고 잰다
   // 맨 아래 위장색·데칼·설정 안내, 그 위에 게임 시작 (줄 간격 15칸)
   const camoH = el('tCamo') && el('tCamo')._src ? (put('tCamo', 'right', 'bottom', -u, -u), el('tCamo')._src.height * u + 2 * u) : 0;   // 한글 줄 높이 15칸에 맞춰 (안내 4줄이 한 목록처럼)
-  const bw = put('tBadge', 'left', 'bottom', 0, -u), pw = put('tPress', 'right', 'bottom', -u, -u + camoH);
+  const bw = put('tBadge', 'left', 'bottom', 0, -u), pw = put('tPress', 'right', 'bottom', -u, -u + camoH + 3 * u);   // (시작 버튼과 아래 안내 사이 3칸 더)
   const vw = el('tVer')._src.width * u, vx = bw + 6 * u;
   if (m + vx + vw + 10 * u + pw + m <= VR.w) put('tVer', 'left', 'bottom', vx, -u);
   else put('tVer', 'left', 'bottom', 0, el('tBadge')._src.height * u + 4 * u - u);
@@ -7033,7 +7150,7 @@ function applyMapPreset(i) {
   mapIdx = (i + MAP_PRESETS.length) % MAP_PRESETS.length;
   const p = MAP_PRESETS[mapIdx];
   for (const [id, v] of [['wind', p.wind], ['windDir', p.windDir], ['debris', p.debris], ['fog', p.fog], ['fogC', p.fogColor], ['moonI', p.moon], ['moonC', p.moonColor]]) setInput(id, v);
-  ENV_PLAY.sky = p.sky; ENV_PLAY.skyC.set(p.skyColor); ENV_PLAY.gndC.set(p.groundColor); applyEnv();
+  ENV_PLAY.sky = p.sky; ENV_PLAY.skyC.set(p.skyColor); ENV_PLAY.gndC.set(p.groundColor); ENV_PLAY.bgAuto = !p.bgColor; bgOf(p, ENV_PLAY.bg); applyEnv();
   setWeather(p);
   for (const [id, v] of [['rainA', p.rain], ['sandA', p.sand], ['boltA', p.lightning]]) setInput(id, v);
   document.getElementById('sandC').value = p.sandColor ?? '#c8a070';
@@ -7058,7 +7175,8 @@ function stormTick(dt) {
   let wd = (B.windDir ?? 0) - (A.windDir ?? 0); wd = ((wd % 360) + 540) % 360 - 180;   // 바람 방향은 가까운 쪽으로 돈다
   for (const [id, v] of [['wind', L('wind')], ['windDir', Math.round((A.windDir ?? 0) + wd * e)], ['debris', L('debris')], ['fog', L('fog')], ['fogC', mixHex(A.fogColor, B.fogColor, e)],
     ['moonI', L('moon')], ['moonC', mixHex(A.moonColor, B.moonColor, e)]]) setInput(id, v);
-  ENV_PLAY.sky = L('sky'); ENV_PLAY.skyC.set(mixHex(A.skyColor, B.skyColor, e)); ENV_PLAY.gndC.set(mixHex(A.groundColor, B.groundColor, e)); applyEnv();
+  ENV_PLAY.sky = L('sky'); ENV_PLAY.skyC.set(mixHex(A.skyColor, B.skyColor, e)); ENV_PLAY.gndC.set(mixHex(A.groundColor, B.groundColor, e));
+  ENV_PLAY.bgAuto = false; bgOf(A, ENV_PLAY.bg).lerp(bgOf(B, _sc1), e); applyEnv();   // 하늘색도 두 셋팅 사이로
   WEATHER.rain = L('rain'); WEATHER.sand = L('sand'); WEATHER.lightning = L('lightning');
   rainFx.u.uColor.value.set(mixHex(A.rainColor ?? '#a8b8d0', B.rainColor ?? '#a8b8d0', e)).multiplyScalar(CFG.map.rainBright ?? 0.7);
   WEATHER.sandCol.set(mixHex(A.sandColor ?? '#c8a070', B.sandColor ?? '#c8a070', e));
@@ -7102,16 +7220,18 @@ function setVolume(v) {
 setVolume(volNow);
 // 켜기/끄기 설정 (일시정지 창 '설정' 탭): 기억해 두었다가 다시 쓴다
 const saveOpt = (k, v) => { try { localStorage.setItem('MightyMolly.' + k, v ? '1' : '0'); } catch (_) {} };
-let autoCam = loadOpt('autoCam', true), shakeOn = loadOpt('shake', true), rumbleOn = loadOpt('rumble', true);
+let autoCam = loadOpt('autoCam', true), shakeOn = true,   // (화면 흔들림은 늘 켬: 설정 탭에서 뺐다)
+    rumbleOn = loadOpt('rumble', true);
 const setAutoCam = (v) => { autoCam = v; saveOpt('autoCam', v); if (!v) { camBackAt = 0; camRet = null; } };
-const setShakeOn = (v) => { shakeOn = v; saveOpt('shake', v); };
+const _dofT = new THREE.Vector3();
+const setDofOn = (v) => { dofOn = v; saveOpt('dof', v); pausedDrawn = false; pauseScene = false; };
 const setRumbleOn = (v) => { rumbleOn = v; saveOpt('rumble', v); if (v) padRumbleNow(0.5, 0.7, 160); };   // 켜면 한 번 울려서 되는지 알 수 있게
 // 화면 밝기 (0.5~1.5, 1 = 그대로): 후처리에서 감마로 (어두운 곳이 밝아진다)
 let brightness = 1;
 try { const b = parseFloat(localStorage.getItem('MightyMolly.bright')); if (b >= 0.5 && b <= 1.5) brightness = b; } catch (_) {}
 // 설정 탭 모두 초기 값으로 (일시정지 → 설정 → [R], 확인 창에서 예)
 function resetSettings() {
-  setVolume(0.5); setCamMode('auto'); setAutoCam(true); setShakeOn(true); setRumbleOn(true); setDmgTextOn(!!DTC.enabled); setBright(1);
+  setVolume(0.5); setCamMode('auto'); setAutoCam(true); setRumbleOn(true); setBright(1); setDofOn(!!DOF.enabled && (DOF.mobile || !IS_MOBILE));
   if (crtOn !== !!CRT.enabled) setCrt(!!CRT.enabled);
 }
 function setBright(b) { brightness = Math.max(0.5, Math.min(1.5, Math.round(b * 20) / 20)); postMat.uniforms.uBright.value = brightness; try { localStorage.setItem('MightyMolly.bright', String(brightness)); } catch (_) {} }
@@ -7299,9 +7419,14 @@ function startGame() {
   hudRevealT = CFG.mission?.enabled === false ? CFG.hud?.showDelay ?? 3 : 1e9;   // 작전 정보가 사라진 뒤에 HUD
 }
 // 타이틀 그림 하나를 지금 사라진 정도(titleFadeF)로: 화면 아래쪽 줄부터
+let titleKeysK = 0, titleKeysQ = -1;   // 우하단(시작 버튼·키 안내)이 나타난 정도 (0~1, 0.5초 디더링 페이드인)
 function titleWipe(c) {
   if (!c || !c._src || !c._css) return;
-  if (titleFadeF <= 0) { sharpBlit(c, c._src, c._css[0], c._css[1]); return; }
+  if (titleFadeF <= 0) {
+    const k = c.id === 'tPress' || c.id === 'tCamo' ? titleKeysK : 1;
+    sharpBlit(c, k >= 1 ? c._src : ditherWipe(c._src, 1 - k, () => 1 - k), c._css[0], c._css[1]);   // (줄 구분 없이 고르게: 줄마다 같은 값이면 비우는 정도가 1 - k에 정확히 비례)
+    return;
+  }
   const r = c.getBoundingClientRect(), H = c._src.height;
   sharpBlit(c, ditherWipe(c._src, titleFadeF, (y) => 1 - (r.top + y / H * r.height) / innerHeight), c._css[0], c._css[1]);
 }
@@ -7311,8 +7436,10 @@ function updateTitle(dt) {
   if (titleState === 'title') {   // PRESS ANY KEY: 입력을 받기 시작할 때 나타나 깜빡인다
     if (!document.getElementById('loading')) titleWait += dt;
     const t = titleWait - TITLE_DELAY;
-    tPressEl.style.visibility = t >= 0 && t % 1.1 < 0.72 ? '' : 'hidden';
-    tCamoEl.style.visibility = t >= 0 ? '' : 'hidden';   // 위장색 안내는 깜빡이지 않는다
+    tPressEl.style.visibility = t >= 0 && (titleBtnHot || t % 1.1 < 0.72) ? '' : 'hidden';   // 시작 버튼은 깜빡인다 (마우스를 올리면 멈춤)
+    tCamoEl.style.visibility = t >= 0 ? '' : 'hidden';   // 키 안내는 깜빡이지 않는다
+    const q = t >= 0 ? Math.min(16, Math.floor(t / 0.5 * 16)) : -1;   // 0.5초 동안 4x4 디더링으로 나타난다
+    if (q !== titleKeysQ) { titleKeysQ = q; titleKeysK = Math.max(0, q) / 16; titleWipe(tPressEl); titleWipe(tCamoEl); }
   }
   if (titleState !== 'trans') return;
   titleT = Math.min(1, titleT + dt / (TT.transition ?? 2.2));
@@ -7329,6 +7456,14 @@ function updateTitle(dt) {
   titleK = easeInOutCubic(titleT); applyEnv();
   if (titleT >= 1) { titleState = 'play'; controls.enabled = true; }
 }
+// 시작 버튼 위에 마우스를 올리면 버튼을 칠해 보인다 (CRT면 화면 휨을 되짚은 자리로)
+function titleBtnAt(x, y) { const p = crtPoint(x, y), r = tPressEl.getBoundingClientRect(); return p.x >= r.left && p.x <= r.right && p.y >= r.top && p.y <= r.bottom; }
+addEventListener('pointermove', (e) => {
+  const hot = titleState === 'title' && !paused && titleWait >= TITLE_DELAY && e.pointerType === 'mouse' && titleBtnAt(e.clientX, e.clientY);
+  if (hot === titleBtnHot) return;
+  titleBtnHot = hot; document.body.style.cursor = hot ? 'pointer' : '';
+  drawTitleKeys(titlePad); titleWipe(tPressEl);
+});
 // 타이틀에서는 키·클릭이 게임에 가지 않는다 (설정 메뉴 ` 키와 메뉴 클릭은 그대로): SPACE(또는 클릭·터치)로 시작, Q/E로 위장색
 addEventListener('keydown', (e) => {
   if (titleState !== 'title' || e.code === 'Backquote' || (e.code === 'Digit1' && e.shiftKey) || decalMode || paused) return;   // (! = 성능 표시, 81_ui.js)   // 데칼 편집 중이면 그쪽 처리로. 메뉴 창(ESC)이 떠 있으면 창으로
@@ -7350,6 +7485,11 @@ addEventListener('pointerdown', (e) => {   // 클릭·터치는 게임에 가지
   setInputPad(false);
   e.stopImmediatePropagation();
   sfx.unlock();
+  // '게임 시작' 버튼을 누르면 시작 (모바일: 키보드가 없어도 시작할 수 있게). CRT면 화면 휨을 되짚은 자리로
+  if (titleWait >= TITLE_DELAY && titleBtnAt(e.clientX, e.clientY)) {   // (깜빡여 잠깐 안 보일 때 눌러도)
+    if (titleBtnHot) { titleBtnHot = false; document.body.style.cursor = ''; }
+    sfx.ui('button'); startGame();
+  }
 }, true);
 // 카메라: 플레이 카메라는 늘 하던 대로 따라가게 두고(값은 따로 보관), 화면에는 타이틀 카메라와 섞은 자리를 쓴다.
 // 섞기는 화면 가운데 점과 거리·내려다보는 각·방향을 따로 보간 (탱크 둘레로 호를 그리며 넘어간다)
@@ -7471,8 +7611,14 @@ function clearUpdate(dt) {
   camera.updateProjectionMatrix();
   // 포즈: 포탑·포신을 천천히 (타이틀 등장과 같은 빠르기)
   const P = CLR.pose || {}, side = wrapA((c.yaw + 180) * DEG) < 0 ? -1 : 1;   // 카메라가 있는 쪽 (포탑 각의 부호)
-  tank.tyaw = stepTo(wrapA(tank.tyaw || 0), side * (P.turret ?? 15) * DEG, (tank.turretRate || TURRET_RATE) * dt); tank.tvel = 0;
-  tank.elev = stepTo(tank.elev, (P.elev ?? 10) * DEG, 0.55 * dt);
+  // EaseInOutCubic으로: 처음 한 번 시작·목표 각도와 걸리는 시간(평소 회전 빠르기로 걸릴 시간의 1.6배: 가운데에서 더 빨라졌다 부드럽게 멈춘다)을 정한다
+  if (!S.pose) {
+    const ty0 = wrapA(tank.tyaw || 0), ty1 = side * (P.turret ?? 15) * DEG, el0 = tank.elev, el1 = (P.elev ?? 10) * DEG;
+    S.pose = { ty0, ty1, el0, el1, td: Math.max(0.3, Math.abs(wrapA(ty1 - ty0)) / (tank.turretRate || TURRET_RATE) * 1.6), ed: Math.max(0.3, Math.abs(el1 - el0) / 0.55 * 1.6) };
+  }
+  const po = S.pose;
+  tank.tyaw = po.ty0 + wrapA(po.ty1 - po.ty0) * easeInOutCubic(Math.min(1, S.t / po.td)); tank.tvel = 0;
+  tank.elev = lerp(po.el0, po.el1, easeInOutCubic(Math.min(1, S.t / po.ed)));
   // 자세: 카메라가 넘어가는 동안 똑바로 세운다 (물리는 끈다: tick)
   if (tank.solid) { tank.q.slerpQuaternions(S.q0, S.q1, k); tank.pos.y = lerp(S.y0, S.y1, k); tank.vel.set(0, 0, 0); tank.w.set(0, 0, 0); }
   syncTankVisual();
@@ -7480,11 +7626,18 @@ function clearUpdate(dt) {
 }
 // 탱크만 cutRT에: 다른 물체는 잠깐 숨기고, 배경은 단색, 안개는 멀리
 // (배경을 다 지운 뒤로는 파티클·포탄도: 그때 남아 있던 것은 지우고 새로 쏜 것만)
+const _cutOff = [];
 function clearRenderCut() {
   const bg = scene.background, fn = scene.fog.near, ff = scene.fog.far, pn = FOGN.value, pf = FOGF.value;
   scene.background = CLR_BG; scene.fog.near = FOGN.value = 1e4; scene.fog.far = FOGF.value = 2e4; clrFloor.visible = true;
   camera.layers.set(CUT_LAYER);
+  // 바닥에는 내 탱크의 그림자·뒷등 빛만: 둘레의 잔해·보급품·지프 것은 이 그리기 동안만 끈다 (그림자 목록은 지형과 함께 쓰는 uniform이라 끝나면 되돌린다)
+  const sh0 = U.uSh0.value, sh1 = U.uSh1.value, l0 = U.uLamp0.value, l1 = U.uLamp1.value, off = _cutOff;
+  off.length = 0;
+  for (let i = 0; i < sh1.length; i++) if (sh1[i].z > 0 && Math.hypot(sh0[i].x - tank.pos.x, sh0[i].y - tank.pos.z) > 0.5) { off.push(sh1[i], sh1[i].z); sh1[i].z = 0; }
+  for (let i = 0; i < l1.length; i++) if (l1[i].w > 0 && Math.hypot(l0[i].x - tank.pos.x, l0[i].y - tank.pos.z) > 0.5) { off.push(l1[i], -l1[i].w); l1[i].w = 0; }
   renderer.setRenderTarget(cutRT); renderer.render(scene, camera);
+  for (let i = 0; i < off.length; i += 2) { const v = off[i + 1]; if (v > 0) off[i].z = v; else off[i].w = -v; }
   camera.layers.set(0);
   scene.background = bg; scene.fog.near = fn; scene.fog.far = ff; FOGN.value = pn; FOGF.value = pf; clrFloor.visible = false;
 }
@@ -7521,6 +7674,7 @@ function clearTick(dt) {
   }
   tank.recoil = Math.max(0, tank.recoil - dt * 3);
   parts.barrel.position.z = -0.5 * tank.recoil;
+  if (tank.solid) exhaust(dt, 0, 0);   // 굴뚝 연기 (타이틀처럼 짙게: exhaust)
   leanStep(tank, dt);   // 대포 반동으로 차체가 기운다 (멈춰 있으니 반동만)
   syncTankVisual();
   updateShadows(); updateTankLamps(0);   // 바닥에 비치는 그림자·뒷등
@@ -8034,6 +8188,7 @@ function damageTank(T, raw, face, src, kind) {
   if (aiShow) floatTank(T, d, raw, face, src, a, kind);
   dmgTextHit(T, Math.max(0, d), dmgFromP || (src && src.pos) || null, dmgCrit, d > 0 && T.hp - d <= 0); dmgFromP = null; dmgCrit = false;   // 대미지 숫자 (공격한 자리 반대쪽으로. 치명타·파괴 표시)
   if (d <= 0) return 0;
+  if (T === tank) runStats.dmg += Math.min(d, Math.max(0, T.hp));   // (받은 피해: 남은 HP를 넘는 몫은 빼고)
   T.hp -= d;
   if (T === tank) { shake = Math.min(1.2, shake + Math.min(0.3, 0.05 + d * 0.005)); hudHit(d); padRumble(Math.min(1, 0.25 + d * 0.02), Math.min(1, 0.4 + d * 0.02), kind === 'mg' ? 70 : 180); }   // 패드 진동: 맞은 만큼
   if (T.hp <= 0) destroyTankBody(T);
@@ -8131,7 +8286,7 @@ function showEnd(kind) {
   if (endState === 'clear') return;   // 섬멸 창이 떠 있으면 그대로
   endState = kind;
   if (kind === 'clear') cancelOffer();   // 월드는 계속 돌지만 값은 잠긴다 (rulesLocked): 남은 골드를 주워도 레벨업하지 않는다
-  if (kind === 'clear') { Object.assign(clearUI.info, { kills: EC.clearKills, jeeps: jeepKills, time: playTime, lv: growLevel, bunkers: BUNKERS.filter((B) => B.ruin && !B.ruinAtStart).length, bunkerAll: BUNKERS.filter((B) => !B.ruinAtStart).length }); clearUI.reset(); clearBegin(); }   // 임무 완료 카메라·배경 (52_clear.js)
+  if (kind === 'clear') { Object.assign(clearUI.info, { stats: { ...runStats }, kills: EC.clearKills, jeeps: jeepKills, time: playTime, lv: growLevel, bunkers: BUNKERS.filter((B) => B.ruin && !B.ruinAtStart).length, bunkerAll: BUNKERS.filter((B) => !B.ruinAtStart).length }); clearUI.reset(); clearBegin(); }   // 임무 완료 카메라·배경 (52_clear.js)
   uiShow(kind === 'dead' ? deadUI : clearUI);   // HUD는 syncHud가 끈다
 }
 // 재출격: 처음부터가 아니라 내 탱크만 새로 떨어뜨린다 (착지하면 접어 둔 성장 선택지가 다시 뜬다)
@@ -8937,9 +9092,29 @@ function drawTitleKeys(pad) {
   titlePad = pad;
   const c = document.getElementById('tPress');
   if (!c) return;
-  titleKeyRows(c, [[[pad ? 'A' : 'SPACE'], '게임 시작']]);
+  titleStartButton(c, pad ? 'A' : 'SPACE');
   drawCamoText();
   if (c._css) layoutTitle();
+}
+// 타이틀 '게임 시작' 버튼: 메뉴 창 아래 버튼과 같은 모양 (테두리 + 키 칸 + 이름, 흰색). 클릭·터치로도 시작한다 (50_title.js)
+// hot = 마우스를 올림: 창 버튼처럼 통째로 칠하고 키 칸은 검게, 이름은 뒤집어 (이때는 깜빡이지 않는다)
+let titleBtnHot = false;
+function titleStartButton(cv, key) {
+  const src = cv._src || (cv._src = document.createElement('canvas'));
+  const label = '게임 시작', kw = gfWidth(key), w = keyButtonW(key, label), h = 21, col = '#ffffff', lx = 5 + kw + 4 + 4, px = (a, b) => g.fillRect(a, b, 1, 1);
+  src.width = w; src.height = h;
+  const g = src.getContext('2d');
+  if (titleBtnHot) {
+    g.fillStyle = col; g.fillRect(0, 0, w, h);
+    g.fillStyle = '#000000'; g.fillRect(5, 4, kw + 4, 12); gfDraw(label, lx, 5, px);
+    g.fillStyle = col; gfDraw(key, 7, 5, px);
+  } else {
+    g.fillStyle = 'rgba(0,0,0,.6)'; g.fillRect(0, 0, w, h);
+    g.fillStyle = col; g.fillRect(0, 0, w, 1); g.fillRect(0, h - 1, w, 1); g.fillRect(0, 0, 1, h); g.fillRect(w - 1, 0, 1, h);
+    g.fillRect(5, 4, kw + 4, 12);
+    g.fillStyle = '#000000'; gfDraw(key, 7, 5, px);
+    g.fillStyle = col; gfDraw(label, lx, 5, px);
+  }
 }
 // 타이틀 위장색 안내 (PRESS SPACE 아래, 깜빡이지 않음): 지금 고른 위장색 이름
 function drawCamoText() {
@@ -9527,16 +9702,33 @@ const CLR_M = 14, CLR_BTN_GAP = 4, CLR_BTN_N = 4;   // 가장자리 여백, 버�
 const clearUI = {
   win: true, passive: true, info: { kills: 20, jeeps: 0, time: 0, lv: 0, bunkers: 0, bunkerAll: 0 }, t: 0, shown: -1,
   reset() { this.t = -(CFG.clear?.textDelay ?? 1); this.shown = -1; },
-  lines() {   // [글자 조각들] 또는 버튼. 조각 = [글자, 색]
-    const I = this.info, kG = PK('G', 'Y'), kT = PK('T', 'BACK');
-    const rows = [['격파한 적 탱크/자주포', `${I.kills}대`], ['격파한 적 지프', `${I.jeeps}대`]];
-    if (I.bunkerAll > 0) rows.push(['격파한 벙커', `${I.bunkers}개`]);   // 맵에 벙커가 없으면 빼고
-    rows.push(['걸린 시간', fmtTime(I.time)], ['성장', `LV. ${I.lv}`]);
-    return [{ big: true, parts: [['임무 완료', ENDC.clear]] }, ...rows.map(([a, b]) => ({ parts: [[a, ENDC.txt], [' ' + b, ENDC.clear]] })),
-      { btn: 'restart', key: kG, label: '새로 시작' }, { btn: 'title', key: kT, label: '첫 화면으로' }];
+  // 줄 = { parts: [[글자, 색], ...], big, tally: 킬마크 개수, pad: 위 여백 } 또는 버튼. 킬마크 하나도 글자 하나처럼 타이핑 박자로 나타난다
+  lines() {
+    const I = this.info, S = I.stats || {}, kG = PK('G', 'Y'), kT = PK('T', 'BACK');
+    // 걸린 시간: 1분 미만이면 '00.0초', 넘으면 '00분 00.0초' (최대 999분 59.9초). 0.1초 단위로 먼저 끊어 59.95초가 '60.0초'로 올라가지 않게
+    const ds = Math.min(999 * 600 + 599, Math.floor((I.time || 0) * 10)), mm = Math.floor(ds / 600), ss = ((ds % 600) / 10).toFixed(1).padStart(4, '0');
+    const time = mm > 0 ? `${String(mm).padStart(2, '0')}분 ${ss}초` : `${ss}초`;
+    const tal = (lab, n) => n > 0 ? { parts: [[lab, ENDC.txt]], tally: n } : { parts: [[lab, ENDC.txt], [' 0', ENDC.clear]] };
+    const val = (lab, v, pad) => ({ parts: [[lab, ENDC.txt], [' ' + v, ENDC.clear]], pad });
+    const L = [{ big: true, parts: [['임무 완료', ENDC.clear]] }, { big: true, parts: [[time, ENDC.txt]] },
+      tal('격파한 전차', I.kills), tal('격파한 지프', I.jeeps)];
+    if (I.bunkerAll > 0) L.push(tal('격파한 벙커', I.bunkers));   // 맵에 벙커가 없으면 빼고
+    const dist = S.dist || 0;
+    L.push(val('포탄 명중률', S.shots ? `${(S.hits / S.shots * 100).toFixed(1)}%` : '-', 4), val('가장 먼 명중', S.far ? `${Math.round(S.far)}m` : '-'),
+      val('받은 피해', String(Math.round(S.dmg || 0))), val('이동 거리', dist >= 1000 ? `${(dist / 1000).toFixed(1)}km` : `${Math.round(dist)}m`), val('성장', `LV. ${I.lv}`),
+      { btn: 'restart', key: kG, label: '새로 시작' }, { btn: 'title', key: kT, label: '첫 화면으로' });
+    return L;
   },
-  len: (l) => l.btn ? CLR_BTN_N : l.parts.reduce((n, [t]) => n + [...t].length, 0),
+  len: (l) => l.btn ? CLR_BTN_N : l.parts.reduce((n, [t]) => n + [...t].length, 0) + (l.tally || 0),
   total() { return this.lines().reduce((n, l) => n + this.len(l), 0); },
+  // 킬마크: 네 개는 세로 막대(9칸)를 왼쪽으로 조금 기울여 (위가 2칸 왼쪽) 3칸 간격, 다섯 번째는 네 개를 반대 방향으로 가로지르는 사선. 묶음 사이 6칸
+  tally(ui, x, y, n, col) {
+    for (let i = 0; i < n; i++) {
+      const g = Math.floor(i / 5), j = i % 5, gx = x + g * 18;
+      if (j < 4) { const mx = gx + j * 3; for (let r = 0; r < 9; r++) ui.fill(mx + Math.round(r * 2 / 8), y + r, 1, 1, col); }
+      else for (let s = 0; s <= 13; s++) ui.fill(gx - 1 + s, y + 7 - Math.round(s * 5 / 13), 1, 1, col);   // 왼쪽 아래 → 오른쪽 위
+    }
+  },
   draw(ui) {
     let left = Math.floor(Math.max(0, this.t) * MIS.typeSpeed), y = CLR_M, first = true;   // 지금까지 나타난 글자 수
     for (const l of this.lines()) {
@@ -9545,17 +9737,19 @@ const clearUI = {
         if (first) { y += 6; first = false; }   // 항목과 버튼 사이
         if (left >= CLR_BTN_N) ui.keyButton(l.btn, CLR_M, y, l.key, l.label, ENDC.clear);
         y += 21 + CLR_BTN_GAP;
-      } else {
-        let x = CLR_M;
-        for (const [t, col] of l.parts) {
-          const part = [...t].slice(0, Math.max(0, left)).join(''); left -= [...t].length;
-          if (!part) break;
-          x = l.big ? ui.textK(part, x, y, 2, col) : ui.text(part, x, y, col);
-        }
-        y += l.big ? 30 : GF_LINE;   // 제목 아래 (창에서와 같은 간격)
+        left -= CLR_BTN_N;
         continue;
       }
-      left -= CLR_BTN_N;
+      y += l.pad || 0;
+      let x = CLR_M;
+      for (const [t, col] of l.parts) {
+        const part = [...t].slice(0, Math.max(0, left)).join(''); left -= [...t].length;
+        if (!part) break;
+        x = l.big ? ui.textK(part, x, y, 2, col) : ui.text(part, x, y, col);
+      }
+      if (l.tally && left > 0) { const n = Math.min(l.tally, left); this.tally(ui, x + 5, y + 1, n, ENDC.clear); }
+      left -= l.tally || 0;
+      y += l.big ? 30 : GF_LINE;   // 제목 아래 (창에서와 같은 간격)
     }
   },
   tick() {
@@ -9659,10 +9853,9 @@ const pauseUI = {
         desc: () => ({ auto: '키보드는 포탑, 게임패드는 차체 방향을 따라갑니다.', hull: '카메라가 늘 차체 뒤에서 따라갑니다.', turret: '카메라가 포탑이 향한 쪽을 따라 돕니다.' })[camMode] },
       { label: '자동 카메라', opts: ONOFF, names: OX, get: () => autoCam, set: setAutoCam,
         desc: () => autoCam ? '마우스로 바꾼 카메라가 2초 뒤 제자리로 돌아갑니다.' : '마우스로 바꾼 카메라 방향·거리를 그대로 둡니다.' },
-      { label: '화면 흔들림', opts: ONOFF, names: OX, get: () => shakeOn, set: setShakeOn, desc: () => '폭발·피격 때 화면이 흔들립니다.' },
       { label: '패드 진동', opts: ONOFF, names: OX, get: () => rumbleOn, set: setRumbleOn, desc: () => '게임패드로 조작할 때 폭발·피격 등에 진동합니다.' },
-      { label: '대미지 숫자', opts: ONOFF, names: OX, get: () => dmgTextOn, set: setDmgTextOn, desc: () => '머리 위에 피해·회복·골드 숫자를 띄웁니다.' },
       { label: 'CRT 표현', opts: ONOFF, names: OX, get: () => crtOn, set: setCrt, desc: () => '오락실 브라운관 모니터처럼 보이게 합니다.' },
+      { label: '아웃포커싱', opts: ONOFF, names: OX, get: () => dofOn, set: setDofOn, desc: () => '탱크는 또렷하게, 앞뒤 멀리는 흐리게 (미니어처 사진처럼). 무거우면 끄세요.' },
       { label: '화면 밝기', gauge: () => brightness - 0.5, set: (v) => setBright(0.5 + v), val: () => `${Math.round(brightness * 100)}%`, desc: () => '어두운 곳이 잘 안 보이면 올립니다.' },
     ];
   },
@@ -9801,7 +9994,7 @@ const confirmUI = {
   yes() { if (this.mode === 'reset') { resetSettings(); uiShow(pauseUI); } else restartGame(true); },
   click(id) { if (id === 'yes') this.yes(); else if (id === 'no') uiShow(pauseUI); },
   draw(ui) {
-    const [title, body] = this.mode === 'reset' ? ['설정을 모두 초기 값으로 되돌릴까요?', '설정 탭의 모든 항목이 처음 값으로 바뀝니다.'] : ['첫 화면으로 돌아갈까요?', '작전 진행 상황이 모두 수포로 돌아갑니다!'];
+    const [title, body] = this.mode === 'reset' ? ['설정을 모두 초기 값으로 되돌릴까요?', '설정 탭의 모든 항목이 처음 값으로 바뀝니다.'] : ['첫 화면으로 돌아갈까요?', '수행 중인 작전이 모두 수포로 돌아갑니다.'];
     const kY = PK('Y', 'A'), kN = PK('N', 'B');
     const b1 = keyButtonW(kY, '예'), b2 = keyButtonW(kN, '아니오'), bgap = 8;
     const pw = Math.max(gfWidth(title) * 2, gfWidth(body), b1 + bgap + b2) + 28, ph = 12 + 22 + 8 + GF_LINE + 6 + 21 + 12;
@@ -10104,19 +10297,18 @@ setPerfHud(perfHudOn);
 // 타이틀 우하단 키 안내 첫 그리기: 한글 글꼴(GF)이 이 파일에 있어서 80_hud.js 로딩 중에는 그릴 수 없다 (const 선언 전). 여기서
 if (document.getElementById('tPress')) { drawTitleKeys(titlePad); layoutTitle(); }
 // ===== src/82_dmgtext.js =====
-// ---------------------------------------------------------------- 대미지 숫자 (정보 창 설정 탭 '대미지 숫자', config damageText)
+// ---------------------------------------------------------------- 대미지 숫자 (config damageText)
 // 맞은 대상 머리 위에서 숫자가 뿅 튀어 오른다 (EaseOutExpo). 오르는 쪽은 화면에서 본 공격 방향의 반대쪽으로 기울고(↗), 각도는 조금씩 제각각.
 // 피해 = 빨강 '14' (bigDamage 이상은 bigScale배 크게), 막힘 = 회색 'NO DAMAGE', 회복 = 초록 '+20', 골드 = 금색 '1G'.
 // 금화·수리 도구는 날아온 쪽을 공격 방향처럼 본다. 픽셀 UI와 같은 배율(1칸 = 게임 화면 1픽셀 × hk)의 따로 된 캔버스에 HUD 글꼴(5x7)로 (블렌딩·그림자는 config)
 const DTC = Object.assign({ enabled: false, blend: 'normal', shadow: 0.3, letterSpacing: 1, bigDamage: 100, bigScale: 2, damageColor: '#ff4a3a', noDamageColor: '#9c9c9c', healColor: '#4ad86a', goldColor: '#ffd040',
   noDamageText: 'NO DAMAGE', height: 3.2, rise: 26, moveTime: 0.6, time: 1.0, push: 0.55, spread: 18 }, CFG.damageText);
-let dmgTextOn = loadOpt('dmgText', !!DTC.enabled), dmgFromP = null;   // (설정에서 바꾸면 기억한다. 처음엔 config)   // dmgFromP: 다음 대미지의 공격 위치 (폭발 자리·벙커 총구처럼 쏜 탱크 자리가 아닐 때 부르는 쪽이 넣는다)
+let dmgTextOn = !!DTC.enabled, dmgFromP = null;   // (켜고 끄기는 config만: 설정 탭에서 뺐다)   // dmgFromP: 다음 대미지의 공격 위치 (폭발 자리·벙커 총구처럼 쏜 탱크 자리가 아닐 때 부르는 쪽이 넣는다)
 const dmgCv = document.createElement('canvas'), dmgG = cv2d(dmgCv);
 dmgCv.id = 'pdmg'; Object.assign(dmgCv.style, { position: 'fixed', pointerEvents: 'none', zIndex: 3,   /* HUD(2) 위, 픽셀 UI·창(5) 아래 */ imageRendering: 'pixelated', mixBlendMode: DTC.blend });
 document.body.appendChild(dmgCv);
 const dmgTexts = [];
 const _dtA = new THREE.Vector3(), _dtB = new THREE.Vector3();
-function setDmgTextOn(v) { dmgTextOn = v; saveOpt('dmgText', v); if (!v) dmgTexts.length = 0; }   // (정보 창 설정 탭 '대미지 숫자')
 // 숫자 하나 띄우기. at = 머리 위 기준점 (월드), from = 공격한 자리 (월드, 없으면 바로 위로)
 function dmgText(at, text, color, from = null, scale = 1) {   // scale: 글자 배율
   if (!dmgTextOn || clearSeq) return null;   // (임무 완료 화면에서는 띄우지 않는다)
@@ -10650,6 +10842,7 @@ function tick(dt) {
     if (tank.solid && !clearSeq) physStep(PHYS_H, thr, turn);   // (임무 완료: 내 탱크는 52_clear.js가 세운다)
     for (const E of ENEMIES) if (E.solid) physStep(PHYS_H, E.thr, E.turn, E);
   }
+  if (tank.solid && titleState === 'play' && !clearSeq) runStats.dist += Math.hypot(tank.vel.x, tank.vel.z) * dt;   // 이동 거리 (임무 완료 기록)
   // 충돌 공격: 10km/h(설정) 이상으로 적 탱크나 보급품에 부딪히면 대미지 (같은 대상은 0.6초에 한 번)
   if (tank.touch && tank.touch.size) {
     if (tank.ram && spd0 * 3.6 >= ramSpeed())
@@ -10841,6 +11034,7 @@ function suspend() {
   renderer.setAnimationLoop(null);
 }
 function resume() {
+  suspendAfterFrame = false;   // 포커스 없이 로딩이 끝나 '첫 화면 뒤 멈춤'을 예약했어도, 그 첫 화면이 그려지기 전에 돌아왔으면 취소 (돌아온 뒤 첫 화면에서 멈춰 버리던 문제)
   if (!suspended) return;
   suspended = false;
   const away = performance.now() - suspendT;   // 실제 시각으로 재던 연출은 멈춰 있던 만큼 미룬다
@@ -10959,7 +11153,7 @@ function frame() {
     statsEl.textContent = `${Math.round(frames / acc)} fps · ${rt.width}x${rt.height} · 광원 ${lightCount} · draw ${calls} · tri ${(tris / 1000).toFixed(0)}k`;
     frames = 0; acc = 0;
   }
-  if (suspendAfterFrame) { suspendAfterFrame = false; suspend(); }
+  if (suspendAfterFrame) { suspendAfterFrame = false; if (!document.hasFocus() || document.hidden) suspend(); }   // 지금도 포커스가 없을 때만
 }
 renderer.setAnimationLoop(frame);
 if (!document.hasFocus()) suspendAfterFrame = true;   // 포커스 없이 열렸으면: 로딩·첫 화면까지는 그리고 정지

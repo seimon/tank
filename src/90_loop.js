@@ -36,6 +36,7 @@ function tick(dt) {
     if (tank.solid && !clearSeq) physStep(PHYS_H, thr, turn);   // (임무 완료: 내 탱크는 52_clear.js가 세운다)
     for (const E of ENEMIES) if (E.solid) physStep(PHYS_H, E.thr, E.turn, E);
   }
+  if (tank.solid && titleState === 'play' && !clearSeq) runStats.dist += Math.hypot(tank.vel.x, tank.vel.z) * dt;   // 이동 거리 (임무 완료 기록)
   // 충돌 공격: 10km/h(설정) 이상으로 적 탱크나 보급품에 부딪히면 대미지 (같은 대상은 0.6초에 한 번)
   if (tank.touch && tank.touch.size) {
     if (tank.ram && spd0 * 3.6 >= ramSpeed())
@@ -227,6 +228,7 @@ function suspend() {
   renderer.setAnimationLoop(null);
 }
 function resume() {
+  suspendAfterFrame = false;   // 포커스 없이 로딩이 끝나 '첫 화면 뒤 멈춤'을 예약했어도, 그 첫 화면이 그려지기 전에 돌아왔으면 취소 (돌아온 뒤 첫 화면에서 멈춰 버리던 문제)
   if (!suspended) return;
   suspended = false;
   const away = performance.now() - suspendT;   // 실제 시각으로 재던 연출은 멈춰 있던 만큼 미룬다
@@ -345,7 +347,7 @@ function frame() {
     statsEl.textContent = `${Math.round(frames / acc)} fps · ${rt.width}x${rt.height} · 광원 ${lightCount} · draw ${calls} · tri ${(tris / 1000).toFixed(0)}k`;
     frames = 0; acc = 0;
   }
-  if (suspendAfterFrame) { suspendAfterFrame = false; suspend(); }
+  if (suspendAfterFrame) { suspendAfterFrame = false; if (!document.hasFocus() || document.hidden) suspend(); }   // 지금도 포커스가 없을 때만
 }
 renderer.setAnimationLoop(frame);
 if (!document.hasFocus()) suspendAfterFrame = true;   // 포커스 없이 열렸으면: 로딩·첫 화면까지는 그리고 정지

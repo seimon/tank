@@ -249,10 +249,15 @@ function vfReset() {   // 안개를 끄면 유체를 비운다 (지우는 색은
   renderer.setRenderTarget(null); renderer.setClearColor(c, al);
 }
 const _vfM = new THREE.Matrix4();
+// 아웃포커싱 (config screen.dof, 설정 탭): 초점(카메라 → 내 탱크 거리)에서 range m 밖으로 멀어질수록(앞·뒤 모두) 주변을 섞어 흐리게 (틸트시프트 미니어처 느낌).
+// 세기는 타이틀·플레이·임무 완료마다 따로, 15비트 색·디더링 전에 섞는다. 모바일(터치) 기기는 처음 값을 끈다
+const DOF = Object.assign({ enabled: true, mobile: false, title: 1, play: 0.35, clear: 1, range: 3, fall: 18, px: 2.5 }, CFG.screen?.dof);
+const IS_MOBILE = matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 1 && /Mac|iPad|iPhone|Android/.test(navigator.userAgent);
+let dofOn = loadOpt('dof', !!DOF.enabled && (DOF.mobile || !IS_MOBILE));
 const postMat = new THREE.ShaderMaterial({
   uniforms: { tDrop: { value: LDROP_TEX }, uDrop: { value: 0 }, uDropR: { value: 0.035 * (LD.refract ?? 1) }, tDiffuse: { value: rt.texture }, tCut: { value: cutRT.texture }, tCutD: { value: cutRT.depthTexture }, uCut: { value: 0 }, uFlash: { value: 0 }, tDepth: { value: rt.depthTexture }, tOL: { value: olRT.depthTexture },
     uOL: { value: 0 }, uNear: { value: camera.near }, uFar: { value: camera.far }, uTexel: { value: new THREE.Vector2(1, 1) },
-    uFogN: FOGN, uFogF: FOGF, uFogC: { value: FOG },
+    uFogN: FOGN, uFogF: FOGF, uFogC: { value: FOG }, uDof: { value: 0 }, uFocus: { value: 20 }, uFocusR: { value: DOF.range }, uFocusF: { value: DOF.fall }, uDofPx: { value: DOF.px },
     uGrad: { value: 0 }, uGradA: { value: 0.6 }, uGradB: { value: 0.9 }, uGradC: { value: new THREE.Color(1, 1, 1) },
     uGray: { value: 0 }, uGrayA: { value: hexV3(POP.dark) }, uGrayB: { value: hexV3(POP.light) }, uBright: { value: 1 },
     tHgt: { value: null }, tClr: { value: null }, uVFWarp: { value: VF.flowWarp }, uCamP: { value: new THREE.Vector3() }, uVFMarch: { value: VF.march }, uInvPV: { value: new THREE.Matrix4() }, uVF: { value: 0 }, uVFTop: { value: VF.height }, uVFCell: { value: VF.cell }, uVFDen: { value: VF.density },
@@ -260,6 +265,7 @@ const postMat = new THREE.ShaderMaterial({
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
   fragmentShader: `
     uniform sampler2D tHgt, tClr; uniform vec3 uCamP; uniform float uVFMarch, uVFWarp; uniform mat4 uInvPV; uniform float uVF, uVFTop, uVFCell, uVFDen, uVFScale, uVFT, uVFSteps; uniform vec3 uVFC;
+    uniform float uDof, uFocus, uFocusR, uFocusF, uDofPx;
     uniform sampler2D tDiffuse, tDepth, tOL, tCut, tCutD, tDrop; uniform float uCut, uDrop, uDropR, uFlash, uOL, uNear, uFar, uFogN, uFogF, uGrad, uGradA, uGradB, uGray, uBright; uniform vec2 uTexel; uniform vec3 uFogC, uGradC, uGrayA, uGrayB; varying vec2 vUv;
     float lin(float d) { return uNear * uFar / (uFar - d * (uFar - uNear)); }   // 깊이 버퍼 값 → 카메라에서 거리
     float bayer2(vec2 a) { a = floor(a); return fract(dot(a, vec2(0.5, a.y * 0.75))); }
@@ -279,6 +285,19 @@ const postMat = new THREE.ShaderMaterial({
       vec2 uvR = vUv; float dA = 0.0;
       if (uDrop > 0.0) { vec4 dr = texture2D(tDrop, vUv); dA = dr.a; uvR = clamp(vUv + (dr.rg - 0.5) * 2.0 * uDropR * dA, 0.0, 1.0); }   // 화면에 맺힌 빗방울: 그만큼 어긋나게 읽는다 (22_weather.js)
       vec3 lc = cut ? texture2D(tCut, uvR).rgb : texture2D(tDiffuse, uvR).rgb;
+      if (uDof > 0.0) {   // 아웃포커싱: 초점에서 먼 만큼(coc) 둘레 8곳을 섞는다. 흐린 이웃일수록 많이 (또렷한 물체가 흐린 배경으로 번지지 않게)
+        float coc = clamp((abs(lin(scD(uvR, cut)) - uFocus) - uFocusR) / uFocusF, 0.0, 1.0) * uDof;
+        if (coc > 0.02) {
+          vec3 acc = lc; float ws = 1.0;
+          for (int i = 0; i < 8; i++) {
+            float a = float(i) * 0.785398 + 0.39;
+            vec2 q = clamp(uvR + vec2(cos(a), sin(a)) * uTexel * uDofPx * coc * (i % 2 == 0 ? 1.0 : 0.55), 0.0, 1.0);
+            float w = 0.2 + clamp((abs(lin(scD(q, cut)) - uFocus) - uFocusR) / uFocusF, 0.0, 1.0);
+            acc += (cut ? texture2D(tCut, q).rgb : texture2D(tDiffuse, q).rgb) * w; ws += w;
+          }
+          lc = acc / ws;
+        }
+      }
       if (dA > 0.0) { float b = texture2D(tDrop, vUv).b, db = (b - 0.5) * 2.0; lc = b > 0.99 ? mix(lc, vec3(0.75), dA) : lc * (1.0 + db * 0.6 * dA) + max(db - 0.2, 0.0) * 0.1 * dA; }   // 방울 밝기 (b): 둘레 어둡게, 초승달 밝게, 1 = 반짝 점(단색)
       if (uOL > 0.5) {
         // 외곽선: 물체 픽셀인데 이웃 중 훨씬 먼 곳(배경·뒤의 물체)이 있으면 1픽셀 선. 풀·땅에 가려진 곳은 빼고
@@ -326,6 +345,9 @@ postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), postMat));
 postMat.uniforms.uVFC.value.convertSRGBToLinear();   // 장면 색(선형)에 섞는다
 postMat.onBeforeRender = () => {   // 복셀 안개: 화면 → 월드 행렬, 흐르는 시간(게임 시간: 멈추면 같이 멈춘다)
   const u = postMat.uniforms;
+  // 아웃포커싱 세기: 타이틀 → 플레이(titleK) → 임무 완료(clearSeq.k)로 섞는다. 초점은 내 탱크까지 거리
+  u.uDof.value = dofOn ? lerp(lerp(DOF.title, DOF.play, titleK), DOF.clear, clearSeq ? clearSeq.k : 0) : 0;
+  if (u.uDof.value > 0) u.uFocus.value = camera.position.distanceTo(_dofT.copy(tank.pos).setY(tank.pos.y + 0.6));
   u.uVF.value = vfOn ? titleK : 0;   // 타이틀에서는 안 보이고 플레이로 넘어가며 나타난다
   if (!vfOn) return;
   camera.updateMatrixWorld();
@@ -355,7 +377,10 @@ upScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), upMat));
 
 // 화면 환경 두 벌: 타이틀(밝은 낮, 가까운 흰 안개, 위쪽 흰 그라데이션)과 플레이(밤. 설정 메뉴 값). titleK로 섞는다 (0 = 타이틀, 1 = 플레이)
 const TT = CFG.title || {};
-const ENV_PLAY = { fog: new THREE.Color(MAP0.fogColor), near: 0, far: 2 / MAP0.fog, moon: MAP0.moon, moonC: new THREE.Color(MAP0.moonColor),
+const BG_DARK = CFG.map.bgDark ?? 0.25;   // 맵 셋팅에 bgColor가 없을 때 하늘을 안개색보다 이만큼 어둡게
+const _bgT = {}, bgDarken = (c) => { c.getRGB(_bgT, THREE.SRGBColorSpace); return c.setRGB(_bgT.r * (1 - BG_DARK), _bgT.g * (1 - BG_DARK), _bgT.b * (1 - BG_DARK), THREE.SRGBColorSpace); };   // (보이는 밝기로 어둡게)
+const bgOf = (p, out) => p.bgColor ? out.set(p.bgColor) : bgDarken(out.set(p.fogColor ?? '#000000'));   // 그 셋팅의 하늘색
+const ENV_PLAY = { bg: new THREE.Color(), bgAuto: !MAP0.bgColor, fog: new THREE.Color(MAP0.fogColor), near: 0, far: 2 / MAP0.fog, moon: MAP0.moon, moonC: new THREE.Color(MAP0.moonColor),
   sky: MAP0.sky, skyC: new THREE.Color(MAP0.skyColor), gndC: new THREE.Color(MAP0.groundColor), grad: 0 };
 const ENV_TITLE = { fog: new THREE.Color(TT.fogColor ?? '#ffffff'), near: TT.fogNear ?? 20, far: TT.fogFar ?? 60, moon: TT.moon ?? 2.6, moonC: new THREE.Color(TT.moonColor ?? '#fff2dc'),
   sky: TT.sky ?? 2.2, skyC: new THREE.Color(TT.skyColor ?? '#eef2f8'), gndC: new THREE.Color(TT.groundColor ?? '#8a7a62'), grad: TT.gradient?.strength ?? 1 };
@@ -367,6 +392,8 @@ try { if (sessionStorage.getItem('MightyMolly.skipTitle')) { sessionStorage.remo
 function applyEnv() {
   const A = ENV_TITLE, B = ENV_PLAY, k = titleK;
   FOG.lerpColors(A.fog, B.fog, k); scene.fog.color.copy(FOG);
+  if (B.bgAuto) bgDarken(B.bg.copy(B.fog));   // (bgColor 없는 셋팅: 안개색 슬라이더를 따라간다)
+  SKY.lerpColors(A.fog, B.bg, k);   // 하늘: 타이틀은 타이틀 안개색 그대로
   scene.fog.near = FOGN.value = lerp(A.near, B.near, k); scene.fog.far = FOGF.value = lerp(A.far, B.far, k);
   moon.intensity = lerp(A.moon, B.moon, k); moon.color.lerpColors(A.moonC, B.moonC, k);
   hemi.intensity = lerp(A.sky, B.sky, k); hemi.color.lerpColors(A.skyC, B.skyC, k); hemi.groundColor.lerpColors(A.gndC, B.gndC, k);
@@ -377,6 +404,7 @@ function applyEnv() {
     hemi.intensity = lerp(hemi.intensity, A.sky, c); hemi.color.lerp(A.skyC, c); hemi.groundColor.lerp(A.gndC, c);
   }
 }
+bgOf(MAP0, ENV_PLAY.bg);
 applyEnv();
 
 let resMax = false;   // 해상도 '최대': 화면 픽셀 그대로
@@ -417,7 +445,7 @@ function layoutTitle() {
   // 아래 요소들은 오른쪽 아래로 1칸 그림자가 있다: 여백 10칸은 그림자를 빼고 잰다
   // 맨 아래 위장색·데칼·설정 안내, 그 위에 게임 시작 (줄 간격 15칸)
   const camoH = el('tCamo') && el('tCamo')._src ? (put('tCamo', 'right', 'bottom', -u, -u), el('tCamo')._src.height * u + 2 * u) : 0;   // 한글 줄 높이 15칸에 맞춰 (안내 4줄이 한 목록처럼)
-  const bw = put('tBadge', 'left', 'bottom', 0, -u), pw = put('tPress', 'right', 'bottom', -u, -u + camoH);
+  const bw = put('tBadge', 'left', 'bottom', 0, -u), pw = put('tPress', 'right', 'bottom', -u, -u + camoH + 3 * u);   // (시작 버튼과 아래 안내 사이 3칸 더)
   const vw = el('tVer')._src.width * u, vx = bw + 6 * u;
   if (m + vx + vw + 10 * u + pw + m <= VR.w) put('tVer', 'left', 'bottom', vx, -u);
   else put('tVer', 'left', 'bottom', 0, el('tBadge')._src.height * u + 4 * u - u);
@@ -756,7 +784,7 @@ function applyMapPreset(i) {
   mapIdx = (i + MAP_PRESETS.length) % MAP_PRESETS.length;
   const p = MAP_PRESETS[mapIdx];
   for (const [id, v] of [['wind', p.wind], ['windDir', p.windDir], ['debris', p.debris], ['fog', p.fog], ['fogC', p.fogColor], ['moonI', p.moon], ['moonC', p.moonColor]]) setInput(id, v);
-  ENV_PLAY.sky = p.sky; ENV_PLAY.skyC.set(p.skyColor); ENV_PLAY.gndC.set(p.groundColor); applyEnv();
+  ENV_PLAY.sky = p.sky; ENV_PLAY.skyC.set(p.skyColor); ENV_PLAY.gndC.set(p.groundColor); ENV_PLAY.bgAuto = !p.bgColor; bgOf(p, ENV_PLAY.bg); applyEnv();
   setWeather(p);
   for (const [id, v] of [['rainA', p.rain], ['sandA', p.sand], ['boltA', p.lightning]]) setInput(id, v);
   document.getElementById('sandC').value = p.sandColor ?? '#c8a070';
@@ -781,7 +809,8 @@ function stormTick(dt) {
   let wd = (B.windDir ?? 0) - (A.windDir ?? 0); wd = ((wd % 360) + 540) % 360 - 180;   // 바람 방향은 가까운 쪽으로 돈다
   for (const [id, v] of [['wind', L('wind')], ['windDir', Math.round((A.windDir ?? 0) + wd * e)], ['debris', L('debris')], ['fog', L('fog')], ['fogC', mixHex(A.fogColor, B.fogColor, e)],
     ['moonI', L('moon')], ['moonC', mixHex(A.moonColor, B.moonColor, e)]]) setInput(id, v);
-  ENV_PLAY.sky = L('sky'); ENV_PLAY.skyC.set(mixHex(A.skyColor, B.skyColor, e)); ENV_PLAY.gndC.set(mixHex(A.groundColor, B.groundColor, e)); applyEnv();
+  ENV_PLAY.sky = L('sky'); ENV_PLAY.skyC.set(mixHex(A.skyColor, B.skyColor, e)); ENV_PLAY.gndC.set(mixHex(A.groundColor, B.groundColor, e));
+  ENV_PLAY.bgAuto = false; bgOf(A, ENV_PLAY.bg).lerp(bgOf(B, _sc1), e); applyEnv();   // 하늘색도 두 셋팅 사이로
   WEATHER.rain = L('rain'); WEATHER.sand = L('sand'); WEATHER.lightning = L('lightning');
   rainFx.u.uColor.value.set(mixHex(A.rainColor ?? '#a8b8d0', B.rainColor ?? '#a8b8d0', e)).multiplyScalar(CFG.map.rainBright ?? 0.7);
   WEATHER.sandCol.set(mixHex(A.sandColor ?? '#c8a070', B.sandColor ?? '#c8a070', e));
@@ -825,16 +854,18 @@ function setVolume(v) {
 setVolume(volNow);
 // 켜기/끄기 설정 (일시정지 창 '설정' 탭): 기억해 두었다가 다시 쓴다
 const saveOpt = (k, v) => { try { localStorage.setItem('MightyMolly.' + k, v ? '1' : '0'); } catch (_) {} };
-let autoCam = loadOpt('autoCam', true), shakeOn = loadOpt('shake', true), rumbleOn = loadOpt('rumble', true);
+let autoCam = loadOpt('autoCam', true), shakeOn = true,   // (화면 흔들림은 늘 켬: 설정 탭에서 뺐다)
+    rumbleOn = loadOpt('rumble', true);
 const setAutoCam = (v) => { autoCam = v; saveOpt('autoCam', v); if (!v) { camBackAt = 0; camRet = null; } };
-const setShakeOn = (v) => { shakeOn = v; saveOpt('shake', v); };
+const _dofT = new THREE.Vector3();
+const setDofOn = (v) => { dofOn = v; saveOpt('dof', v); pausedDrawn = false; pauseScene = false; };
 const setRumbleOn = (v) => { rumbleOn = v; saveOpt('rumble', v); if (v) padRumbleNow(0.5, 0.7, 160); };   // 켜면 한 번 울려서 되는지 알 수 있게
 // 화면 밝기 (0.5~1.5, 1 = 그대로): 후처리에서 감마로 (어두운 곳이 밝아진다)
 let brightness = 1;
 try { const b = parseFloat(localStorage.getItem('MightyMolly.bright')); if (b >= 0.5 && b <= 1.5) brightness = b; } catch (_) {}
 // 설정 탭 모두 초기 값으로 (일시정지 → 설정 → [R], 확인 창에서 예)
 function resetSettings() {
-  setVolume(0.5); setCamMode('auto'); setAutoCam(true); setShakeOn(true); setRumbleOn(true); setDmgTextOn(!!DTC.enabled); setBright(1);
+  setVolume(0.5); setCamMode('auto'); setAutoCam(true); setRumbleOn(true); setBright(1); setDofOn(!!DOF.enabled && (DOF.mobile || !IS_MOBILE));
   if (crtOn !== !!CRT.enabled) setCrt(!!CRT.enabled);
 }
 function setBright(b) { brightness = Math.max(0.5, Math.min(1.5, Math.round(b * 20) / 20)); postMat.uniforms.uBright.value = brightness; try { localStorage.setItem('MightyMolly.bright', String(brightness)); } catch (_) {} }

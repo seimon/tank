@@ -23,6 +23,7 @@ CHANGELOG.md        ← 버전별 변경 기록 (버전을 올릴 때마다 한 
 decals.js           ← 데칼 셋 (window.DECAL_SETS): 포탑 좌우 그림 묶음. 데칼 편집 모드에서 C로 복사해 덮어쓴다
 title_images.js     ← 자동 생성 (images/*.png를 build.py가 data URL로 담음: file://에서 CRT로 올릴 수 있게). 직접 고치지 말 것
 decal_images.js     ← 자동 생성 (images/decals/*.png를 build.py가 data URL로 담음). 직접 고치지 말 것
+supply_images.js    ← 자동 생성 (images/supply/*.png = 보급품 면 그림, 흰색 + 알파). 직접 고치지 말 것
 map.js              ← 지도 데이터 (window.MAP_DATA): 나무 상자·탱크 잔해·벙커 자리. 맵 편집 모드에서 R로 복사해 덮어쓴다
 src/template.html   ← head·CSS·HTML·설정 메뉴. VERSION/BUILD 여기. @GAME 자리에 게임 코드가 들어간다
 src/00_core.js      ← 도트 글꼴(5x7 HUD 글꼴), 2D 늘리기(sharpDraw/sharpBlit), 디더 지우기, 로딩 화면, 기본 설정
@@ -48,7 +49,7 @@ src/86_decal_editor.js ← 데칼 편집 모드 (설정 메뉴 버튼, 타이틀
 src/90_loop.js      ← tick, 로딩 퇴장, 일시정지·정지, 메인 루프(frame), 디버그 dbg
 tools/build.py      ← src/*.js를 이름 순서대로 이어 붙여 index.html 생성 (--watch 지원). images/decals/*.png → decal_images.js도
 fonts/galmuri11c.js ← 갈무리11 장체 비트맵 데이터 (OFL, fonts/LICENSE.txt). fonts/bdf2js.py로 BDF에서 변환
-images/             ← 타이틀 도트 PNG (사용자가 직접 그림). images/decals/ = 데칼 그림 (32x32, 투명 배경)
+images/             ← 타이틀 도트 PNG (사용자가 직접 그림). images/decals/ = 데칼 그림 (32x32, 투명 배경). images/supply/ = 보급품 면 그림 (흰색 + 알파, 면 하나 = 한 장, 색은 코드)
 _mockups/           ← 사용자에게 보여 준 시안 그림 (배포 파일과 구분하려고 _ 접두어)
 _promo/             ← 소개용 스크린샷·문구 (배포 안 함)
 ```
@@ -89,6 +90,12 @@ _promo/             ← 소개용 스크린샷·문구 (배포 안 함)
 - 바람 센 날 전봇대: 바람이 `map.poleWind.from` 이상이면 `windPoles`(11_props.js, updateWires 앞)가 전봇대를 바람 쪽으로 돌풍처럼 밀고(위치마다 시차), 전봇대 고유 진동(약 0.9Hz, `POLE_SW` 전봇대마다 빠르기·위상 다름) 근처로 밀고 당겨 바람 부는 동안 계속 흔들리게 하며(`poleWind.sway`), 전깃줄도 출렁이게 한다. 전봇대 스프링은 들이받을 때와 같은 `poleTilt`/`updatePoles`.
 - 폭풍우 전환: 남은 적(`enemyLeft()`)이 config `map.stormAt` 이하가 되면 `stormTick`(40_input_post.js, tick에서)이 `map.stormPreset` 셋팅으로 `stormTime`초에 걸쳐 섞어 바꾸고, 끝나면 `applyMapPreset`. 한 판에 한 번.
 
+## 원경·아웃포커싱·보급품 반사
+- 원경 (10_world.js, config `map.backdrop`): 보드 밖 먼 거리를 두른 산 실루엣 한 겹 (`BACKDROP`, ShaderMaterial. 아래 끝은 팔각형 바닥으로 막은 그릇 모양). 빛·안개를 받지 않고 지금 안개색(`FOG`) 그대로 (안개에 묻힌 먼 땅과 이어지게). 하늘(배경)은 따로 `SKY`: 맵 셋팅 `bgColor`, 없으면 안개색을 `map.bgDark`만큼(sRGB) 어둡게 (`bgOf`/`applyEnv`, 타이틀은 타이틀 안개색). 능선 고저차는 `relief`(큰 굴곡)·`jag`(잔 굴곡) 배율. 레이어 0이라 임무 완료 화면에는 안 보인다.
+- 아웃포커싱 (40_input_post.js, config `screen.dof`, 설정 탭 '아웃포커싱'): 후처리에서 초점(카메라 → 내 탱크 거리)에서 `range` m 밖으로 멀어질수록 둘레 8곳을 섞는다 (15비트 색·디더 전). 세기는 `title`·`play`·`clear`를 `titleK`·`clearSeq.k`로 섞음. 모바일(`IS_MOBILE`: pointer coarse 또는 터치 되는 Mac/iPad/iPhone/Android)은 `mobile: false`면 처음 값이 꺼짐. 켜고 끄기 `dofOn`/`setDofOn`.
+- 보급품: 그림 판 재질은 `MeshPhongMaterial` (`SUPPLY_SHINE`, specularMap = 그림 알파). `rivetMat(o, Mat)`는 재질 종류를 받는다.
+- 보급품 면 그림은 `images/supply/*.png` (흰색 + 알파, PNG 하나 = 면 하나 전체): `supplyAtlas`가 그림 크기(`pngSize`, PNG 머리에서 바로)대로 칸을 이어 붙인 한 장에 바탕(`paintPlate` 철판·`repairBase` 회색)을 칠하고 그림을 강조색으로 알파만큼 섞는다 (`drawTinted`). 반사 지도도 알파만큼 (8비트). 골드 보급품은 몸통·윗 테를 한 메시(`quad`/`sides`)로 만들어 면에 바로 입히고 앞면 다이얼만 따로 얹는다 (면 위에 판을 겹치면 멀리서 깊이가 겹쳐 깜빡인다), 수리 보급품은 깎은 상자 UV를 칸에 맞춘다.
+
 ## HUD 나침반 (80_hud.js, config `hud.compass`)
 - 상단 가운데 호 + 바깥에 카메라 방향 기준 N·E·W·S, 사이 점(호에서 1칸 바깥). 카메라 앞 `range`도 안의 각도를 보이는 호 길이에 같은 비율로 모은다. 화면에서 보이는 대로라 동 = -x (+z가 북일 때). 글자·표시는 좌우 끝에서 잘리지 않게 다 들어갈 때만 그린다.
 - 호 안쪽에 늘 (정찰 성장 없음): 탱크·자주포 3x3 · 지프 2x2 · 벙커 4x4 그림(`BUNKER_ICON`). HUD 캔버스는 화면 폭만큼, 다시 그리기는 `compassState().key`가 바뀔 때만. 나침반 칸은 `hudRight`(성장 선택지 자리)에 넣지 않는다.
@@ -97,7 +104,7 @@ _promo/             ← 소개용 스크린샷·문구 (배포 안 함)
 - 바퀴 바깥면 무늬(20_objects.js `wheelTex`, 스포크 6개): 탱크마다 원판 10개를 한 메시 `wheelFace`로 합치고(궤도 쪽, 몸통과 따로), 셰이더가 궤도가 굴러간 거리 ÷ 반지름만큼 텍스처를 돌린다(`aWheel` = 쪽·반지름·중심, uniform `uWheelRot` = dL·dR, 재질 `userData.uRot`, 적은 재질을 복제해 따로 `P.wheelRot`). 회색 명암 × 바퀴 색(`WHEEL_TEX_K`). 바퀴 원기둥 둥근 면은 `wheelSideTex`로 가운데를 어둡게. `ps1()`의 extra는 `this` = 재질로 불린다.
 - 위장색은 내 탱크만 (`20_objects.js`, config `camo`). 단색은 재질 색, 무늬는 탱크 기준 좌표를 정점에 구운 `aCamo`로 그린다 (셰이더 하나, `CAMO_U`로 바꿈). 타이틀에서 Q/E, 고른 것은 `localStorage['MightyMolly.camoName']`(이름).
 - 적군 섬멸(`endState === 'clear'`)이면 결과 값을 잠근다(`rulesLocked`, 70_enemies.js): 대미지(`damageTank`·`damageBunker`)·골드(`goldGain`)·성장 선택지는 바뀌지 않고, 남은 지프는 AI를 끈다(`enemyAiOff`). 값이 바뀌는 새 코드를 만들면 `rulesLocked()`를 확인할 것. `worldFrozen`(월드 시간 정지)은 일시정지(ESC)에만 쓴다.
-- **임무 완료 화면** (`52_clear.js`, config `clear`, 상태 `clearSeq`는 40_input_post.js): `showEnd('clear')` → `clearBegin()`. 카메라는 타이틀 → 플레이와 같은 식으로 임무 완료 카메라로 넘어가고(`clearUpdate`, 탱크를 화면 오른쪽으로 미는 건 `camera.setViewOffset`), 조명은 타이틀 조명 쪽으로(`applyEnv`가 `clearSeq.k`로 섞음), 포탑은 카메라 쪽 포즈, 차체는 같은 시간에 똑바로 세운다(방향은 그대로, 내 탱크 물리는 끔). 날씨(비·모래·소리)도 같은 시간에 서서히 끈다(`updateWeather`의 `wk`). 배경 지우기: 내 탱크만 `cutRT`에 따로 그리고(`clearRenderCut`, 카메라 레이어 3 = 탱크·바닥 `clrFloor`, 배경 단색) 후처리(`uCut`)가 아래에서 위로 4x4 디더링으로 그쪽으로 바꾼다 (외곽선도 cutRT 깊이로). **물체를 숨겨서 거르면 안 된다**: 그 안의 광원이 빠져 광원 수가 바뀌면 탱크 재질을 모두 다시 컴파일해 멈칫한다 (그래서 광원은 모두 레이어 3에도 넣는다). 바닥은 배경색 평면에 그림자·뒷등 빛·포구 섬광(`uFl`, 흉내)만 (빛을 받지 않음). 섬광 빛에는 차체 그림자: 섬광 → 바닥 점 선이 차체 높이 여섯 곳에서 차체 바닥 사각형(`uTk`·`uTkS`)을 지나면 그늘 (멀수록 넓어진다. 화면 한 픽셀 안 네 점을 평균해 경계 계단을 줄인다). 다 지우면(`clearHold()`) 장면은 그리지 않고 tick은 `clearTick`만: 탱크 포즈·대포(`firstShot`·`shotEvery`, `b.clearShot`: 아무것에도 맞지 않고 0.8초 뒤 사라짐, 먼지는 바닥 평면 높이에서)·파티클·포구 섬광·바닥 그림자 (그때 남은 파티클·포탄은 지운다). 번개·날씨 소리·대미지 숫자도 끈다. 글자는 창 틀 없이 좌상단 `clearUI` (81_ui.js, 작전 정보처럼 한 글자씩. `win: true`는 그대로라 조작 막힘·G/T 키·HUD 끔은 창과 같다).
+- **임무 완료 화면** (`52_clear.js`, config `clear`, 상태 `clearSeq`는 40_input_post.js): `showEnd('clear')` → `clearBegin()`. 카메라는 타이틀 → 플레이와 같은 식으로 임무 완료 카메라로 넘어가고(`clearUpdate`, 탱크를 화면 오른쪽으로 미는 건 `camera.setViewOffset`), 조명은 타이틀 조명 쪽으로(`applyEnv`가 `clearSeq.k`로 섞음), 포탑은 카메라 쪽 포즈(EaseInOutCubic, `S.pose`), 굴뚝 연기는 타이틀처럼 짙게(`exhaust`, clearTick에서도), 차체는 같은 시간에 똑바로 세운다(방향은 그대로, 내 탱크 물리는 끔). 날씨(비·모래·소리)도 같은 시간에 서서히 끈다(`updateWeather`의 `wk`). 배경 지우기: 내 탱크만 `cutRT`에 따로 그리고(`clearRenderCut`, 카메라 레이어 3 = 탱크·바닥 `clrFloor`, 배경 단색) 후처리(`uCut`)가 아래에서 위로 4x4 디더링으로 그쪽으로 바꾼다 (외곽선도 cutRT 깊이로). **물체를 숨겨서 거르면 안 된다**: 그 안의 광원이 빠져 광원 수가 바뀌면 탱크 재질을 모두 다시 컴파일해 멈칫한다 (그래서 광원은 모두 레이어 3에도 넣는다). 바닥은 배경색 평면에 그림자·뒷등 빛·포구 섬광(`uFl`, 흉내)만 (빛을 받지 않음. 그림자·뒷등은 내 탱크 것만: `clearRenderCut`이 그리는 동안만 다른 것을 끈다). 섬광 빛에는 차체 그림자: 섬광 → 바닥 점 선이 차체 높이 여섯 곳에서 차체 바닥 사각형(`uTk`·`uTkS`)을 지나면 그늘 (멀수록 넓어진다. 화면 한 픽셀 안 네 점을 평균해 경계 계단을 줄인다). 다 지우면(`clearHold()`) 장면은 그리지 않고 tick은 `clearTick`만: 탱크 포즈·대포(`firstShot`·`shotEvery`, `b.clearShot`: 아무것에도 맞지 않고 0.8초 뒤 사라짐, 먼지는 바닥 평면 높이에서)·파티클·포구 섬광·바닥 그림자 (그때 남은 파티클·포탄은 지운다). 번개·날씨 소리·대미지 숫자도 끈다. 글자는 창 틀 없이 좌상단 `clearUI` (81_ui.js, 작전 정보처럼 한 글자씩. 제목 아래 걸린 시간을 크게, 격파 수는 킬마크(`clearUI.tally`, 기울인 막대 하나가 글자 하나처럼 타이핑 박자로), 기록은 `runStats`(30_combat.js: 쏜 포탄·명중·가장 먼 명중·받은 피해·이동 거리, `showEnd('clear')`가 복사). `win: true`는 그대로라 조작 막힘·G/T 키·HUD 끔은 창과 같다).
 - 섬멸 창 동안은 내 기관총 자동 사격도 멈춘다 (`updateMG`).
 - 내 기관총 자동 조준 우선순위(`mgPick`): 지프 → 적 탱크·자주포 → 보급품 → 적 벙커(가장 나중). 벙커는 방어력이 적용되고 관통은 '철갑 기관총'이 있어야 하며, 쏘면 경보가 울린다.
 - 공격 대상 상자는 **보급품** (골드 보급품 = 붉은 금고, 수리 보급품 = 초록 띠 상자). 코드 이름은 `targets`, `safeModel/repairModel`.
@@ -139,11 +146,12 @@ _promo/             ← 소개용 스크린샷·문구 (배포 안 함)
 ## 일시정지와 정지 (`90_loop.js`)
 - 확인 창 `confirmUI`는 `mode`로 둘을 같이 쓴다: 'title' = 첫 화면으로, 'reset' = 설정 모두 초기 값으로(`resetSettings()`, 설정 탭 [R]).
 - 설정 켜기/끄기 값은 `loadOpt(k, 처음 값)`/`saveOpt`(00_core.js·40_input_post.js): 설정에서 바꾸면 기억하지만, config의 처음 값이 바뀌면(`MightyMolly.<k>.cfg`로 비교) 기억한 값을 버리고 config를 따른다. 브라우저 저장 키 접두어는 모두 `MightyMolly.` (한 곳만 바꾸면 저장한 값을 못 읽는다. 예전 `littleIron.` 값은 00_core.js가 처음에 한 번 옮긴다).
-- **정보 창 (ESC):** `paused`. 게임 시간은 멈추고 창·회색조 연출만 그린다. 멈춘 뒤에는 3D 장면을 다시 그리지 않는다(`pauseScene`). ESC 또는 [ESC] 계속하기로만 닫힌다. 탭: 탱크 성능 / 강화 기록 / 조종법 / 설정 (Q·E·클릭, W/S·A/D 픽셀 스크롤. 설정 탭은 W/S 항목·A/D 값, 고른 항목 왼쪽 표시는 `>` 와 `-` 를 530ms마다 번갈아(키를 누르면 `>`부터, 멈춘 화면은 `pauseUI.wake()`가 깨움). 항목 목록은 `pauseUI.setRows()`: 소리 크기·보는 방향 기준·자동 카메라·화면 흔들림·패드 진동·대미지 숫자·화면 밝기. 값은 40_input_post.js의 set 함수들이 localStorage에 기억).
+- **정보 창 (ESC):** `paused`. 게임 시간은 멈추고 창·회색조 연출만 그린다. 멈춘 뒤에는 3D 장면을 다시 그리지 않는다(`pauseScene`). ESC 또는 [ESC] 계속하기로만 닫힌다. 탭: 탱크 성능 / 강화 기록 / 조종법 / 설정 (Q·E·클릭, W/S·A/D 픽셀 스크롤. 설정 탭은 W/S 항목·A/D 값, 고른 항목 왼쪽 표시는 `>` 와 `-` 를 530ms마다 번갈아(키를 누르면 `>`부터, 멈춘 화면은 `pauseUI.wake()`가 깨움). 항목 목록은 `pauseUI.setRows()`: 소리 크기·보는 방향 기준·자동 카메라·패드 진동·CRT 표현·아웃포커싱·화면 밝기 (화면 흔들림은 늘 켬, 대미지 숫자는 config만. 항목을 늘리면 설명 글이 아래 안내와 겹치는지 볼 것). 값은 40_input_post.js의 set 함수들이 localStorage에 기억).
+- **타이틀 우하단:** '게임 시작'은 메뉴 창 버튼 모양(`titleStartButton`, 80_hud.js, 흰색, 깜빡임. 마우스를 올리면 `titleBtnHot`으로 칠해 보이고 깜빡임을 멈춘다)이고 클릭·터치로도 시작한다(50_title.js pointerdown, `crtPoint`로 되짚어 `tPress` 자리 확인). 시작 버튼·키 안내는 입력을 받기 시작할 때 0.5초 동안 고른 4x4 디더링으로 나타난다(`titleKeysK`, `titleWipe`).
 - **타이틀 카메라:** `titleCamEnd`(50_title.js)가 `title.camera`의 arc·arcTime(좌우 부분 호, EaseInOutSine)과 sway·swayRate(핸드헬드: 빠르기가 다른 물결로 방향·높이·roll)를 더한다. 플레이로 넘어가는 동안(`titleK`) 줄어든다.
 - **타이틀 메뉴 창:** 타이틀에서 키를 받기 시작한 뒤(`TITLE_DELAY`) ESC(패드 START)로 같은 정보 창을 연다 (`pauseUI.titleMode`): 조종법·설정 탭만(`tabIds()`), 설정 탭으로 열림, [T] 첫 화면으로 없음, [ESC] 닫기. 타이틀 키·클릭 처리(50_title.js, 캡처 단계)는 `paused`이면 창으로 넘긴다. 타이틀 그림(#title)은 창보다 아래(z 4).
 - 자동 카메라(`camBack`): 마우스로 바꾼 카메라가 손을 뗀 뒤 2초가 지나면 기본 방향·거리로 EaseInOutCubic으로 돌아온다.
-- **정지 (포커스 잃음·탭 가려짐):** `suspended`. 루프 자체를 끈다(`renderer.setAnimationLoop(null)`). 화면 변화 없음, 돌아오면 그대로 이어감. 정보 창과는 별개.
+- **정지 (포커스 잃음·탭 가려짐):** `suspended`. 포커스 없이 로딩이 끝나면 첫 화면 뒤 멈춤을 예약(`suspendAfterFrame`)하는데, 창이 가려져 있으면 그 첫 화면이 돌아온 뒤에야 그려지므로 `resume`이 예약을 취소하고, 멈추기 직전에도 포커스를 다시 확인한다. 루프 자체를 끈다(`renderer.setAnimationLoop(null)`). 화면 변화 없음, 돌아오면 그대로 이어감. 정보 창과는 별개.
 - 전투 불능·적군 섬멸 창이 떠 있으면 ESC는 무시.
 
 ## 시험·시안 만드는 법

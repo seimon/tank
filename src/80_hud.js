@@ -99,9 +99,29 @@ function drawTitleKeys(pad) {
   titlePad = pad;
   const c = document.getElementById('tPress');
   if (!c) return;
-  titleKeyRows(c, [[[pad ? 'A' : 'SPACE'], '게임 시작']]);
+  titleStartButton(c, pad ? 'A' : 'SPACE');
   drawCamoText();
   if (c._css) layoutTitle();
+}
+// 타이틀 '게임 시작' 버튼: 메뉴 창 아래 버튼과 같은 모양 (테두리 + 키 칸 + 이름, 흰색). 클릭·터치로도 시작한다 (50_title.js)
+// hot = 마우스를 올림: 창 버튼처럼 통째로 칠하고 키 칸은 검게, 이름은 뒤집어 (이때는 깜빡이지 않는다)
+let titleBtnHot = false;
+function titleStartButton(cv, key) {
+  const src = cv._src || (cv._src = document.createElement('canvas'));
+  const label = '게임 시작', kw = gfWidth(key), w = keyButtonW(key, label), h = 21, col = '#ffffff', lx = 5 + kw + 4 + 4, px = (a, b) => g.fillRect(a, b, 1, 1);
+  src.width = w; src.height = h;
+  const g = src.getContext('2d');
+  if (titleBtnHot) {
+    g.fillStyle = col; g.fillRect(0, 0, w, h);
+    g.fillStyle = '#000000'; g.fillRect(5, 4, kw + 4, 12); gfDraw(label, lx, 5, px);
+    g.fillStyle = col; gfDraw(key, 7, 5, px);
+  } else {
+    g.fillStyle = 'rgba(0,0,0,.6)'; g.fillRect(0, 0, w, h);
+    g.fillStyle = col; g.fillRect(0, 0, w, 1); g.fillRect(0, h - 1, w, 1); g.fillRect(0, 0, 1, h); g.fillRect(w - 1, 0, 1, h);
+    g.fillRect(5, 4, kw + 4, 12);
+    g.fillStyle = '#000000'; gfDraw(key, 7, 5, px);
+    g.fillStyle = col; gfDraw(label, lx, 5, px);
+  }
 }
 // 타이틀 위장색 안내 (PRESS SPACE 아래, 깜빡이지 않음): 지금 고른 위장색 이름
 function drawCamoText() {

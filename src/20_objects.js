@@ -23,8 +23,8 @@ const plateTex = canvasTex(64, 64, (g) => {
 plateTex.generateMipmaps = true; plateTex.minFilter = THREE.NearestMipmapNearestFilter;   // 멀리서 얼룩이 반짝이지 않게
 // 리벳: 정점마다 (면 안의 위치 m, 면 크기 m)를 받아, 네 변을 따라 가장자리에서 0.1m 안쪽에 약 0.5m 간격으로 (네 모서리 포함).
 // 작고(반지름 약 5cm) 진한 점: 가운데만 살짝 밝게
-function rivetMat(o) {
-  return ps1(new THREE.MeshLambertMaterial(o), (sh) => {
+function rivetMat(o, Mat = THREE.MeshLambertMaterial) {   // Mat: 빛 반사가 필요하면 MeshPhongMaterial (수리 보급품의 초록 부분)
+  return ps1(new Mat(o), (sh) => {
     sh.vertexShader = 'attribute vec4 aRiv; varying vec4 vRiv;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvRiv = aRiv;');
     sh.fragmentShader = 'varying vec4 vRiv;\n' + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
       if (vRiv.z > 0.0) {
@@ -423,73 +423,131 @@ function supplyModel(build) {
   g.traverse((o) => { if (o.isMesh && !o.geometry.attributes.aRiv) o.geometry.setAttribute('aRiv', new THREE.BufferAttribute(new Float32Array(o.geometry.attributes.position.count * 4), 4)); });
   return bake(g, null, ['aRiv']);
 }
-// 도트 그림 한 장 (문자열 줄: '#' = 칠함)을 k배로 찍는다
-const pixArt = (g, rows, x, y, k, col) => { g.fillStyle = col; rows.forEach((r, j) => { for (let i = 0; i < r.length; i++) if (r[i] === '#') g.fillRect(x + i * k, y + j * k, k, k); }); };
-const WRENCH = [   // 수리 도구 (스패너): 오른쪽 위 벌린 입, 왼쪽 아래 고리
-  '................', '..........##.##.', '.........###.###', '.........###.###', '.........#######', '..........#####.', '.........###....', '........###.....',
-  '.......###......', '......###.......', '.....###........', '....###.........', '.#####..........', '##..##..........', '##..##..........', '.####...........',
-];
-// 골드 보급품: 붉은 칠 금고. 금박 테두리·금화 문장, 어두운 받침과 리벳 박힌 윗 테 (가운데 금색 원에 별 모양 구멍), 황동 다이얼
-const goldIconTex = canvasTex(32, 32, (g) => {   // 금색으로 채운 원에 ★ 모양으로 뚫린 구멍 (구멍으로 윗판이 보인다. 흰색은 재질의 금색으로 물든다)
-  const st = [];   // 다섯 꼭짓점 별 (위가 꼭짓점): 바깥 11.5, 안쪽 4.8
-  for (let i = 0; i < 10; i++) { const r = i % 2 ? 4.8 : 11.5, a = -Math.PI / 2 + i * Math.PI / 5; st.push([16 + Math.cos(a) * r, 16.6 + Math.sin(a) * r]); }
-  const inStar = (x, y) => {   // 다각형 안쪽 판정 (광선 교차)
-    let inside = false;
-    for (let i = 0, j = st.length - 1; i < st.length; j = i++) {
-      const [xi, yi] = st[i], [xj, yj] = st[j];
-      if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
-    }
-    return inside;
-  };
-  g.fillStyle = '#ffffff';
-  for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) if (Math.hypot(x - 15.5, y - 15.5) <= 15.2 && !inStar(x + 0.5, y + 0.5)) g.fillRect(x, y, 1, 1);
-});
-const safeModel = supplyModel(({ add, box, cyl, frame }) => {
+// 보급품 면 그림: images/supply/*.png (흰색 + 알파) → supply_images.js (build.py가 data URL로 담는다: file://에서 PNG를 WebGL 텍스처로 못 올려서).
+// 그림 한 장 = 면 하나 전체 (그림 크기 = 텍스처 크기, 면 크기에 맞춰 늘린다. 작게 그리면 작게 보인다). 코드가 바탕(철판·회색)을 칠하고
+// 그 위에 그림을 강조색(금색·초록)으로 알파만큼 섞는다. 알파는 8비트 그대로: 0 = 바탕, 255 = 강조색, 그 사이는 섞임. 빛 반사(specularMap)도 알파만큼.
+// 고치는 법: PNG를 고치고 python tools/build.py
+//   gold_side · gold_front · gold_top        골드 보급품 옆면(좌우·뒤) · 앞면 · 윗면 (보이는 판 3 x 2.25m · 3 x 2.25m · 3.14 x 3.14m. 지금 120x90 · 120x90 · 128x128)
+//   repair_side · repair_front · repair_top  수리 보급품 옆면(좌우) · 앞뒤면 · 윗면 (3 x 2.75m · 3 x 2.75m · 3 x 3m. 지금 120x110 · 120x110 · 120x120. 네 귀퉁이 0.3m씩은 깎여 안 보인다)
+const SUPPLY_IMG = window.SUPPLY_IMAGES || {};
+const SUPPLY_SHINE = 36;   // 보급품 금색·초록 부분의 반짝임 (클수록 하이라이트가 작고 날카롭다)
+function pngSize(name, w0, h0) {   // PNG 머리에서 가로·세로를 바로 읽는다 (그림이 다 읽히기 전에 텍스처·UV 크기를 정하려고). 그림이 없으면 처음 값
+  const u = SUPPLY_IMG[name];
+  try {
+    const i = u.indexOf(',') + 1, b = atob(u.slice(i, i + 44));
+    const n = (k) => ((b.charCodeAt(k) << 24) | (b.charCodeAt(k + 1) << 16) | (b.charCodeAt(k + 2) << 8) | b.charCodeAt(k + 3)) >>> 0;
+    return [n(16), n(20)];
+  } catch (_) { return [w0, h0]; }
+}
+function supplyImg(name, onload) {   // 다 읽히면 onload(img). 그림이 없으면 부르지 않는다
+  if (!SUPPLY_IMG[name]) return;
+  const im = new Image(); im.onload = () => onload(im); im.src = SUPPLY_IMG[name];
+}
+const _tintC = document.createElement('canvas');
+function drawTinted(g, im, x, y, w, h, col) {   // 흰 그림을 col로 칠해 (x, y)에 w×h로 (알파는 그대로, 니어리스트로 늘림)
+  _tintC.width = w; _tintC.height = h;
+  const t = _tintC.getContext('2d'); t.imageSmoothingEnabled = false; t.drawImage(im, 0, 0, w, h);
+  t.globalCompositeOperation = 'source-in'; t.fillStyle = col; t.fillRect(0, 0, w, h);
+  g.imageSmoothingEnabled = false; g.drawImage(_tintC, x, y);
+}
+// 바탕: 철판 무늬(plateTex)를 1.2m마다 되풀이하고 col을 곱한다 (pxm = 1m가 몇 px. 셰이더에서 재질 색 × 텍스처와 같은 값)
+function paintPlate(g, x, y, w, h, col, pxm) {
+  g.save(); g.beginPath(); g.rect(x, y, w, h); g.clip(); g.imageSmoothingEnabled = false;
+  const t = Math.max(1, Math.round(1.2 * pxm));
+  for (let yy = y; yy < y + h; yy += t) for (let xx = x; xx < x + w; xx += t) g.drawImage(plateTex.image, xx, yy, t, t);
+  g.globalCompositeOperation = 'multiply'; g.fillStyle = col; g.fillRect(x, y, w, h);
+  g.restore();
+}
+// 면 그림 묶음: 한 장에 가로로 이어 붙이고 끝에 바탕만 칠한 2px (깎인 꼭짓점 등). cells = [{ img, w, h(그림 없을 때), col(강조색), paint(g, x, y, w, h) }]
+// → { map, spec, uv(칸, fu, fv) → [u, v], flat: [u, v] }. 그림이 읽히면 그 칸만 다시 칠한다
+function supplyAtlas(cells) {
+  let W = 0, H = 1;
+  for (const c of cells) { [c.w, c.h] = pngSize(c.img, c.w, c.h); c.x = W; W += c.w; H = Math.max(H, c.h); }
+  W += 2;
+  const map = canvasTex(W, H, (g) => { for (const c of cells) c.paint(g, c.x, 0, c.w, c.h); cells[0].paint(g, W - 2, 0, 2, H); });
+  map.generateMipmaps = true; map.minFilter = THREE.NearestMipmapNearestFilter;   // 멀리서 반짝이지 않게
+  const sc = document.createElement('canvas'); sc.width = W; sc.height = H;
+  const sg = sc.getContext('2d'); sg.fillStyle = '#000'; sg.fillRect(0, 0, W, H);
+  const spec = new THREE.CanvasTexture(sc); spec.magFilter = THREE.NearestFilter; spec.minFilter = THREE.NearestMipmapNearestFilter;   // (반사 세기라 색 공간 변환 없음)
+  cells.forEach((c) => supplyImg(c.img, (im) => {
+    const g = map.image.getContext('2d');
+    c.paint(g, c.x, 0, c.w, c.h); drawTinted(g, im, c.x, 0, c.w, c.h, c.col);
+    sg.fillStyle = '#000'; sg.fillRect(c.x, 0, c.w, c.h); drawTinted(sg, im, c.x, 0, c.w, c.h, '#ffffff');   // 반사 = 알파만큼
+    map.needsUpdate = spec.needsUpdate = true;
+  }));
+  return { map, spec, flat: [(W - 1) / W, 1 - 0.5 / H], uv: (i, fu, fv) => { const c = cells[i]; return [(c.x + fu * c.w) / W, 1 - c.h / H + fv * c.h / H]; } };
+}
+// 골드 보급품: 붉은 칠 금고. 몸통과 리벳 박힌 윗 테를 한 덩어리 메시로 만들고 면마다 그림을 바로 입힌다 (금박 테두리·문·금화 문장·윗면 별 문장).
+// 따로 얹는 폴리곤은 앞면 황동 다이얼만. 어두운 받침과 발은 상자
+const GOLD_FY = [-0.95, 1.30];   // 몸통 옆면의 아래·위 (받침 위 ~ 윗 테 아래 = 그림이 덮는 범위)
+const GOLD_RIM = 0.24;           // 윗 테 두께 (몸통보다 사방 0.07m 넓다)
+const goldAtlas = supplyAtlas([
+  { img: 'gold_side', w: 120, h: 90, col: '#e0b450', paint: (g, x, y, w, h) => paintPlate(g, x, y, w, h, '#a8241a', w / TARGET_S) },
+  { img: 'gold_front', w: 120, h: 90, col: '#e0b450', paint: (g, x, y, w, h) => paintPlate(g, x, y, w, h, '#a8241a', w / TARGET_S) },
+  { img: 'gold_top', w: 128, h: 128, col: '#e0b450', paint: (g, x, y, w, h) => paintPlate(g, x, y, w, h, '#473d3d', w / (TARGET_S + 0.14)) },
+  { img: null, w: 126, h: 10, col: '#000', paint: (g, x, y, w, h) => paintPlate(g, x, y, w, h, '#473d3d', w / (TARGET_S + 0.14)) },   // 윗 테 옆·아랫면 (그림 없음)
+]);
+const safeModel = supplyModel(({ add, box }) => {
   const S = TARGET_S, fz = S / 2;
-  const red = lambert({ color: 0xa8241a, emissive: 0x340604, map: plateTex }), dark = lambert({ color: 0x473d3d, map: plateTex }), darkRiv = rivetMat({ color: 0x473d3d, map: plateTex });   // 위아래 판 (15% 밝게)
-  darkRiv.defines = { RIVET_LIGHT: '' };   // 검은 판이라 리벳을 밝게
-  const gold = lambert({ color: 0xe0b450, emissive: 0x3a2808 }), brass = lambert({ color: 0xd0a040, emissive: 0x2a1a04 }), black = lambert({ color: 0x141010 });
-  add(box(S, S - 0.5, S, red), 0, 0.05, 0);
-  add(plateBox(S + 0.14, 0.24, S + 0.14, darkRiv), 0, S / 2 - 0.08, 0);   // 윗 테 (윗면 가장자리에 리벳)
-  const icon = add(new THREE.Mesh(new THREE.PlaneGeometry(1.04, 1.04), lambert({ map: goldIconTex, color: 0xe0b450, emissive: 0x3a2808, transparent: true, alphaTest: 0.5, ...DECAL })), 0, S / 2 + 0.045, 0);
-  icon.rotation.x = -Math.PI / 2;
+  const dark = lambert({ color: 0x473d3d, map: plateTex }), black = lambert({ color: 0x141010 });
+  // 몸통 + 윗 테: 면 = 사각형 하나 (밖에서 볼 때 왼쪽 아래·오른쪽 아래·오른쪽 위·왼쪽 위), 그림 칸 i, riv = 가장자리 리벳
+  const P = [], U = [], RV = [];
+  const quad = (i, bl, br, tr, tl, riv, w, h) => {
+    const c = [[bl, 0, 0], [br, 1, 0], [tr, 1, 1], [tl, 0, 1]];
+    for (const k of [0, 1, 2, 0, 2, 3]) { const [p, fu, fv] = c[k]; P.push(...p); U.push(...goldAtlas.uv(i, fu, fv)); RV.push(...(riv ? [fu * w, fv * h, w, h] : [0, 0, 0, 0])); }
+  };
+  const sides = (x, y0, y1, z, iF, iS, riv) => {   // 상자 옆 네 면 (앞 = iF, 좌우·뒤 = iS)
+    const w = x * 2, h = y1 - y0;
+    quad(iF, [-x, y0, z], [x, y0, z], [x, y1, z], [-x, y1, z], riv, w, h);       // 앞
+    quad(iS, [x, y0, -z], [-x, y0, -z], [-x, y1, -z], [x, y1, -z], riv, w, h);   // 뒤
+    quad(iS, [x, y0, z], [x, y0, -z], [x, y1, -z], [x, y1, z], riv, w, h);       // 오른쪽 (+x)
+    quad(iS, [-x, y0, -z], [-x, y0, z], [-x, y1, z], [-x, y1, -z], riv, w, h);   // 왼쪽 (-x)
+  };
+  sides(S / 2, GOLD_FY[0], GOLD_FY[1], S / 2, 1, 0, false);   // 몸통 (아랫면은 받침에 가려 없음)
+  const R = S / 2 + 0.07, r0 = GOLD_FY[1], r1 = r0 + GOLD_RIM;
+  sides(R, r0, r1, R, 3, 3, true);                                              // 윗 테 옆면 (리벳)
+  quad(2, [-R, r1, R], [R, r1, R], [R, r1, -R], [-R, r1, -R], true, R * 2, R * 2);   // 윗면 (리벳, 그림 위쪽 = 뒤)
+  quad(3, [-R, r0, -R], [R, r0, -R], [R, r0, R], [-R, r0, R], false, R * 2, R * 2);  // 윗 테 아랫면 (몸통 밖으로 나온 테두리 밑)
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2));
+  g.setAttribute('aRiv', new THREE.Float32BufferAttribute(RV, 4));
+  g.computeVertexNormals();
+  // 재질 하나: 바탕은 그림 그대로, 금색 부분만 빛을 반사 (달빛·가로등·포구 섬광에 하이라이트). 발광은 그림 밝기에 비례 (예전 재질 색 : 발광 비율과 비슷하게)
+  const mat = rivetMat({ map: goldAtlas.map, specularMap: goldAtlas.spec, specular: 0xffe2a0, shininess: SUPPLY_SHINE, emissive: 0x4a4a4a, emissiveMap: goldAtlas.map }, THREE.MeshPhongMaterial);
+  mat.defines = { RIVET_LIGHT: '' };   // 윗 테는 어두운 판이라 리벳을 밝게
+  add(new THREE.Mesh(g, mat), 0, 0, 0);
   add(box(S + 0.1, 0.34, S + 0.1, dark), 0, -S / 2 + 0.37, 0);           // 받침
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) add(box(0.4, 0.2, 0.4, black), sx * (S / 2 - 0.28), -S / 2 + 0.1, sz * (S / 2 - 0.28));   // 발
-  add(box(S - 0.5, S - 1.15, 0.1, red), 0, 0.05, fz + 0.05);            // 문
-  frame(S - 0.5, S - 1.15, 0.05, gold, 0, 0.05, fz + 0.11);
-  for (const s of [1, -1]) frame(S - 0.4, S - 1.0, 0.05, gold, s * (fz + 0.01), 0.05, 0, s * Math.PI / 2);   // 양옆 테두리
-  add(cyl(0.34, 0.06, 16, gold), -0.45, 0.05, fz + 0.13);                 // 금화 문장
-  add(decalPlane(txtTex('$', '#6a3a08'), 0.32, 0.4), -0.45, 0.05, fz + 0.17);
-  add(cyl(0.26, 0.1, 14, brass), 0.5, 0.25, fz + 0.15); add(cyl(0.15, 0.1, 10, black), 0.5, 0.25, fz + 0.21);   // 다이얼
-  for (const y of [0.5, -0.5]) add(new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.35, 8), black), -1.02, y, fz + 0.1);   // 경첩
+  // 다이얼 (로우폴리): 팔각 황동판 + 육각 손잡이. 앞면에 붙은 쪽 뚜껑은 보이지 않으니 없앤다
+  const brass = ps1(new THREE.MeshPhongMaterial({ color: 0xd0a040, emissive: 0x2a1a04, specular: 0xffe2a0, shininess: SUPPLY_SHINE }));
+  const knob = (r, h, seg, mat, z) => {
+    const c = new THREE.CylinderGeometry(r, r, h, seg, 1, false, Math.PI / seg).rotateX(Math.PI / 2);   // 축 = z, 평평한 변이 위로
+    const keep = c.toNonIndexed(), p = keep.attributes.position, out = [];
+    for (let t = 0; t < p.count; t += 3) { if (p.getZ(t) < -h / 2 + 1e-4 && p.getZ(t + 1) < -h / 2 + 1e-4 && p.getZ(t + 2) < -h / 2 + 1e-4) continue; for (let k = 0; k < 3; k++) out.push(p.getX(t + k), p.getY(t + k), p.getZ(t + k)); }
+    const gg = new THREE.BufferGeometry(); gg.setAttribute('position', new THREE.Float32BufferAttribute(out, 3)); gg.computeVertexNormals();
+    gg.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(out.length / 3 * 2), 2));
+    return add(new THREE.Mesh(gg, mat), 0.5, 0.25, z);
+  };
+  knob(0.26, 0.1, 8, brass, fz + 0.05); knob(0.15, 0.1, 6, black, fz + 0.11);
 });
-// 수리 보급품: 꼭짓점 8개를 깎아 낸 밝은 회색 상자 하나에 그림 한 장 (옆면 / 앞·뒷면 / 윗면 세 칸). 초록 띠·초록 원·수리 도구는 모두 텍스처에 (폴리곤 없음).
+// 수리 보급품: 꼭짓점 8개를 깎아 낸 밝은 회색 상자 하나에 그림 묶음 한 장 (옆면 / 앞·뒷면 / 윗면). 초록 띠·초록 원·수리 도구는 모두 그림 (폴리곤 없음).
 // 발만 따로
-const REP_T = 128, REP_BAND = [0.527, 0.255];   // 칸 크기(px), 띠 가운데 높이·두께 (면 높이 비율)
-const REP_GREEN = '#2f6a3e';   // 초록 띠·원·윗면 수리 도구 (진하고 채도 낮게)
-const repairTex = canvasTex(REP_T * 3, REP_T, (g) => {
-  let sd = 0x1234567;
+const REP_GREEN = '#2f6a3e';   // 초록 (진하고 채도 낮게)
+function repairBase(g, x, y, w, h) {   // 밝은 회색 바탕 + 얼룩 (칸마다 같은 난수: 다시 칠해도 같게)
+  let sd = 0x1234567 + x;
   const r01 = () => { sd = (sd * 1103515245 + 12345) & 0x7fffffff; return sd / 0x7fffffff; };   // 지형 배치 난수와 섞이지 않게 따로
-  for (let k = 0; k < 3; k++) {
-    const x0 = k * REP_T;
-    g.fillStyle = '#b4b8b2'; g.fillRect(x0, 0, REP_T, REP_T);   // 밝은 회색 바탕 (재질 색은 흰색: 흰 원이 바탕보다 밝게)
-    for (let i = 0; i < 140; i++) { g.fillStyle = `rgba(60,58,50,${0.06 + r01() * 0.1})`; g.fillRect(x0 + Math.floor(r01() * REP_T), Math.floor(r01() * REP_T), 1 + Math.floor(r01() * 3), 1); }   // 얼룩
-    if (k < 2) {   // 옆면·앞면: 가운데를 두른 초록 띠
-      const y0 = Math.round((1 - REP_BAND[0] - REP_BAND[1] / 2) * REP_T), h = Math.round(REP_BAND[1] * REP_T);
-      g.fillStyle = REP_GREEN; g.fillRect(x0, y0, REP_T, h);
-    }
-    if (k === 1) {   // 앞면: 띠 가운데 초록 원 + 회색(겉면 색) 수리 도구
-      const cx = x0 + REP_T / 2, cy = (1 - REP_BAND[0]) * REP_T, R = 0.62 * 1.2 / TARGET_S * REP_T;
-      g.fillStyle = REP_GREEN;
-      for (let y = -R; y <= R; y++) for (let x = -R; x <= R; x++) if (x * x + y * y <= R * R) g.fillRect(Math.round(cx + x), Math.round(cy + y), 1, 1);
-      pixArt(g, WRENCH, Math.round(cx - 16), Math.round(cy - 16), 2, '#b4b8b2');
-    }
-    if (k === 2) pixArt(g, WRENCH, x0 + REP_T / 2 - 32, REP_T / 2 - 32, 4, REP_GREEN);   // 윗면: 큰 수리 도구 (멀리서도 보이게. 칸의 절반 크기)
-  }
-});
-repairTex.generateMipmaps = true; repairTex.minFilter = THREE.NearestMipmapNearestFilter;   // 멀리서 반짝이지 않게
+  g.fillStyle = '#b4b8b2'; g.fillRect(x, y, w, h);   // (재질 색은 흰색)
+  const n = Math.round(140 * w * h / (128 * 128));
+  for (let i = 0; i < n; i++) { g.fillStyle = `rgba(60,58,50,${0.06 + r01() * 0.1})`; g.fillRect(x + Math.floor(r01() * w), y + Math.floor(r01() * h), 1 + Math.floor(r01() * 3), 1); }
+}
+const repairAtlas = supplyAtlas([
+  { img: 'repair_side', w: 120, h: 110, col: REP_GREEN, paint: repairBase },
+  { img: 'repair_front', w: 120, h: 110, col: REP_GREEN, paint: repairBase },
+  { img: 'repair_top', w: 120, h: 120, col: REP_GREEN, paint: repairBase },
+]);
 const repairModel = supplyModel(({ add, box }) => {
-  const S = TARGET_S, fz = S / 2, H = S - 0.25, C = 0.3;   // C: 꼭짓점을 깎은 길이 (모서리마다)
+  const S = TARGET_S, H = S - 0.25, C = 0.3;   // C: 꼭짓점을 깎은 길이 (모서리마다)
   const hh = { x: S / 2, y: H / 2, z: S / 2 }, P = [], U = [], RV = [];
   const tri = (a, b, c, out) => {   // 바깥(out)을 보게 넣는다. a·b·c = { p, uv, riv }
     const e1 = [b.p.x - a.p.x, b.p.y - a.p.y, b.p.z - a.p.z], e2 = [c.p.x - a.p.x, c.p.y - a.p.y, c.p.z - a.p.z];
@@ -499,17 +557,17 @@ const repairModel = supplyModel(({ add, box }) => {
   // 면 6개: 네 귀퉁이를 깎은 팔각형. a·b = 면 위 가로·세로 축 (부호는 밖에서 볼 때 오른쪽·위), tile = 그림 칸 (0 옆, 1 앞·뒤, 2 위)
   for (const f of [{ n: 'x', sg: 1, a: 'z', as: -1, b: 'y', bs: 1, tile: 0 }, { n: 'x', sg: -1, a: 'z', as: 1, b: 'y', bs: 1, tile: 0 },
     { n: 'y', sg: 1, a: 'x', as: 1, b: 'z', bs: -1, tile: 2 }, { n: 'y', sg: -1, a: 'x', as: 1, b: 'z', bs: 1, tile: 0 },
-    { n: 'z', sg: 1, a: 'x', as: 1, b: 'y', bs: 1, tile: 1 }, { n: 'z', sg: -1, a: 'x', as: -1, b: 'y', bs: 1, tile: 1 }]) {   // 뒷면도 초록 원·수리 도구
+    { n: 'z', sg: 1, a: 'x', as: 1, b: 'y', bs: 1, tile: 1 }, { n: 'z', sg: -1, a: 'x', as: -1, b: 'y', bs: 1, tile: 1 }]) {   // 뒷면도 앞면 그림
     const A = hh[f.a], B = hh[f.b], out = { x: 0, y: 0, z: 0 }; out[f.n] = f.sg;
     const v = [[-A + C, -B], [A - C, -B], [A, -B + C], [A, B - C], [A - C, B], [-A + C, B], [-A, B - C], [-A, -B + C]].map(([u, w]) => {
       const p = { x: 0, y: 0, z: 0 }; p[f.n] = f.sg * hh[f.n]; p[f.a] = u * f.as; p[f.b] = w * f.bs;
       const fu = (u + A) / (2 * A), fv = (w + B) / (2 * B);
-      return { p, uv: [(f.tile + fu) / 3, fv], riv: [fu * 2 * A, fv * 2 * B, 2 * A, 2 * B] };   // 리벳 좌표는 예전 상자 면과 같게
+      return { p, uv: repairAtlas.uv(f.tile, fu, fv), riv: [fu * 2 * A, fv * 2 * B, 2 * A, 2 * B] };   // 리벳 좌표는 예전 상자 면과 같게
     });
     for (let i = 1; i < 7; i++) tri(v[0], v[i], v[i + 1], [out.x, out.y, out.z]);
   }
   // 깎인 꼭짓점: 삼각형 8개 (바탕 회색, 리벳 없음)
-  const flat = { uv: [0.03, 0.97], riv: [0, 0, 0, 0] };
+  const flat = { uv: repairAtlas.flat, riv: [0, 0, 0, 0] };
   for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) {
     const X = hh.x * sx, Y = hh.y * sy, Z = hh.z * sz;
     tri({ ...flat, p: { x: X - C * sx, y: Y, z: Z } }, { ...flat, p: { x: X, y: Y - C * sy, z: Z } }, { ...flat, p: { x: X, y: Y, z: Z - C * sz } }, [sx, sy, sz]);
@@ -519,7 +577,7 @@ const repairModel = supplyModel(({ add, box }) => {
   g.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2));
   g.setAttribute('aRiv', new THREE.Float32BufferAttribute(RV, 4));
   g.computeVertexNormals();
-  add(new THREE.Mesh(g, rivetMat({ color: 0xffffff, emissive: 0x161816, map: repairTex })), 0, 0.125, 0);
+  add(new THREE.Mesh(g, rivetMat({ color: 0xffffff, emissive: 0x161816, map: repairAtlas.map, specularMap: repairAtlas.spec, specular: 0xc0ffd0, shininess: SUPPLY_SHINE }, THREE.MeshPhongMaterial)), 0, 0.125, 0);   // 초록 부분만 빛 반사 (알파만큼)
   const iron = lambert({ color: 0x3a3c3c, map: plateTex });
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) add(box(0.42, 0.25, 0.42, iron), sx * (S / 2 - 0.3), -S / 2 + 0.125, sz * (S / 2 - 0.3));   // 발
 });

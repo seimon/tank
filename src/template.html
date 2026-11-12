@@ -68,7 +68,7 @@
   .ver { color: #e8dcc0; opacity: .6; font: 12px monospace; }
 </style>
 <!-- 사용자가 고치는 파일(config.js·map.js·decals.js)은 브라우저 캐시를 거치지 않게 매번 다른 주소로 읽는다 (아이패드 사파리가 예전 config.js를 계속 쓰던 문제). document.write라 순서대로 바로 실행된다 -->
-<script>for (const f of ['config.js', 'map.js', 'decal_images.js', 'title_images.js', 'decals.js']) document.write(`<script src="${f}?v=${Date.now()}"><\/script>`);</script>
+<script>for (const f of ['config.js', 'map.js', 'decal_images.js', 'title_images.js', 'supply_images.js', 'decals.js']) document.write(`<script src="${f}?v=${Date.now()}"><\/script>`);</script>
 <script src="fonts/galmuri11c.js"></script>
 <script type="importmap">
 { "imports": {
@@ -130,7 +130,7 @@
 </div>
 <script>
   // 버전·빌드 시각: 여기 한 곳만 고치면 로딩 화면과 설정 메뉴에 같이 나온다
-  const VERSION = '0.8.062', BUILD = '2026-11-12', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
+  const VERSION = '0.8.076', BUILD = '2026-11-12', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
   for (const e of document.querySelectorAll('.ver')) e.textContent = BUILD_TXT;
 </script>
 <canvas id="perfHud" style="display:none"></canvas>

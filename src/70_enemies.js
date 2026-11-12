@@ -193,6 +193,7 @@ function damageTank(T, raw, face, src, kind) {
   if (aiShow) floatTank(T, d, raw, face, src, a, kind);
   dmgTextHit(T, Math.max(0, d), dmgFromP || (src && src.pos) || null, dmgCrit, d > 0 && T.hp - d <= 0); dmgFromP = null; dmgCrit = false;   // 대미지 숫자 (공격한 자리 반대쪽으로. 치명타·파괴 표시)
   if (d <= 0) return 0;
+  if (T === tank) runStats.dmg += Math.min(d, Math.max(0, T.hp));   // (받은 피해: 남은 HP를 넘는 몫은 빼고)
   T.hp -= d;
   if (T === tank) { shake = Math.min(1.2, shake + Math.min(0.3, 0.05 + d * 0.005)); hudHit(d); padRumble(Math.min(1, 0.25 + d * 0.02), Math.min(1, 0.4 + d * 0.02), kind === 'mg' ? 70 : 180); }   // 패드 진동: 맞은 만큼
   if (T.hp <= 0) destroyTankBody(T);
@@ -290,7 +291,7 @@ function showEnd(kind) {
   if (endState === 'clear') return;   // 섬멸 창이 떠 있으면 그대로
   endState = kind;
   if (kind === 'clear') cancelOffer();   // 월드는 계속 돌지만 값은 잠긴다 (rulesLocked): 남은 골드를 주워도 레벨업하지 않는다
-  if (kind === 'clear') { Object.assign(clearUI.info, { kills: EC.clearKills, jeeps: jeepKills, time: playTime, lv: growLevel, bunkers: BUNKERS.filter((B) => B.ruin && !B.ruinAtStart).length, bunkerAll: BUNKERS.filter((B) => !B.ruinAtStart).length }); clearUI.reset(); clearBegin(); }   // 임무 완료 카메라·배경 (52_clear.js)
+  if (kind === 'clear') { Object.assign(clearUI.info, { stats: { ...runStats }, kills: EC.clearKills, jeeps: jeepKills, time: playTime, lv: growLevel, bunkers: BUNKERS.filter((B) => B.ruin && !B.ruinAtStart).length, bunkerAll: BUNKERS.filter((B) => !B.ruinAtStart).length }); clearUI.reset(); clearBegin(); }   // 임무 완료 카메라·배경 (52_clear.js)
   uiShow(kind === 'dead' ? deadUI : clearUI);   // HUD는 syncHud가 끈다
 }
 // 재출격: 처음부터가 아니라 내 탱크만 새로 떨어뜨린다 (착지하면 접어 둔 성장 선택지가 다시 뜬다)
