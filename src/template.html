@@ -22,7 +22,21 @@
   #hudBody { display: flex; flex-direction: column; gap: 2px; }
   #hudBody > div { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
   #hud button:disabled { opacity: .4; }
-  #hud table.sl { border-collapse: collapse; } #hud table.sl td { padding: 0 4px 0 0; white-space: nowrap; }
+  #hud table.sl { border-collapse: collapse; align-self: flex-start; } #hud table.sl td { padding: 0 4px 0 0; white-space: nowrap; }   /* (flex 안에서 늘어나면 칸 사이가 벌어진다) */
+  #hud table.sl input[type=range] { width: 260px; }   /* 성장 테스트 게이지: 기본의 2배 */
+  /* 게이지 묶음 (.wg): 이름 | 게이지 | 값 세 칸씩, 좌우 2단 (메뉴 폭이 좁으면 .one = 1단. 40_input_post.js가 메뉴 크기를 보고 정한다) */
+  #hud .wg { display: grid; grid-template-columns: repeat(2, max-content max-content max-content); align-items: center; gap: 2px 4px; justify-content: start; }
+  #hud .wg.one { grid-template-columns: max-content max-content max-content; }
+  #hud .wg > span { display: contents; }
+  #hud .wg > span > * { white-space: nowrap; }
+  #hud .wg:not(.one) > span:nth-child(even) > :first-child { margin-left: 16px; }   /* 오른쪽 단 앞 간격 */
+  #hud .wg input[type=range] { width: 130px; }
+  #hud .wg > span.off > * { opacity: .35; }   /* 지금 화면에서는 쓰지 않는 값 */
+  #hud button.foe { background: #8a3326; color: #ffe6dc; border: 1px solid #c25a46; border-radius: 2px; padding: 1px 6px; }   /* 적 추가 버튼 */
+  #hud button.foe:active { background: #6a2419; }
+  /* 크기 조절 핸들 (우하단, 드래그). 메뉴가 스크롤돼도 늘 귀퉁이에 있게 따로 고정 */
+  #hudGrip { position: fixed; z-index: 7; width: 16px; height: 16px; cursor: nwse-resize; display: none; touch-action: none;
+             background: linear-gradient(135deg, transparent 50%, rgba(232, 220, 192, .7) 50%, rgba(232, 220, 192, .7) 60%, transparent 60%, transparent 70%, rgba(232, 220, 192, .7) 70%, rgba(232, 220, 192, .7) 80%, transparent 80%); }
   #loading { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
              background: #000; color: #fff; font: 14px monospace; z-index: 10; }
   #loadCv { position: fixed; left: 0; top: 0; }
@@ -88,28 +102,31 @@
 <div id="dmgFloat"></div>
 <div id="hud">
   <div style="display:flex; align-items:center; gap:8px; white-space:nowrap"><b style="color:#ffd25a">설정</b> <span style="opacity:.6">~ 키로 열고 닫기</span>
-       <span style="margin-left:auto; display:flex; gap:2px"><button id="toTitle">타이틀 화면으로</button><button id="camPanBtn">우클릭 카메라 이동 꺼짐</button><button id="camreset">카메라 초기화</button></span></div>
+       <span style="margin-left:auto; display:flex; gap:2px"><button id="perfBtn">성능 표시 꺼짐 (!)</button><button id="camPanBtn">우클릭 카메라 이동 꺼짐</button><button id="camreset">카메라 초기화</button></span></div>
   <div id="stats">-</div>
-  <div><button id="perfBtn">성능 표시 꺼짐 (!)</button></div>
   <div id="hudBody">
   <div>내 탱크 <b id="tankPos">-</b> <span style="opacity:.6">(config.js player.start와 같은 형식)</span></div>
   <div>해상도 <select id="res"><option>180</option><option>240</option><option selected>300</option><option>360</option><option>420</option><option value="max">최대</option></select>
        <button id="aaBtn">AA 꺼짐</button> <button id="ppBtn">Pixel Perfect 꺼짐</button> <button id="olBtn">외곽선 꺼짐</button> <button id="vfBtn">복셀 안개 꺼짐</button> <button id="grassBtn">풀: 텍스처2 (이삭 풀)</button> <button id="cbox">충돌박스</button> <button id="touchBtn">터치 버튼 꺼짐</button>
        <button id="camModeBtn">시점: 포탑 방향</button></div>
-  <div><button id="mapEditBtn">맵 편집 모드</button> <button id="decalEditBtn">데칼 편집 모드</button> <button id="mapBtn">맵 셋팅</button>
-       <span class="it">비 <input id="rainA" type="range" min="0" max="2" step="0.05" value="0"> <b id="rainAV">0.00</b></span>
-       <span class="it">모래 <input id="sandA" type="range" min="0" max="2" step="0.05" value="0"> <b id="sandAV">0.00</b> <input id="sandC" type="color" value="#c8a070"></span>
-       <span class="it">번개 <input id="boltA" type="range" min="0" max="2" step="0.05" value="0"> <b id="boltAV">0.00</b></span></div>
-  <div><span class="it">바람 <input id="wind" type="range" min="0" max="5" step="0.05" value="1"> <b id="windV">1.00</b></span>
-       <span class="it">방향 <input id="windDir" type="range" min="0" max="360" step="5" value="215"> <b id="windDirV">215°</b></span>
-       <span class="it">먼지 <input id="debris" type="range" min="0" max="4" step="0.05" value="0.3"> <b id="debrisV">0.30</b></span></div>
-  <div><span class="it">포그 <input id="fog" type="range" min="0" max="0.05" step="0.0005" value="0.0105"> <b id="fogV">0.0105</b> <input id="fogC" type="color" value="#414a5e"></span></div>
-  <div><span class="it">AO <button id="aoBtn">켜짐</button></span> <span class="it">강도 <input id="aoK" type="range" min="0" max="4" step="0.1" value="1.8"> <b id="aoKv">1.8</b></span> <button id="aoWhite">흰색 보기</button></div>
-  <div><span class="it">주광 <input id="moonI" type="range" min="0" max="20" step="0.1" value="1.5"> <b id="moonIV">1.50</b> <input id="moonC" type="color" value="#9aaad0"></span></div>
-  <div><span class="it">소리 <input id="vol" type="range" min="0" max="1" step="0.05" value="0.5"> <b id="volV">0.50</b></span></div>
+  <div><button id="mapEditBtn">맵 편집 모드</button> <button id="decalEditBtn">데칼 편집 모드</button> <button id="mapBtn">맵 셋팅</button></div>
+  <div class="wg">
+    <span><span>비</span><input id="rainA" type="range" min="0" max="2" step="0.05" value="0"><span><b id="rainAV">0.00</b></span></span>
+    <span><span>모래</span><input id="sandA" type="range" min="0" max="2" step="0.05" value="0"><span><b id="sandAV">0.00</b> <input id="sandC" type="color" value="#c8a070"></span></span>
+    <span><span>번개</span><input id="boltA" type="range" min="0" max="2" step="0.05" value="0"><span><b id="boltAV">0.00</b></span></span>
+    <span><span>바람</span><input id="wind" type="range" min="0" max="5" step="0.05" value="1"><span><b id="windV">1.00</b></span></span>
+    <span><span>방향</span><input id="windDir" type="range" min="0" max="360" step="5" value="215"><span><b id="windDirV">215°</b></span></span>
+    <span><span>먼지</span><input id="debris" type="range" min="0" max="4" step="0.05" value="0.3"><span><b id="debrisV">0.30</b></span></span>
+    <span><span>포그</span><input id="fog" type="range" min="0" max="0.05" step="0.0005" value="0.0105"><span><b id="fogV">0.0105</b> <input id="fogC" type="color" value="#414a5e"></span></span>
+    <span><span>주광</span><input id="moonI" type="range" min="0" max="20" step="0.1" value="1.5"><span><b id="moonIV">1.50</b> <input id="moonC" type="color" value="#9aaad0"></span></span>
+    <span><span>AO <button id="aoBtn">켜짐</button></span><input id="aoK" type="range" min="0" max="4" step="0.1" value="1.8"><span><b id="aoKv">1.8</b> <button id="aoWhite">흰색 보기</button></span></span>
+    <span><span>소리</span><input id="vol" type="range" min="0" max="1" step="0.05" value="0.5"><span><b id="volV">0.50</b></span></span>
+  </div>
+  <div class="grp">카메라 <span id="camScr"></span> <button id="camSlReset">초기화</button></div>
+  <div class="wg" id="camSl"></div>
   <div class="grp">성장 테스트</div>
-  <div><button id="tDropGold">골드 보급품 떨구기</button> <button id="tDropRepair">수리 보급품 떨구기</button> <button id="tDropEnemy1">적 탱크 레벨1</button> <button id="tDropEnemy2">적 탱크 레벨2</button> <button id="tDropEnemy3">적 탱크 레벨3</button> <button id="tDropSpg">적 자주포</button> <button id="tDropJeep">적 지프</button></div>
-  <div><button id="gOffer">성장 선택지 표시</button> <button id="gReroll">선택지 다시 고르기</button> <button id="gRand10">10레벨 무작위 성장</button> <button id="gReset">성장 초기화</button> <button id="aiBtn">적 AI 표시 꺼짐</button> <button id="aiStopBtn">적 AI 정지 꺼짐</button> <button id="dbgDie">내 탱크 파괴</button> <button id="dbgWipe">적군 섬멸</button> <button id="dbgKill1">적 1대 물리침</button> <button id="gLog">고른 성장 목록</button> <button id="gMgAdd">기관총 추가</button></div>
+  <div><button id="tDropGold">골드 보급품 떨구기</button> <button id="tDropRepair">수리 보급품 떨구기</button> <button id="tDropEnemy1" class="foe">적 탱크 레벨1</button> <button id="tDropEnemy2" class="foe">적 탱크 레벨2</button> <button id="tDropEnemy3" class="foe">적 탱크 레벨3</button> <button id="tDropSpg" class="foe">적 자주포</button> <button id="tDropJeep" class="foe">적 지프</button>
+       <button id="gGod">무적 꺼짐</button> <button id="gOffer">성장 선택지 표시</button> <button id="gReroll">선택지 다시 고르기</button> <button id="gRand10">10레벨 무작위 성장</button> <button id="gReset">성장 초기화</button> <button id="aiBtn">적 AI 표시 꺼짐</button> <button id="aiStopBtn">적 AI 정지 꺼짐</button> <button id="dbgDie">내 탱크 파괴</button> <button id="dbgWipe">적군 섬멸</button> <button id="dbgKill1">적 1대 물리침</button> <button id="gLog">고른 성장 목록</button> <button id="gMgAdd">기관총 추가</button></div>
   <div id="pickLog" style="display:none"></div>
   <table class="sl">
     <tr><td>대포 재장전</td><td><input id="gReload" type="range" step="0.1"></td><td><b id="gReloadV"></b></td></tr>
@@ -130,10 +147,11 @@
 </div>
 <script>
   // 버전·빌드 시각: 여기 한 곳만 고치면 로딩 화면과 설정 메뉴에 같이 나온다
-  const VERSION = '0.8.076', BUILD = '2026-11-12', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
+  const VERSION = '0.8.078', BUILD = '2026-11-12', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
   for (const e of document.querySelectorAll('.ver')) e.textContent = BUILD_TXT;
 </script>
 <canvas id="perfHud" style="display:none"></canvas>
+<div id="hudGrip"></div>
 <div id="touchUI" style="display:none">
   <div id="stick"><div id="knob"></div></div>
   <div id="tright"><button id="tTL">◀</button><button id="tTR">▶</button><button id="tUp">▲</button><button id="tDown">▼</button><button id="tFire">발사</button><button id="tFix">세우기</button></div>

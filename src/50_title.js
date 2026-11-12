@@ -13,7 +13,7 @@ showPlayHud(false);
 let titleHideT = 0, titleFadeTh = 0, titleFadeF = 0, titleFadeQ = 0;   // titleFadeTh: 타이틀 그림을 지운 정도 (4x4 디더링 0~16)
 const TITLE_FADE = 0.8;   // 시작할 때 타이틀 그림이 사라지는 시간 (초)
 if (titleState === 'title') controls.enabled = false; else titleEl.style.display = 'none';
-// 설정 메뉴 '타이틀 화면으로': 내 탱크 상태(위치·체력·골드·성장·카메라)를 처음으로 되돌리고 타이틀로 (적은 그대로 두고 멈춘다)
+// 타이틀로 돌아가기 (설정 메뉴 버튼은 뺐다. 콘솔에서 goTitle()): 내 탱크 상태(위치·체력·골드·성장·카메라)를 처음으로 되돌리고 타이틀로 (적은 그대로 두고 멈춘다)
 function resetPlayer() {
   resetGrowth(); cancelOffer(); gold = 0;
   Object.assign(tank, { hp: tank.maxHp, cool: 0, elev: INIT_ELEV, tyaw: 0, tvel: 0, tsnap: false, recoil: 0, hop: null, falling: false, solid: true, vy: 0, sL: 0, sR: 0, yawCmd: 0, dL: 0, dR: 0 });
@@ -32,7 +32,6 @@ function goTitle() {
   layoutTitle();
   buildTitleDeco();
 }
-document.getElementById('toTitle').onclick = (e) => { goTitle(); e.target.blur(); };
 // 설정 메뉴 '적 AI 정지': 모든 적이 그 자리에 멈춘다 (움직임·사격·증원 모두. 떨어지던 것은 마저 떨어진다)
 let aiFrozen = false;
 function setAiFrozen(on) { aiFrozen = on; document.getElementById('aiStopBtn').textContent = on ? '적 AI 정지 켜짐' : '적 AI 정지 꺼짐'; }   // 버튼 글자도 같이
@@ -194,7 +193,7 @@ addEventListener('keydown', (e) => {
   startGame();
 }, true);
 addEventListener('pointerdown', (e) => {   // 클릭·터치는 게임에 가지 않고 소리만 켠다 (시작은 SPACE로만)
-  if (titleState !== 'title' || e.target.closest('#hud') || decalMode || paused) return;   // 데칼 편집 중엔 카메라 돌리기·고르기로. 메뉴 창이 떠 있으면 창 클릭으로
+  if (titleState !== 'title' || e.target.closest('#hud, #hudGrip') || decalMode || paused) return;   // 데칼 편집 중엔 카메라 돌리기·고르기로. 메뉴 창이 떠 있으면 창 클릭으로
   setInputPad(false);
   e.stopImmediatePropagation();
   sfx.unlock();

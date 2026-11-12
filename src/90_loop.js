@@ -344,7 +344,7 @@ function frame() {
 
   frames++; acc += dt;
   if (acc > 0.5) {
-    statsEl.textContent = `${Math.round(frames / acc)} fps · ${rt.width}x${rt.height} · 광원 ${lightCount} · draw ${calls} · tri ${(tris / 1000).toFixed(0)}k`;
+    statsEl.textContent = `${Math.round(frames / acc)} fps · ${rt.width}x${rt.height} (${innerWidth}x${innerHeight}) · 광원 ${lightCount} · draw ${calls} · tri ${(tris / 1000).toFixed(0)}k`;
     frames = 0; acc = 0;
   }
   if (suspendAfterFrame) { suspendAfterFrame = false; if (!document.hasFocus() || document.hidden) suspend(); }   // 지금도 포커스가 없을 때만

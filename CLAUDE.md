@@ -164,7 +164,7 @@ _promo/             ← 소개용 스크린샷·문구 (배포 안 함)
 - 끊김 기록(`perfFrame`, 콘솔 `[끊김]`): 프레임 JS 전체 시간·그리기·새 셰이더 수·오래 걸린 단계·해상도·GPU 이름.
 - 미리보기 창이 가려져 있으면 rAF가 거의 돌지 않는다. 시험할 때는 `src/90_loop.js`에 임시로 `window.__frame = frame` 같은 훅을 넣고 빌드해서 루프를 직접 돌린 뒤, **끝나면 반드시 지우고 다시 빌드**한다.
 - 디버그: `window.dbg` (`dbg.tank`, `dbg.setOffer([...id])`, `dbg.setOfferRaw`, `dbg.offerPad`, `dbg.offerFreeze`, `dbg.holdPick`, `dbg.showClear`, `dbg.showPause`, `dbg.fillPickLog(n)`, `dbg.uiShot()` = HUD+UI를 게임 해상도 PNG data URL로).
-- 설정 메뉴(~ 키, Shift+`): 성장 선택지 표시, 10레벨 무작위 성장, 내 탱크 파괴, 적군 섬멸, 타이틀 화면으로 등.
+- 설정 메뉴(~ 키, Shift+`): 성장 선택지 표시, 10레벨 무작위 성장, 무적(`godMode`), 내 탱크 파괴, 적군 섬멸, 카메라·DOF 게이지(`CAM_ROWS`: 지금 화면 `camScr()` = 타이틀 title.camera·플레이 camera·임무 완료 `CLR_CAM`의 값을 바꾼다. 그 화면에 없는 값은 비활성, [초기화]는 세 화면 모두) 등 (타이틀로는 콘솔 `goTitle()`). 게이지 묶음은 `.wg`(이름·게이지·값, 메뉴 폭이 좁으면 `.one` = 1단), 크기는 우하단 `#hudGrip`을 끌어서 (`MightyMolly.dbgSize`에 기억).
 - '새로 시작'은 `sessionStorage['MightyMolly.skipTitle']`로 타이틀을 건너뛴다 (시험할 때도 유용).
 
 ## 게임패드

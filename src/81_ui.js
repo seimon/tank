@@ -168,7 +168,7 @@ const uiAt = (e) => { const p = crtPoint(e.clientX, e.clientY); return { x: (p.x
 const uiPick = (p) => { for (let i = UI.hits.length - 1; i >= 0; i--) { const r = UI.hits[i]; if (p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h) return r.id; } return null; };
 // passive 화면 (게임을 계속하는 동안 뜨는 것): 화면을 덮지 않고, 누른 곳이 항목일 때만 가로챈다 (마우스·터치)
 addEventListener('pointerdown', (e) => {
-  if (!UI.screen || !UI.screen.passive || !UI.screen.click || e.target.closest?.('#hud')) return;
+  if (!UI.screen || !UI.screen.passive || !UI.screen.click || e.target.closest?.('#hud, #hudGrip')) return;
   const id = uiPick(uiAt(e));
   if (id) { e.stopImmediatePropagation(); e.preventDefault(); if (UI.screen.win) sfx.ui('button'); UI.screen.click(id); }
 }, true);
@@ -385,7 +385,7 @@ const deadUI = {
 };
 // 임무 완료: 창 없이 좌상단에 (화면 가장자리에서 위·왼쪽 CLR_M칸). 큰 제목 / 항목 이름 + 값 (한 줄씩, 왼쪽 맞춤) / 버튼 세로로.
 // 작전 정보처럼 한 글자씩 나타난다 (타자 소리, 빠르기 mission.typeSpeed). 버튼은 앞 줄이 다 나오면 하나씩 통째로. 시작은 clear.textDelay초 뒤 (52_clear.js)
-const CLR_M = 14, CLR_BTN_GAP = 4, CLR_BTN_N = 4;   // 가장자리 여백, 버튼 사이, 버튼 하나를 글자 몇 개 시간으로 칠지
+const CLR_M = 14, CLR_BTN_GAP = 4, CLR_BTN_N = 4, CLR_GAP = '  ';   // 가장자리 여백, 버튼 사이, 버튼 하나를 글자 몇 개 시간으로 칠지, 항목 이름과 값 사이 (빈칸 두 개)
 const clearUI = {
   win: true, passive: true, info: { kills: 20, jeeps: 0, time: 0, lv: 0, bunkers: 0, bunkerAll: 0 }, t: 0, shown: -1,
   reset() { this.t = -(CFG.clear?.textDelay ?? 1); this.shown = -1; },
@@ -395,8 +395,8 @@ const clearUI = {
     // 걸린 시간: 1분 미만이면 '00.0초', 넘으면 '00분 00.0초' (최대 999분 59.9초). 0.1초 단위로 먼저 끊어 59.95초가 '60.0초'로 올라가지 않게
     const ds = Math.min(999 * 600 + 599, Math.floor((I.time || 0) * 10)), mm = Math.floor(ds / 600), ss = ((ds % 600) / 10).toFixed(1).padStart(4, '0');
     const time = mm > 0 ? `${String(mm).padStart(2, '0')}분 ${ss}초` : `${ss}초`;
-    const tal = (lab, n) => n > 0 ? { parts: [[lab, ENDC.txt]], tally: n } : { parts: [[lab, ENDC.txt], [' 0', ENDC.clear]] };
-    const val = (lab, v, pad) => ({ parts: [[lab, ENDC.txt], [' ' + v, ENDC.clear]], pad });
+    const tal = (lab, n) => n > 0 ? { parts: [[lab, ENDC.txt]], tally: n } : { parts: [[lab, ENDC.txt], [CLR_GAP + '0', ENDC.clear]] };
+    const val = (lab, v, pad) => ({ parts: [[lab, ENDC.txt], [CLR_GAP + v, ENDC.clear]], pad });
     const L = [{ big: true, parts: [['임무 완료', ENDC.clear]] }, { big: true, parts: [[time, ENDC.txt]] },
       tal('격파한 전차', I.kills), tal('격파한 지프', I.jeeps)];
     if (I.bunkerAll > 0) L.push(tal('격파한 벙커', I.bunkers));   // 맵에 벙커가 없으면 빼고
@@ -434,7 +434,7 @@ const clearUI = {
         if (!part) break;
         x = l.big ? ui.textK(part, x, y, 2, col) : ui.text(part, x, y, col);
       }
-      if (l.tally && left > 0) { const n = Math.min(l.tally, left); this.tally(ui, x + 5, y + 1, n, ENDC.clear); }
+      if (l.tally && left > 0) { const n = Math.min(l.tally, left); this.tally(ui, x + 5 + gfWidth(' ') + 1, y + 1, n, ENDC.clear); }   // (한 칸 더 띄움: 값 글자와 맞춘다)
       left -= l.tally || 0;
       y += l.big ? 30 : GF_LINE;   // 제목 아래 (창에서와 같은 간격)
     }

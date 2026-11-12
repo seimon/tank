@@ -186,7 +186,7 @@ function faceAt(T, p) {
 // 탱크 대미지: 맞은 면의 방어력(쏜 탱크의 관통탄만큼 깎이고 0 아래로는 안 내려감)과 장갑 강화를 곱한 뒤 소수점 버림.
 // face가 없으면 방어력 무시 (충돌 공격)
 function damageTank(T, raw, face, src, kind) {
-  if (!T.solid || rulesLocked()) { dmgFromP = null; dmgCrit = false; return 0; }   // 섬멸 창 동안은 맞아도 폭발·소리만 나고 체력은 그대로
+  if (!T.solid || rulesLocked() || (T === tank && godMode)) { dmgFromP = null; dmgCrit = false; return 0; }   // 섬멸 창 동안(또는 설정 메뉴 '무적'인 내 탱크)은 맞아도 폭발·소리만 나고 체력은 그대로
   const pierce = (src && src.pierce) || 0, mgPierce = kind !== 'mg' || (src && src.apMg);   // 관통탄은 포탄만 (기관총은 '철갑 기관총' 조합이 있어야)
   const a = face ? Math.max(0, (T.armor[face] ?? 0) - (mgPierce ? pierce : 0)) : 0;
   const d = Math.floor(raw * (1 - a) * (T.armorM || 1) + 1e-6);

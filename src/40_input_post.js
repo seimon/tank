@@ -529,6 +529,9 @@ for (const [id, min, max, apply] of mgSl) { const el = document.getElementById(i
 document.getElementById('gMgAdd').onclick = (e) => { UP_FX.mg.apply(); dbgSync(); e.target.blur(); };   // 기관총 하나 더 (최대 2정)
 document.getElementById('gRegen').oninput = (e) => { tank.regen = +e.target.value; document.getElementById('gRegenV').textContent = `${tank.regen}`; };
 document.getElementById('gRegen').onchange = (e) => e.target.blur();
+// 무적: 내 탱크가 맞아도 체력이 줄지 않는다 (damageTank)
+let godMode = false;
+document.getElementById('gGod').onclick = (e) => { godMode = !godMode; e.target.textContent = godMode ? '무적 켜짐' : '무적 꺼짐'; e.target.blur(); };
 // 설정 메뉴 버튼·게이지 상태 맞추기 (메뉴가 열려 있을 때 0.2초마다): 할 수 없는 것은 흐리게
 function dbgSync() {
   const mg = tank.mg, n = mg ? mg.count : 0;
@@ -831,7 +834,9 @@ Object.assign(window.dbg, { U, ballHit, cliffG, mainRoadX, addScorchDecal, reset
 // 카메라는 탱크 뒤에서 시작해 탱크를 따라 이동. 마우스로 자유롭게 돌릴 수 있다.
 // 화면 가운데에는 탱크가 아니라 탱크가 바라보는 쪽 9m 앞을 둔다: 기본 시점에서 탱크는 화면 세로 2/3쯤 아래에 보이고
 // 앞이 넓게 보인다. 바라보는 쪽 = 포탑이 겨눈 방향(기본) 또는 차체 앞 (HUD 토글). 탱크·포탑이 돌면 부드럽게 따라 돈다
-const CC = CFG.camera, CAM_LEAD = CC.lead, CAM_YAW = CC.yaw * DEG, camLead = new THREE.Vector3(), _cf = new THREE.Vector3(), _cl2 = new THREE.Vector3();
+const CC = CFG.camera;
+let CAM_LEAD = CC.lead, CAM_YAW = CC.yaw * DEG;   // (설정 메뉴 카메라 게이지로 바꿀 수 있게 let)
+const camLead = new THREE.Vector3(), _cf = new THREE.Vector3(), _cl2 = new THREE.Vector3();
 // 보는 방향 기준: 'auto' 자동(키보드 = 포탑, 게임패드 = 차체) · 'hull' 차체 방향 · 'turret' 포탑 방향. 고른 것은 localStorage에 기억
 const CAM_MODES = ['auto', 'hull', 'turret'], CAM_MODE_KO = { auto: '자동', hull: '차체 방향', turret: '포탑 방향' };
 let camMode = 'auto';
@@ -916,5 +921,95 @@ function followYaw(dt) {
   camYaw += step;
   _tmp.copy(camera.position).sub(controls.target).applyAxisAngle(UP, step);
   camera.position.copy(controls.target).add(_tmp);
+}
+// 설정 메뉴 '카메라': 지금 화면(타이틀·플레이·임무 완료)의 카메라·아웃포커싱 값을 바로 바꿔 본다 (config에는 저장하지 않음).
+// 화면마다 따로: 타이틀 = config title.camera, 플레이 = camera, 임무 완료 = clear.camera (매 프레임 읽으니 바로 보인다). 그 화면에 없는 값은 게이지를 끈다.
+// [이름, 최소, 최대, 단계, 값 글자, 읽기(화면) → 값 또는 undefined(없음), 쓰기(화면, 값)]
+const camScr = () => clearSeq ? 'clear' : titleK < 1 ? 'title' : 'play';
+const CAM_SCR_KO = { title: '타이틀', play: '플레이', clear: '임무 완료' };
+const titleCamCfg = () => TT.camera || (TT.camera = {});
+const camCfg = (m) => m === 'title' ? titleCamCfg() : m === 'clear' ? CLR_CAM : CC;
+const CAM_DEF = { title: { fov: 30, distance: 16, pitch: 8, yaw: 65 } };   // 타이틀 카메라에서 config에 없을 때 (50_title.js와 같은 값)
+const camGet = (k) => (m) => { const c = camCfg(m); return c[k] ?? CAM_DEF[m]?.[k]; };
+const camReCam = () => { if (camScr() === 'play') resetCamera(); };   // 플레이: 거리·각도는 기본 자리로 바로 옮겨 보여 준다
+const CAM_ROWS = [
+  ['시야각', 10, 90, 1, (v) => `${v}°`, camGet('fov'), (m, v) => {
+    camCfg(m).fov = v;
+    if (m === 'play' && titleK >= 1 && !clearSeq) { camera.fov = v; camera.updateProjectionMatrix(); U.uPointScale.value = lowH / (2 * Math.tan(v * DEG / 2)); }
+  }],
+  ['거리', 5, 100, 0.5, (v) => `${v.toFixed(1)}m`, camGet('distance'), (m, v) => { camCfg(m).distance = v; if (m === 'play') camReCam(); }],
+  ['내려다봄', -10, 85, 0.5, (v) => `${v.toFixed(1)}°`, camGet('pitch'), (m, v) => { camCfg(m).pitch = v; if (m === 'play') camReCam(); }],
+  ['방향', -180, 180, 1, (v) => `${v}°`, camGet('yaw'), (m, v) => { camCfg(m).yaw = v; if (m === 'play') { CAM_YAW = v * DEG; camReCam(); } }],
+  ['높이', 0, 6, 0.1, (v) => `${v.toFixed(1)}m`, (m) => m === 'play' ? undefined : camCfg(m).height ?? (m === 'title' ? 2 : 1.4), (m, v) => { camCfg(m).height = v; }],   // 화면 가운데를 탱크보다 이만큼 위로 (타이틀·임무 완료)
+  ['앞으로', 0, 30, 0.5, (v) => `${v.toFixed(1)}m`, (m) => m === 'play' ? CAM_LEAD : undefined, (m, v) => { CAM_LEAD = CC.lead = v; }],
+  ['따라 돎', 0, 10, 0.1, (v) => v.toFixed(1), (m) => m === 'play' ? CC.follow : undefined, (m, v) => { CC.follow = v; }],
+  ['DOF 세기', 0, 1, 0.05, (v) => v.toFixed(2), (m) => DOF[m], (m, v) => { DOF[m] = v; }],   // 화면마다 따로 (config screen.dof의 title·play·clear)
+  ['DOF range', 0, 40, 0.5, (v) => `${v.toFixed(1)}m`, () => DOF.range, (m, v) => { DOF.range = postMat.uniforms.uFocusR.value = v; }],
+  ['DOF fall', 1, 100, 1, (v) => `${v}m`, () => DOF.fall, (m, v) => { DOF.fall = postMat.uniforms.uFocusF.value = v; }],
+  ['DOF px', 0, 8, 0.1, (v) => v.toFixed(1), () => DOF.px, (m, v) => { DOF.px = postMat.uniforms.uDofPx.value = v; }],
+];
+const camSl = [];   // { it, el, val, row }
+let camSlScr = null, camSlInit = null;   // 게이지가 지금 보여 주는 화면, 처음 값 (화면마다. 처음 맞출 때 한 번 읽는다: CLR_CAM은 뒤 파일)
+for (const row of CAM_ROWS) {
+  const [name, min, max, step, fmt, , set] = row;
+  const it = document.createElement('span'), lab = document.createElement('span'), el = document.createElement('input'), val = document.createElement('b'), vs = document.createElement('span');
+  lab.textContent = name; el.type = 'range'; el.min = min; el.max = max; el.step = step;
+  el.oninput = () => { if (camSlScr) { set(camSlScr, +el.value); val.textContent = fmt(+el.value); } };
+  el.onchange = () => el.blur();
+  vs.append(val); it.append(lab, el, vs); document.getElementById('camSl').append(it);
+  camSl.push({ it, el, val, row });
+}
+// 게이지를 지금 화면 값으로 (메뉴가 열려 있을 때 0.25초마다 보고, 화면이 바뀌었으면). 그 화면에 없는 값은 끈다
+function camSlSync(force) {
+  if (!camSlInit) { camSlInit = {}; for (const m of ['title', 'play', 'clear']) camSlInit[m] = CAM_ROWS.map((r) => r[5](m)); }
+  const m = camScr();
+  if (m === camSlScr && !force) return;
+  camSlScr = m;
+  document.getElementById('camScr').textContent = `(${CAM_SCR_KO[m]})`;
+  for (const { it, el, val, row } of camSl) {
+    const v = row[5](m), off = v === undefined;
+    el.disabled = off; it.classList.toggle('off', off);
+    if (!off) el.value = v;
+    val.textContent = off ? '-' : row[4](+el.value);
+  }
+}
+// 초기화: 세 화면 모두 처음 값으로 되돌린다
+document.getElementById('camSlReset').onclick = (e) => {
+  camSlSync();
+  for (const m of ['title', 'play', 'clear']) CAM_ROWS.forEach((r, i) => { if (camSlInit[m][i] !== undefined) r[6](m, camSlInit[m][i]); });
+  camSlSync(true);
+  e.target.blur();
+};
+setInterval(() => { if (hudEl.style.display === 'block') camSlSync(); }, 250);
+// 설정 메뉴 크기: 우하단 핸들(#hudGrip)을 끌어 바꾼다 (기억해 둔다). 게이지 묶음은 메뉴 폭이 좁으면 1단
+{
+  const hud = document.getElementById('hud'), grip = document.getElementById('hudGrip'), groups = hud.querySelectorAll('.wg');
+  try { const z = JSON.parse(localStorage.getItem('MightyMolly.dbgSize')); if (z && z.w > 100 && z.h > 100) { hud.style.width = z.w + 'px'; hud.style.height = z.h + 'px'; hud.style.boxSizing = 'border-box'; } } catch (_) {}
+  const place = () => {
+    const r = hud.getBoundingClientRect(), on = r.width > 0;
+    grip.style.display = on ? 'block' : 'none';
+    if (!on) return;
+    grip.style.left = (r.right - 8) + 'px'; grip.style.top = (r.bottom - 8) + 'px';   // (귀퉁이에 반쯤 걸쳐: 스크롤바와 겹치지 않게)
+    const one = hud.clientWidth < 620;   // 2단(이름·게이지·값 × 2)이 들어가지 않는 폭
+    for (const g of groups) g.classList.toggle('one', one);
+  };
+  new ResizeObserver(place).observe(hud);
+  addEventListener('resize', place);
+  let drag = null;
+  grip.addEventListener('pointerdown', (e) => {
+    const r = hud.getBoundingClientRect();
+    drag = { x: e.clientX, y: e.clientY, w: r.width, h: r.height }; grip.setPointerCapture(e.pointerId); e.preventDefault();
+  });
+  grip.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const w = Math.max(240, Math.min(innerWidth - 20, drag.w + e.clientX - drag.x)), h = Math.max(160, Math.min(innerHeight - 20, drag.h + e.clientY - drag.y));
+    hud.style.maxWidth = hud.style.maxHeight = 'none';
+    hud.style.width = w + 'px'; hud.style.height = h + 'px'; hud.style.boxSizing = 'border-box';
+  });
+  const end = () => {
+    if (!drag) return; drag = null;
+    try { localStorage.setItem('MightyMolly.dbgSize', JSON.stringify({ w: hud.offsetWidth, h: hud.offsetHeight })); } catch (_) {}
+  };
+  grip.addEventListener('pointerup', end); grip.addEventListener('pointercancel', end);
 }
 

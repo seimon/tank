@@ -23,7 +23,21 @@
   #hudBody { display: flex; flex-direction: column; gap: 2px; }
   #hudBody > div { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
   #hud button:disabled { opacity: .4; }
-  #hud table.sl { border-collapse: collapse; } #hud table.sl td { padding: 0 4px 0 0; white-space: nowrap; }
+  #hud table.sl { border-collapse: collapse; align-self: flex-start; } #hud table.sl td { padding: 0 4px 0 0; white-space: nowrap; }   /* (flex 안에서 늘어나면 칸 사이가 벌어진다) */
+  #hud table.sl input[type=range] { width: 260px; }   /* 성장 테스트 게이지: 기본의 2배 */
+  /* 게이지 묶음 (.wg): 이름 | 게이지 | 값 세 칸씩, 좌우 2단 (메뉴 폭이 좁으면 .one = 1단. 40_input_post.js가 메뉴 크기를 보고 정한다) */
+  #hud .wg { display: grid; grid-template-columns: repeat(2, max-content max-content max-content); align-items: center; gap: 2px 4px; justify-content: start; }
+  #hud .wg.one { grid-template-columns: max-content max-content max-content; }
+  #hud .wg > span { display: contents; }
+  #hud .wg > span > * { white-space: nowrap; }
+  #hud .wg:not(.one) > span:nth-child(even) > :first-child { margin-left: 16px; }   /* 오른쪽 단 앞 간격 */
+  #hud .wg input[type=range] { width: 130px; }
+  #hud .wg > span.off > * { opacity: .35; }   /* 지금 화면에서는 쓰지 않는 값 */
+  #hud button.foe { background: #8a3326; color: #ffe6dc; border: 1px solid #c25a46; border-radius: 2px; padding: 1px 6px; }   /* 적 추가 버튼 */
+  #hud button.foe:active { background: #6a2419; }
+  /* 크기 조절 핸들 (우하단, 드래그). 메뉴가 스크롤돼도 늘 귀퉁이에 있게 따로 고정 */
+  #hudGrip { position: fixed; z-index: 7; width: 16px; height: 16px; cursor: nwse-resize; display: none; touch-action: none;
+             background: linear-gradient(135deg, transparent 50%, rgba(232, 220, 192, .7) 50%, rgba(232, 220, 192, .7) 60%, transparent 60%, transparent 70%, rgba(232, 220, 192, .7) 70%, rgba(232, 220, 192, .7) 80%, transparent 80%); }
   #loading { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
              background: #000; color: #fff; font: 14px monospace; z-index: 10; }
   #loadCv { position: fixed; left: 0; top: 0; }
@@ -89,28 +103,31 @@
 <div id="dmgFloat"></div>
 <div id="hud">
   <div style="display:flex; align-items:center; gap:8px; white-space:nowrap"><b style="color:#ffd25a">설정</b> <span style="opacity:.6">~ 키로 열고 닫기</span>
-       <span style="margin-left:auto; display:flex; gap:2px"><button id="toTitle">타이틀 화면으로</button><button id="camPanBtn">우클릭 카메라 이동 꺼짐</button><button id="camreset">카메라 초기화</button></span></div>
+       <span style="margin-left:auto; display:flex; gap:2px"><button id="perfBtn">성능 표시 꺼짐 (!)</button><button id="camPanBtn">우클릭 카메라 이동 꺼짐</button><button id="camreset">카메라 초기화</button></span></div>
   <div id="stats">-</div>
-  <div><button id="perfBtn">성능 표시 꺼짐 (!)</button></div>
   <div id="hudBody">
   <div>내 탱크 <b id="tankPos">-</b> <span style="opacity:.6">(config.js player.start와 같은 형식)</span></div>
   <div>해상도 <select id="res"><option>180</option><option>240</option><option selected>300</option><option>360</option><option>420</option><option value="max">최대</option></select>
        <button id="aaBtn">AA 꺼짐</button> <button id="ppBtn">Pixel Perfect 꺼짐</button> <button id="olBtn">외곽선 꺼짐</button> <button id="vfBtn">복셀 안개 꺼짐</button> <button id="grassBtn">풀: 텍스처2 (이삭 풀)</button> <button id="cbox">충돌박스</button> <button id="touchBtn">터치 버튼 꺼짐</button>
        <button id="camModeBtn">시점: 포탑 방향</button></div>
-  <div><button id="mapEditBtn">맵 편집 모드</button> <button id="decalEditBtn">데칼 편집 모드</button> <button id="mapBtn">맵 셋팅</button>
-       <span class="it">비 <input id="rainA" type="range" min="0" max="2" step="0.05" value="0"> <b id="rainAV">0.00</b></span>
-       <span class="it">모래 <input id="sandA" type="range" min="0" max="2" step="0.05" value="0"> <b id="sandAV">0.00</b> <input id="sandC" type="color" value="#c8a070"></span>
-       <span class="it">번개 <input id="boltA" type="range" min="0" max="2" step="0.05" value="0"> <b id="boltAV">0.00</b></span></div>
-  <div><span class="it">바람 <input id="wind" type="range" min="0" max="5" step="0.05" value="1"> <b id="windV">1.00</b></span>
-       <span class="it">방향 <input id="windDir" type="range" min="0" max="360" step="5" value="215"> <b id="windDirV">215°</b></span>
-       <span class="it">먼지 <input id="debris" type="range" min="0" max="4" step="0.05" value="0.3"> <b id="debrisV">0.30</b></span></div>
-  <div><span class="it">포그 <input id="fog" type="range" min="0" max="0.05" step="0.0005" value="0.0105"> <b id="fogV">0.0105</b> <input id="fogC" type="color" value="#414a5e"></span></div>
-  <div><span class="it">AO <button id="aoBtn">켜짐</button></span> <span class="it">강도 <input id="aoK" type="range" min="0" max="4" step="0.1" value="1.8"> <b id="aoKv">1.8</b></span> <button id="aoWhite">흰색 보기</button></div>
-  <div><span class="it">주광 <input id="moonI" type="range" min="0" max="20" step="0.1" value="1.5"> <b id="moonIV">1.50</b> <input id="moonC" type="color" value="#9aaad0"></span></div>
-  <div><span class="it">소리 <input id="vol" type="range" min="0" max="1" step="0.05" value="0.5"> <b id="volV">0.50</b></span></div>
+  <div><button id="mapEditBtn">맵 편집 모드</button> <button id="decalEditBtn">데칼 편집 모드</button> <button id="mapBtn">맵 셋팅</button></div>
+  <div class="wg">
+    <span><span>비</span><input id="rainA" type="range" min="0" max="2" step="0.05" value="0"><span><b id="rainAV">0.00</b></span></span>
+    <span><span>모래</span><input id="sandA" type="range" min="0" max="2" step="0.05" value="0"><span><b id="sandAV">0.00</b> <input id="sandC" type="color" value="#c8a070"></span></span>
+    <span><span>번개</span><input id="boltA" type="range" min="0" max="2" step="0.05" value="0"><span><b id="boltAV">0.00</b></span></span>
+    <span><span>바람</span><input id="wind" type="range" min="0" max="5" step="0.05" value="1"><span><b id="windV">1.00</b></span></span>
+    <span><span>방향</span><input id="windDir" type="range" min="0" max="360" step="5" value="215"><span><b id="windDirV">215°</b></span></span>
+    <span><span>먼지</span><input id="debris" type="range" min="0" max="4" step="0.05" value="0.3"><span><b id="debrisV">0.30</b></span></span>
+    <span><span>포그</span><input id="fog" type="range" min="0" max="0.05" step="0.0005" value="0.0105"><span><b id="fogV">0.0105</b> <input id="fogC" type="color" value="#414a5e"></span></span>
+    <span><span>주광</span><input id="moonI" type="range" min="0" max="20" step="0.1" value="1.5"><span><b id="moonIV">1.50</b> <input id="moonC" type="color" value="#9aaad0"></span></span>
+    <span><span>AO <button id="aoBtn">켜짐</button></span><input id="aoK" type="range" min="0" max="4" step="0.1" value="1.8"><span><b id="aoKv">1.8</b> <button id="aoWhite">흰색 보기</button></span></span>
+    <span><span>소리</span><input id="vol" type="range" min="0" max="1" step="0.05" value="0.5"><span><b id="volV">0.50</b></span></span>
+  </div>
+  <div class="grp">카메라 <span id="camScr"></span> <button id="camSlReset">초기화</button></div>
+  <div class="wg" id="camSl"></div>
   <div class="grp">성장 테스트</div>
-  <div><button id="tDropGold">골드 보급품 떨구기</button> <button id="tDropRepair">수리 보급품 떨구기</button> <button id="tDropEnemy1">적 탱크 레벨1</button> <button id="tDropEnemy2">적 탱크 레벨2</button> <button id="tDropEnemy3">적 탱크 레벨3</button> <button id="tDropSpg">적 자주포</button> <button id="tDropJeep">적 지프</button></div>
-  <div><button id="gOffer">성장 선택지 표시</button> <button id="gReroll">선택지 다시 고르기</button> <button id="gRand10">10레벨 무작위 성장</button> <button id="gReset">성장 초기화</button> <button id="aiBtn">적 AI 표시 꺼짐</button> <button id="aiStopBtn">적 AI 정지 꺼짐</button> <button id="dbgDie">내 탱크 파괴</button> <button id="dbgWipe">적군 섬멸</button> <button id="dbgKill1">적 1대 물리침</button> <button id="gLog">고른 성장 목록</button> <button id="gMgAdd">기관총 추가</button></div>
+  <div><button id="tDropGold">골드 보급품 떨구기</button> <button id="tDropRepair">수리 보급품 떨구기</button> <button id="tDropEnemy1" class="foe">적 탱크 레벨1</button> <button id="tDropEnemy2" class="foe">적 탱크 레벨2</button> <button id="tDropEnemy3" class="foe">적 탱크 레벨3</button> <button id="tDropSpg" class="foe">적 자주포</button> <button id="tDropJeep" class="foe">적 지프</button>
+       <button id="gGod">무적 꺼짐</button> <button id="gOffer">성장 선택지 표시</button> <button id="gReroll">선택지 다시 고르기</button> <button id="gRand10">10레벨 무작위 성장</button> <button id="gReset">성장 초기화</button> <button id="aiBtn">적 AI 표시 꺼짐</button> <button id="aiStopBtn">적 AI 정지 꺼짐</button> <button id="dbgDie">내 탱크 파괴</button> <button id="dbgWipe">적군 섬멸</button> <button id="dbgKill1">적 1대 물리침</button> <button id="gLog">고른 성장 목록</button> <button id="gMgAdd">기관총 추가</button></div>
   <div id="pickLog" style="display:none"></div>
   <table class="sl">
     <tr><td>대포 재장전</td><td><input id="gReload" type="range" step="0.1"></td><td><b id="gReloadV"></b></td></tr>
@@ -131,10 +148,11 @@
 </div>
 <script>
   // 버전·빌드 시각: 여기 한 곳만 고치면 로딩 화면과 설정 메뉴에 같이 나온다
-  const VERSION = '0.8.076', BUILD = '2026-11-12', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
+  const VERSION = '0.8.078', BUILD = '2026-11-12', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
   for (const e of document.querySelectorAll('.ver')) e.textContent = BUILD_TXT;
 </script>
 <canvas id="perfHud" style="display:none"></canvas>
+<div id="hudGrip"></div>
 <div id="touchUI" style="display:none">
   <div id="stick"><div id="knob"></div></div>
   <div id="tright"><button id="tTL">◀</button><button id="tTR">▶</button><button id="tUp">▲</button><button id="tDown">▼</button><button id="tFire">발사</button><button id="tFix">세우기</button></div>
@@ -6895,6 +6913,9 @@ for (const [id, min, max, apply] of mgSl) { const el = document.getElementById(i
 document.getElementById('gMgAdd').onclick = (e) => { UP_FX.mg.apply(); dbgSync(); e.target.blur(); };   // 기관총 하나 더 (최대 2정)
 document.getElementById('gRegen').oninput = (e) => { tank.regen = +e.target.value; document.getElementById('gRegenV').textContent = `${tank.regen}`; };
 document.getElementById('gRegen').onchange = (e) => e.target.blur();
+// 무적: 내 탱크가 맞아도 체력이 줄지 않는다 (damageTank)
+let godMode = false;
+document.getElementById('gGod').onclick = (e) => { godMode = !godMode; e.target.textContent = godMode ? '무적 켜짐' : '무적 꺼짐'; e.target.blur(); };
 // 설정 메뉴 버튼·게이지 상태 맞추기 (메뉴가 열려 있을 때 0.2초마다): 할 수 없는 것은 흐리게
 function dbgSync() {
   const mg = tank.mg, n = mg ? mg.count : 0;
@@ -7197,7 +7218,9 @@ Object.assign(window.dbg, { U, ballHit, cliffG, mainRoadX, addScorchDecal, reset
 // 카메라는 탱크 뒤에서 시작해 탱크를 따라 이동. 마우스로 자유롭게 돌릴 수 있다.
 // 화면 가운데에는 탱크가 아니라 탱크가 바라보는 쪽 9m 앞을 둔다: 기본 시점에서 탱크는 화면 세로 2/3쯤 아래에 보이고
 // 앞이 넓게 보인다. 바라보는 쪽 = 포탑이 겨눈 방향(기본) 또는 차체 앞 (HUD 토글). 탱크·포탑이 돌면 부드럽게 따라 돈다
-const CC = CFG.camera, CAM_LEAD = CC.lead, CAM_YAW = CC.yaw * DEG, camLead = new THREE.Vector3(), _cf = new THREE.Vector3(), _cl2 = new THREE.Vector3();
+const CC = CFG.camera;
+let CAM_LEAD = CC.lead, CAM_YAW = CC.yaw * DEG;   // (설정 메뉴 카메라 게이지로 바꿀 수 있게 let)
+const camLead = new THREE.Vector3(), _cf = new THREE.Vector3(), _cl2 = new THREE.Vector3();
 // 보는 방향 기준: 'auto' 자동(키보드 = 포탑, 게임패드 = 차체) · 'hull' 차체 방향 · 'turret' 포탑 방향. 고른 것은 localStorage에 기억
 const CAM_MODES = ['auto', 'hull', 'turret'], CAM_MODE_KO = { auto: '자동', hull: '차체 방향', turret: '포탑 방향' };
 let camMode = 'auto';
@@ -7283,6 +7306,96 @@ function followYaw(dt) {
   _tmp.copy(camera.position).sub(controls.target).applyAxisAngle(UP, step);
   camera.position.copy(controls.target).add(_tmp);
 }
+// 설정 메뉴 '카메라': 지금 화면(타이틀·플레이·임무 완료)의 카메라·아웃포커싱 값을 바로 바꿔 본다 (config에는 저장하지 않음).
+// 화면마다 따로: 타이틀 = config title.camera, 플레이 = camera, 임무 완료 = clear.camera (매 프레임 읽으니 바로 보인다). 그 화면에 없는 값은 게이지를 끈다.
+// [이름, 최소, 최대, 단계, 값 글자, 읽기(화면) → 값 또는 undefined(없음), 쓰기(화면, 값)]
+const camScr = () => clearSeq ? 'clear' : titleK < 1 ? 'title' : 'play';
+const CAM_SCR_KO = { title: '타이틀', play: '플레이', clear: '임무 완료' };
+const titleCamCfg = () => TT.camera || (TT.camera = {});
+const camCfg = (m) => m === 'title' ? titleCamCfg() : m === 'clear' ? CLR_CAM : CC;
+const CAM_DEF = { title: { fov: 30, distance: 16, pitch: 8, yaw: 65 } };   // 타이틀 카메라에서 config에 없을 때 (50_title.js와 같은 값)
+const camGet = (k) => (m) => { const c = camCfg(m); return c[k] ?? CAM_DEF[m]?.[k]; };
+const camReCam = () => { if (camScr() === 'play') resetCamera(); };   // 플레이: 거리·각도는 기본 자리로 바로 옮겨 보여 준다
+const CAM_ROWS = [
+  ['시야각', 10, 90, 1, (v) => `${v}°`, camGet('fov'), (m, v) => {
+    camCfg(m).fov = v;
+    if (m === 'play' && titleK >= 1 && !clearSeq) { camera.fov = v; camera.updateProjectionMatrix(); U.uPointScale.value = lowH / (2 * Math.tan(v * DEG / 2)); }
+  }],
+  ['거리', 5, 100, 0.5, (v) => `${v.toFixed(1)}m`, camGet('distance'), (m, v) => { camCfg(m).distance = v; if (m === 'play') camReCam(); }],
+  ['내려다봄', -10, 85, 0.5, (v) => `${v.toFixed(1)}°`, camGet('pitch'), (m, v) => { camCfg(m).pitch = v; if (m === 'play') camReCam(); }],
+  ['방향', -180, 180, 1, (v) => `${v}°`, camGet('yaw'), (m, v) => { camCfg(m).yaw = v; if (m === 'play') { CAM_YAW = v * DEG; camReCam(); } }],
+  ['높이', 0, 6, 0.1, (v) => `${v.toFixed(1)}m`, (m) => m === 'play' ? undefined : camCfg(m).height ?? (m === 'title' ? 2 : 1.4), (m, v) => { camCfg(m).height = v; }],   // 화면 가운데를 탱크보다 이만큼 위로 (타이틀·임무 완료)
+  ['앞으로', 0, 30, 0.5, (v) => `${v.toFixed(1)}m`, (m) => m === 'play' ? CAM_LEAD : undefined, (m, v) => { CAM_LEAD = CC.lead = v; }],
+  ['따라 돎', 0, 10, 0.1, (v) => v.toFixed(1), (m) => m === 'play' ? CC.follow : undefined, (m, v) => { CC.follow = v; }],
+  ['DOF 세기', 0, 1, 0.05, (v) => v.toFixed(2), (m) => DOF[m], (m, v) => { DOF[m] = v; }],   // 화면마다 따로 (config screen.dof의 title·play·clear)
+  ['DOF range', 0, 40, 0.5, (v) => `${v.toFixed(1)}m`, () => DOF.range, (m, v) => { DOF.range = postMat.uniforms.uFocusR.value = v; }],
+  ['DOF fall', 1, 100, 1, (v) => `${v}m`, () => DOF.fall, (m, v) => { DOF.fall = postMat.uniforms.uFocusF.value = v; }],
+  ['DOF px', 0, 8, 0.1, (v) => v.toFixed(1), () => DOF.px, (m, v) => { DOF.px = postMat.uniforms.uDofPx.value = v; }],
+];
+const camSl = [];   // { it, el, val, row }
+let camSlScr = null, camSlInit = null;   // 게이지가 지금 보여 주는 화면, 처음 값 (화면마다. 처음 맞출 때 한 번 읽는다: CLR_CAM은 뒤 파일)
+for (const row of CAM_ROWS) {
+  const [name, min, max, step, fmt, , set] = row;
+  const it = document.createElement('span'), lab = document.createElement('span'), el = document.createElement('input'), val = document.createElement('b'), vs = document.createElement('span');
+  lab.textContent = name; el.type = 'range'; el.min = min; el.max = max; el.step = step;
+  el.oninput = () => { if (camSlScr) { set(camSlScr, +el.value); val.textContent = fmt(+el.value); } };
+  el.onchange = () => el.blur();
+  vs.append(val); it.append(lab, el, vs); document.getElementById('camSl').append(it);
+  camSl.push({ it, el, val, row });
+}
+// 게이지를 지금 화면 값으로 (메뉴가 열려 있을 때 0.25초마다 보고, 화면이 바뀌었으면). 그 화면에 없는 값은 끈다
+function camSlSync(force) {
+  if (!camSlInit) { camSlInit = {}; for (const m of ['title', 'play', 'clear']) camSlInit[m] = CAM_ROWS.map((r) => r[5](m)); }
+  const m = camScr();
+  if (m === camSlScr && !force) return;
+  camSlScr = m;
+  document.getElementById('camScr').textContent = `(${CAM_SCR_KO[m]})`;
+  for (const { it, el, val, row } of camSl) {
+    const v = row[5](m), off = v === undefined;
+    el.disabled = off; it.classList.toggle('off', off);
+    if (!off) el.value = v;
+    val.textContent = off ? '-' : row[4](+el.value);
+  }
+}
+// 초기화: 세 화면 모두 처음 값으로 되돌린다
+document.getElementById('camSlReset').onclick = (e) => {
+  camSlSync();
+  for (const m of ['title', 'play', 'clear']) CAM_ROWS.forEach((r, i) => { if (camSlInit[m][i] !== undefined) r[6](m, camSlInit[m][i]); });
+  camSlSync(true);
+  e.target.blur();
+};
+setInterval(() => { if (hudEl.style.display === 'block') camSlSync(); }, 250);
+// 설정 메뉴 크기: 우하단 핸들(#hudGrip)을 끌어 바꾼다 (기억해 둔다). 게이지 묶음은 메뉴 폭이 좁으면 1단
+{
+  const hud = document.getElementById('hud'), grip = document.getElementById('hudGrip'), groups = hud.querySelectorAll('.wg');
+  try { const z = JSON.parse(localStorage.getItem('MightyMolly.dbgSize')); if (z && z.w > 100 && z.h > 100) { hud.style.width = z.w + 'px'; hud.style.height = z.h + 'px'; hud.style.boxSizing = 'border-box'; } } catch (_) {}
+  const place = () => {
+    const r = hud.getBoundingClientRect(), on = r.width > 0;
+    grip.style.display = on ? 'block' : 'none';
+    if (!on) return;
+    grip.style.left = (r.right - 8) + 'px'; grip.style.top = (r.bottom - 8) + 'px';   // (귀퉁이에 반쯤 걸쳐: 스크롤바와 겹치지 않게)
+    const one = hud.clientWidth < 620;   // 2단(이름·게이지·값 × 2)이 들어가지 않는 폭
+    for (const g of groups) g.classList.toggle('one', one);
+  };
+  new ResizeObserver(place).observe(hud);
+  addEventListener('resize', place);
+  let drag = null;
+  grip.addEventListener('pointerdown', (e) => {
+    const r = hud.getBoundingClientRect();
+    drag = { x: e.clientX, y: e.clientY, w: r.width, h: r.height }; grip.setPointerCapture(e.pointerId); e.preventDefault();
+  });
+  grip.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const w = Math.max(240, Math.min(innerWidth - 20, drag.w + e.clientX - drag.x)), h = Math.max(160, Math.min(innerHeight - 20, drag.h + e.clientY - drag.y));
+    hud.style.maxWidth = hud.style.maxHeight = 'none';
+    hud.style.width = w + 'px'; hud.style.height = h + 'px'; hud.style.boxSizing = 'border-box';
+  });
+  const end = () => {
+    if (!drag) return; drag = null;
+    try { localStorage.setItem('MightyMolly.dbgSize', JSON.stringify({ w: hud.offsetWidth, h: hud.offsetHeight })); } catch (_) {}
+  };
+  grip.addEventListener('pointerup', end); grip.addEventListener('pointercancel', end);
+}
 
 // ===== src/50_title.js =====
 // ---------------------------------------------------------------- 타이틀 화면
@@ -7300,7 +7413,7 @@ showPlayHud(false);
 let titleHideT = 0, titleFadeTh = 0, titleFadeF = 0, titleFadeQ = 0;   // titleFadeTh: 타이틀 그림을 지운 정도 (4x4 디더링 0~16)
 const TITLE_FADE = 0.8;   // 시작할 때 타이틀 그림이 사라지는 시간 (초)
 if (titleState === 'title') controls.enabled = false; else titleEl.style.display = 'none';
-// 설정 메뉴 '타이틀 화면으로': 내 탱크 상태(위치·체력·골드·성장·카메라)를 처음으로 되돌리고 타이틀로 (적은 그대로 두고 멈춘다)
+// 타이틀로 돌아가기 (설정 메뉴 버튼은 뺐다. 콘솔에서 goTitle()): 내 탱크 상태(위치·체력·골드·성장·카메라)를 처음으로 되돌리고 타이틀로 (적은 그대로 두고 멈춘다)
 function resetPlayer() {
   resetGrowth(); cancelOffer(); gold = 0;
   Object.assign(tank, { hp: tank.maxHp, cool: 0, elev: INIT_ELEV, tyaw: 0, tvel: 0, tsnap: false, recoil: 0, hop: null, falling: false, solid: true, vy: 0, sL: 0, sR: 0, yawCmd: 0, dL: 0, dR: 0 });
@@ -7319,7 +7432,6 @@ function goTitle() {
   layoutTitle();
   buildTitleDeco();
 }
-document.getElementById('toTitle').onclick = (e) => { goTitle(); e.target.blur(); };
 // 설정 메뉴 '적 AI 정지': 모든 적이 그 자리에 멈춘다 (움직임·사격·증원 모두. 떨어지던 것은 마저 떨어진다)
 let aiFrozen = false;
 function setAiFrozen(on) { aiFrozen = on; document.getElementById('aiStopBtn').textContent = on ? '적 AI 정지 켜짐' : '적 AI 정지 꺼짐'; }   // 버튼 글자도 같이
@@ -7481,7 +7593,7 @@ addEventListener('keydown', (e) => {
   startGame();
 }, true);
 addEventListener('pointerdown', (e) => {   // 클릭·터치는 게임에 가지 않고 소리만 켠다 (시작은 SPACE로만)
-  if (titleState !== 'title' || e.target.closest('#hud') || decalMode || paused) return;   // 데칼 편집 중엔 카메라 돌리기·고르기로. 메뉴 창이 떠 있으면 창 클릭으로
+  if (titleState !== 'title' || e.target.closest('#hud, #hudGrip') || decalMode || paused) return;   // 데칼 편집 중엔 카메라 돌리기·고르기로. 메뉴 창이 떠 있으면 창 클릭으로
   setInputPad(false);
   e.stopImmediatePropagation();
   sfx.unlock();
@@ -8181,7 +8293,7 @@ function faceAt(T, p) {
 // 탱크 대미지: 맞은 면의 방어력(쏜 탱크의 관통탄만큼 깎이고 0 아래로는 안 내려감)과 장갑 강화를 곱한 뒤 소수점 버림.
 // face가 없으면 방어력 무시 (충돌 공격)
 function damageTank(T, raw, face, src, kind) {
-  if (!T.solid || rulesLocked()) { dmgFromP = null; dmgCrit = false; return 0; }   // 섬멸 창 동안은 맞아도 폭발·소리만 나고 체력은 그대로
+  if (!T.solid || rulesLocked() || (T === tank && godMode)) { dmgFromP = null; dmgCrit = false; return 0; }   // 섬멸 창 동안(또는 설정 메뉴 '무적'인 내 탱크)은 맞아도 폭발·소리만 나고 체력은 그대로
   const pierce = (src && src.pierce) || 0, mgPierce = kind !== 'mg' || (src && src.apMg);   // 관통탄은 포탄만 (기관총은 '철갑 기관총' 조합이 있어야)
   const a = face ? Math.max(0, (T.armor[face] ?? 0) - (mgPierce ? pierce : 0)) : 0;
   const d = Math.floor(raw * (1 - a) * (T.armorM || 1) + 1e-6);
@@ -9481,7 +9593,7 @@ const uiAt = (e) => { const p = crtPoint(e.clientX, e.clientY); return { x: (p.x
 const uiPick = (p) => { for (let i = UI.hits.length - 1; i >= 0; i--) { const r = UI.hits[i]; if (p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h) return r.id; } return null; };
 // passive 화면 (게임을 계속하는 동안 뜨는 것): 화면을 덮지 않고, 누른 곳이 항목일 때만 가로챈다 (마우스·터치)
 addEventListener('pointerdown', (e) => {
-  if (!UI.screen || !UI.screen.passive || !UI.screen.click || e.target.closest?.('#hud')) return;
+  if (!UI.screen || !UI.screen.passive || !UI.screen.click || e.target.closest?.('#hud, #hudGrip')) return;
   const id = uiPick(uiAt(e));
   if (id) { e.stopImmediatePropagation(); e.preventDefault(); if (UI.screen.win) sfx.ui('button'); UI.screen.click(id); }
 }, true);
@@ -9698,7 +9810,7 @@ const deadUI = {
 };
 // 임무 완료: 창 없이 좌상단에 (화면 가장자리에서 위·왼쪽 CLR_M칸). 큰 제목 / 항목 이름 + 값 (한 줄씩, 왼쪽 맞춤) / 버튼 세로로.
 // 작전 정보처럼 한 글자씩 나타난다 (타자 소리, 빠르기 mission.typeSpeed). 버튼은 앞 줄이 다 나오면 하나씩 통째로. 시작은 clear.textDelay초 뒤 (52_clear.js)
-const CLR_M = 14, CLR_BTN_GAP = 4, CLR_BTN_N = 4;   // 가장자리 여백, 버튼 사이, 버튼 하나를 글자 몇 개 시간으로 칠지
+const CLR_M = 14, CLR_BTN_GAP = 4, CLR_BTN_N = 4, CLR_GAP = '  ';   // 가장자리 여백, 버튼 사이, 버튼 하나를 글자 몇 개 시간으로 칠지, 항목 이름과 값 사이 (빈칸 두 개)
 const clearUI = {
   win: true, passive: true, info: { kills: 20, jeeps: 0, time: 0, lv: 0, bunkers: 0, bunkerAll: 0 }, t: 0, shown: -1,
   reset() { this.t = -(CFG.clear?.textDelay ?? 1); this.shown = -1; },
@@ -9708,8 +9820,8 @@ const clearUI = {
     // 걸린 시간: 1분 미만이면 '00.0초', 넘으면 '00분 00.0초' (최대 999분 59.9초). 0.1초 단위로 먼저 끊어 59.95초가 '60.0초'로 올라가지 않게
     const ds = Math.min(999 * 600 + 599, Math.floor((I.time || 0) * 10)), mm = Math.floor(ds / 600), ss = ((ds % 600) / 10).toFixed(1).padStart(4, '0');
     const time = mm > 0 ? `${String(mm).padStart(2, '0')}분 ${ss}초` : `${ss}초`;
-    const tal = (lab, n) => n > 0 ? { parts: [[lab, ENDC.txt]], tally: n } : { parts: [[lab, ENDC.txt], [' 0', ENDC.clear]] };
-    const val = (lab, v, pad) => ({ parts: [[lab, ENDC.txt], [' ' + v, ENDC.clear]], pad });
+    const tal = (lab, n) => n > 0 ? { parts: [[lab, ENDC.txt]], tally: n } : { parts: [[lab, ENDC.txt], [CLR_GAP + '0', ENDC.clear]] };
+    const val = (lab, v, pad) => ({ parts: [[lab, ENDC.txt], [CLR_GAP + v, ENDC.clear]], pad });
     const L = [{ big: true, parts: [['임무 완료', ENDC.clear]] }, { big: true, parts: [[time, ENDC.txt]] },
       tal('격파한 전차', I.kills), tal('격파한 지프', I.jeeps)];
     if (I.bunkerAll > 0) L.push(tal('격파한 벙커', I.bunkers));   // 맵에 벙커가 없으면 빼고
@@ -9747,7 +9859,7 @@ const clearUI = {
         if (!part) break;
         x = l.big ? ui.textK(part, x, y, 2, col) : ui.text(part, x, y, col);
       }
-      if (l.tally && left > 0) { const n = Math.min(l.tally, left); this.tally(ui, x + 5, y + 1, n, ENDC.clear); }
+      if (l.tally && left > 0) { const n = Math.min(l.tally, left); this.tally(ui, x + 5 + gfWidth(' ') + 1, y + 1, n, ENDC.clear); }   // (한 칸 더 띄움: 값 글자와 맞춘다)
       left -= l.tally || 0;
       y += l.big ? 30 : GF_LINE;   // 제목 아래 (창에서와 같은 간격)
     }
@@ -11150,7 +11262,7 @@ function frame() {
 
   frames++; acc += dt;
   if (acc > 0.5) {
-    statsEl.textContent = `${Math.round(frames / acc)} fps · ${rt.width}x${rt.height} · 광원 ${lightCount} · draw ${calls} · tri ${(tris / 1000).toFixed(0)}k`;
+    statsEl.textContent = `${Math.round(frames / acc)} fps · ${rt.width}x${rt.height} (${innerWidth}x${innerHeight}) · 광원 ${lightCount} · draw ${calls} · tri ${(tris / 1000).toFixed(0)}k`;
     frames = 0; acc = 0;
   }
   if (suspendAfterFrame) { suspendAfterFrame = false; if (!document.hasFocus() || document.hidden) suspend(); }   // 지금도 포커스가 없을 때만
