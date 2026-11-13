@@ -260,7 +260,7 @@ function updateWeather(dt) {
     const c0 = [sc.r * lk, sc.g * lk, sc.b * lk, 0.34], c1 = [sc.r * lk * 0.9, sc.g * lk * 0.9, sc.b * lk * 0.9, 0];
     for (WEATHER.sandAcc += dt * WEATHER.sand * wk * 26 * (0.3 + ws); WEATHER.sandAcc >= 1; WEATHER.sandAcc--) {
       const x = c.x + rr(-34, 34) - wd.x * 14, z = c.z + rr(-34, 34) - wd.y * 14;   // 바람 위쪽에서 생겨 화면을 가로질러 간다
-      if (Math.abs(x) > HALF - 1 || Math.abs(z) > HALF - 1) continue;
+      if (!inBoard(x, z, 1)) continue;
       const sp = rr(3, 6) * (0.4 + ws);
       smokeP.spawn(x, groundAt(x, z) + rr(0.1, 0.7), z, wd.x * sp + rr(-0.5, 0.5), rr(0, 0.35), wd.y * sp + rr(-0.5, 0.5), rr(2.6, 4.2), c0, c1, rr(2.2, 3.4), rr(5.5, 8.5), -0.04, 0.15, 0);
     }
@@ -271,7 +271,7 @@ function updateWeather(dt) {
     const c0 = [rc.r * lk, rc.g * lk, rc.b * lk, 0.75], c1 = [rc.r * lk, rc.g * lk, rc.b * lk, 0];
     for (WEATHER.splashAcc += dt * WEATHER.rain * wk * (CFG.map.rainCount ?? 1600) * 0.1; WEATHER.splashAcc >= 1; WEATHER.splashAcc--) {
       const x = c.x + rr(-24, 24), z = c.z + rr(-24, 24);
-      if (Math.abs(x) > HALF - 1 || Math.abs(z) > HALF - 1) continue;
+      if (!inBoard(x, z, 1)) continue;
       const y = rainTop(x, z) + 0.04;   // 탱크·상자·건물·풀 위에서도 튄다
       smokeP.spawn(x, y, z, 0, 0.15, 0, rr(0.2, 0.3), c0, c1, 0.08, rr(0.32, 0.48), 0, 0, 0.4);   // 퍼지는 물방울
       for (let k = 0; k < 2; k++) { const a = rand() * 6.283, s = rr(0.5, 1.1); smokeP.spawn(x, y, z, Math.cos(a) * s, rr(1.4, 2.4), Math.sin(a) * s, rr(0.28, 0.4), c0, c1, 0.08, 0.06, 9, 0, 0.6); }   // 튀는 방울

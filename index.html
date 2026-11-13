@@ -148,7 +148,7 @@
 </div>
 <script>
   // 버전·빌드 시각: 여기 한 곳만 고치면 로딩 화면과 설정 메뉴에 같이 나온다
-  const VERSION = '0.8.087', BUILD = '2026-11-13', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
+  const VERSION = '0.8.088', BUILD = '2026-11-13', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
   for (const e of document.querySelectorAll('.ver')) e.textContent = BUILD_TXT;
 </script>
 <canvas id="perfHud" style="display:none"></canvas>
@@ -375,14 +375,47 @@ let mapIdx = Math.min(MAP_PRESETS.length - 1, Math.max(0, CFG.map.preset ?? 0));
 const MAP0 = MAP_PRESETS[mapIdx];
 if (!CFG) { loadLabel = 'CONFIG.JS NOT FOUND - PUT IT NEXT TO INDEX.HTML'; drawLoading(); throw new Error('config.js 없음'); }
 const DEG = Math.PI / 180;
-const HALF = 75;              // 보드 반경 (150m x 150m)
-const N = 301, STEP = 0.5;    // 지형 격자 (0.5m 간격)
+// 보드: 위에서 보면 64각형(거의 원). 넓이는 예전 150m x 150m 사각형과 같다
+const SQ = 75;                // 예전 사각 보드 반 폭: 자동 배치가 난수를 예전 순서대로 쓰도록 그 판정에만 쓴다 (원 밖으로 나간 것은 뒤에 따로 거른다)
+const BOARD_SIDES = 64, BOARD_A = Math.PI * 2 / BOARD_SIDES;
+const BOARD_R = Math.sqrt(4 * SQ * SQ / (BOARD_SIDES / 2 * Math.sin(BOARD_A)));   // 꼭짓점까지 (≈84.7m)
+const BOARD_AP = BOARD_R * Math.cos(BOARD_A / 2);   // 변까지 (≈84.6m). 변은 ±x·±z를 마주본다
+const HALF = 86;              // 지형 격자 반 폭 (보드를 감싸는 172m 정사각. 필드·그늘·궤도 자국 텍스처도 이 정사각 기준)
+const N = HALF * 4 + 1, STEP = 0.5;    // 지형 격자 (0.5m 간격)
+const SQ_OFS = (HALF - SQ) / STEP;     // 예전 격자(301칸) 번호 → 지금 격자 번호
+const BCOS = [], BSIN = [];
+for (let k = -BOARD_SIDES / 2; k <= BOARD_SIDES / 2; k++) { BCOS.push(Math.cos(k * BOARD_A)); BSIN.push(Math.sin(k * BOARD_A)); }
+const BOARD_NRM = { x: 1, z: 0 };   // boardD가 고른 변의 바깥 법선
+// 가장 가까운 변 쪽으로 잰 거리 (BOARD_AP면 가장자리). 고른 변의 법선을 BOARD_NRM에
+function boardD(x, z) {
+  const k = Math.round(Math.atan2(z, x) / BOARD_A) + BOARD_SIDES / 2, c = BCOS[k], s = BSIN[k];
+  BOARD_NRM.x = c; BOARD_NRM.z = s;
+  return x * c + z * s;
+}
+// 보드 안인가 (가장자리에서 m 넘게 안쪽). 대부분은 원 두 개로 바로 정한다
+function inBoard(x, z, m = 0) {
+  const r2 = x * x + z * z, L = BOARD_AP - m;
+  if (r2 <= L * L) return true;
+  if (r2 > L * L * 1.0025) return false;   // 1/cos²(π/64) ≈ 1.00242: 깎인 64각형의 꼭짓점 밖
+  return boardD(x, z) <= L;
+}
+// 가장자리에서 m 안쪽 선으로 끌어들인다 (out = {x, z}를 고친다). 밖이었으면 넘친 거리 (법선은 BOARD_NRM)
+function boardClamp(out, m = 0) {
+  const L = BOARD_AP - m;
+  if (out.x * out.x + out.z * out.z <= L * L) return 0;
+  const e = boardD(out.x, out.z) - L;
+  if (e <= 0) return 0;
+  out.x -= BOARD_NRM.x * e; out.z -= BOARD_NRM.z * e;
+  const e2 = boardD(out.x, out.z) - L;   // 꼭짓점 근처: 옆 변 밖이면 한 번 더
+  if (e2 > 0) { out.x -= BOARD_NRM.x * e2; out.z -= BOARD_NRM.z * e2; }
+  return e;
+}
 const ROAD_HW = 2.2;          // 도로 반폭
 const CREEK_HW = 2.4;         // 시냇물 기준 반폭 (다리 자리, 탱크 길이의 1.5배 정도). 상류로 갈수록 넓어진다
 let CREEK_UP = 1;             // 상류 쪽 x 방향
 const BOTTOM = -6;            // 보드 바닥 높이
 const SPAWN = CFG.player.start || { x: -22, z: -41.1, yaw: 55 }, SPAWN_X = SPAWN.x, SPAWN_Z = SPAWN.z;   // 탱크 출발 지점·방향 (본도로 남쪽. 설정)
-const WALL = HALF - 0.05;     // 보드 경계의 투명한 벽
+const WALL = BOARD_AP - 0.05; // 보드 경계의 투명한 벽 (64각 기둥)
 const params = new URLSearchParams(location.search);
 const GRASS_TARGET = Math.round((+params.get('grass') || 1) * 165000);
 const UVW = (v) => `((${v} + ${HALF.toFixed(1)}) / ${(HALF * 2).toFixed(1)})`;   // 월드 xz → 필드 텍스처 uv (GLSL)
@@ -391,6 +424,8 @@ let lowH = 300;
 let seed = 20261027;
 const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
 const rr = (a, b) => a + (b - a) * rand();
+// 자리 번호 → 0~1 (전역 rand와 따로: 원 보드로 새로 생긴 가장자리 땅처럼 예전 난수 순서를 건드리면 안 되는 곳)
+const hash01 = (i) => { let t = Math.imul((i | 0) ^ 0x9e3779b9, 0x85ebca6b); t ^= t >>> 13; t = Math.imul(t, 0xc2b2ae35); t ^= t >>> 16; return (t >>> 0) / 4294967296; };
 const lerp = (a, b, t) => a + (b - a) * t;
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
@@ -629,9 +664,10 @@ function branchZ(x) {
 }
 // 마을 북쪽을 서→동으로 가로지르는 시냇물 (creekZ는 위에)
 const mainPoly = [], branchPoly = [], creekPoly = [];
-for (let z = -HALF - 4; z <= HALF + 4; z += 0.75) mainPoly.push({ x: mainRoadX(z), z });
-for (let x = 0; x >= -HALF - 4; x -= 0.75) branchPoly.push({ x, z: branchZ(x) });
-for (let x = -HALF - 4; x <= HALF + 4; x += 0.75) creekPoly.push({ x, z: creekZ(x) });
+// (예전 사각 보드 범위 그대로: 난수로 점을 고르는 쪽이 예전과 같게. 원 보드 가장자리까지 잇는 연장은 아래 mainPolyX 등)
+for (let z = -SQ - 4; z <= SQ + 4; z += 0.75) mainPoly.push({ x: mainRoadX(z), z });
+for (let x = 0; x >= -SQ - 4; x -= 0.75) branchPoly.push({ x, z: branchZ(x) });
+for (let x = -SQ - 4; x <= SQ + 4; x += 0.75) creekPoly.push({ x, z: creekZ(x) });
 
 // 길 방향으로 높이를 부드럽게
 function smoothHeights(poly, passes, win) {
@@ -654,14 +690,15 @@ smoothHeights(mainPoly, 4, 6); smoothHeights(branchPoly, 4, 6); smoothHeights(cr
   for (let i = 1; i < order.length; i++) order[i].y = Math.min(order[i].y - 1.1, order[i - 1].y - 0.004);
   // 반폭: 상류 쪽으로 갈수록 넓어져 끝에서 2배, 군데군데 불규칙하게 넓었다 좁았다. 다리 근처는 원래 폭
   CREEK_UP = down ? -1 : 1;
-  const span = HALF - CREEK_UP * XB_X;
-  for (const p of c) {
-    const far = smooth(4, 14, Math.abs(p.x - XB_X));
-    const wob = 1 + (0.22 * Math.sin(p.x * 0.19 + 0.7) + 0.12 * Math.sin(p.x * 0.53 + 2.1)) * far;
-    p.w = CREEK_HW * (1 + 3 * smooth(4, span, (p.x - XB_X) * CREEK_UP)) * wob;
-  }
+  for (const p of c) p.w = creekW(p.x);
   // 물길을 따라 잰 거리 (물결 무늬가 흐르는 방향)
   c.forEach((p, i) => { p.s = i ? c[i - 1].s + Math.hypot(p.x - c[i - 1].x, p.z - c[i - 1].z) : 0; });
+}
+// 시냇물 반폭 (위 설명)
+function creekW(x) {
+  const far = smooth(4, 14, Math.abs(x - XB_X));
+  const wob = 1 + (0.22 * Math.sin(x * 0.19 + 0.7) + 0.12 * Math.sin(x * 0.53 + 2.1)) * far;
+  return CREEK_HW * (1 + 3 * smooth(4, SQ - CREEK_UP * XB_X, (x - XB_X) * CREEK_UP)) * wob;
 }
 // 본도로와 시냇물이 만나는 곳 = 다리. 물은 다리 밑으로 충분히 낮게
 let ci = 0;
@@ -679,6 +716,36 @@ const BRIDGE = { x: XB_X, z: XB_Z };
   BRIDGE.sinX = Math.max(0.5, Math.abs(BRIDGE.s * (b.z - a.z) - BRIDGE.c * (b.x - a.x)) / cl);
   BRIDGE.hl = (creekPoly[ci].w + 2.2) / BRIDGE.sinX; BRIDGE.hw = 3.6; BRIDGE.top = rp.y + 0.28;
 }
+
+// 원 보드 가장자리까지 길·시냇물을 잇는다 (예전 배열은 그대로 두고 앞뒤에 덧붙인 새 배열). 높이는 같은 식으로 부드럽게 한 뒤 이음매에 맞춘다
+// ax = 매개변수 축('x'·'z'), d = 한 칸(0.75m, 바깥 방향 부호), at(t) = 그 자리 점
+function polyExt(poly, fwd, ax, d, at, passes, win) {
+  const H = 24, end = fwd ? poly[poly.length - 1] : poly[0];
+  const old = fwd ? poly.slice(-H) : poly.slice(0, H).reverse();   // 끝에서 바깥 순서
+  const ext = [];
+  for (let k = 1; k <= Math.ceil((BOARD_R - SQ) / 0.75) + 1; k++) ext.push(at(end[ax] + d * k));
+  let ys = [...old, ...ext].map(p => preH(p.x, p.z));
+  for (let pass = 0; pass < passes; pass++) ys = ys.map((_, i) => { let s = 0, c = 0; for (let k = -win; k <= win; k++) { const j = i + k; if (j >= 0 && j < ys.length) { s += ys[j]; c++; } } return s / c; });
+  const off = end.y - ys[H - 1];
+  ext.forEach((p, k) => p.y = ys[H + k] + off);
+  return ext;
+}
+const atMain = (z) => ({ x: mainRoadX(z), z }), atBranch = (x) => ({ x, z: branchZ(x) }), atCreek = (x) => ({ x, z: creekZ(x) });
+const mainPolyX = [...polyExt(mainPoly, false, 'z', -0.75, atMain, 4, 6).reverse(), ...mainPoly, ...polyExt(mainPoly, true, 'z', 0.75, atMain, 4, 6)];
+const branchPolyX = [...branchPoly, ...polyExt(branchPoly, true, 'x', -0.75, atBranch, 4, 6)];
+const creekPolyX = (() => {
+  const side = (fwd) => {
+    const ext = polyExt(creekPoly, fwd, 'x', fwd ? 0.75 : -0.75, atCreek, 8, 10), up = (fwd ? 1 : -1) === CREEK_UP;
+    let prev = fwd ? creekPoly[creekPoly.length - 1] : creekPoly[0];
+    for (const p of ext) {   // 물은 높은 쪽에서 낮은 쪽으로만: 상류 쪽 연장은 바깥으로 갈수록 높게, 하류 쪽은 낮게
+      p.y = up ? Math.max(p.y, prev.y + 0.004) : Math.min(p.y, prev.y - 0.004);
+      p.w = creekW(p.x); p.s = prev.s + (fwd ? 1 : -1) * Math.hypot(p.x - prev.x, p.z - prev.z);
+      prev = p;
+    }
+    return ext;
+  };
+  return [...side(false).reverse(), ...creekPoly, ...side(true)];
+})();
 
 // 격자마다 도로/시냇물까지의 거리, 도로 높이, 수면 높이
 function nearestOnSegs(segs, x, z, out) {
@@ -698,7 +765,7 @@ function nearestOnSegs(segs, x, z, out) {
   return out;
 }
 const toSegs = (polys) => { const s = []; for (const p of polys) for (let i = 1; i < p.length; i++) s.push(p[i - 1], p[i]); return s; };
-const roadSegs = toSegs([mainPoly, branchPoly]), creekSegs = toSegs([creekPoly]);
+const roadSegs = toSegs([mainPolyX, branchPolyX]), creekSegs = toSegs([creekPolyX]);
 const roadD = new Float32Array(N * N), hG = new Float32Array(N * N);
 const creekD = new Float32Array(N * N), waterY = new Float32Array(N * N);
 const creekS = new Float32Array(N * N), creekLat = new Float32Array(N * N), creekWd = new Float32Array(N * N);   // 물결 좌표: 물길 방향 거리, 가로 위치, 기준보다 넓은 폭
@@ -706,6 +773,8 @@ const creekS = new Float32Array(N * N), creekLat = new Float32Array(N * N), cree
   const r = {}, c = {};
   for (let iz = 0; iz < N; iz++) for (let ix = 0; ix < N; ix++) {
     const x = -HALF + ix * STEP, z = -HALF + iz * STEP, i = iz * N + ix;
+    // 보드 밖 먼 칸(정사각 격자의 모서리)은 길·물 계산을 건너뛴다 (가장자리 보간에 쓰는 바로 바깥 칸은 계산)
+    if (x * x + z * z > (BOARD_R + 6) ** 2) { roadD[i] = 99; creekD[i] = 99; waterY[i] = -99; creekWd[i] = 0; hG[i] = preH(x, z); continue; }
     nearestOnSegs(roadSegs, x, z, r);
     // 시냇물은 대략 z=26~42 띠 안에만 있으니 멀면 계산 생략
     if (Math.abs(z - creekZ(x)) < 28) nearestOnSegs(creekSegs, x, z, c); else { c.d = 99; c.y = -99; c.w = CREEK_HW; c.s = 0; c.side = 1; }
@@ -819,7 +888,7 @@ function distPoly(poly, x, z) {
 
 // ---------------------------------------------------------------- 필드 상태 (0.5m 격자)
 // R=눌림, G=불, B=그을림, A=풀 성장도. 셰이더가 이 텍스처를 읽어 풀/지면을 표현한다
-const FN = 300, FCELL = 0.5;
+const FN = HALF * 4, FCELL = 0.5;   // 지형 격자와 같은 172m 정사각
 const fTr = new Float32Array(FN * FN), fFire = new Float32Array(FN * FN), fChar = new Float32Array(FN * FN);
 const fGrow = new Float32Array(FN * FN).fill(1), fFuel = new Float32Array(FN * FN), fCap = new Float32Array(FN * FN);
 const fPower = new Float32Array(FN * FN), fRegrow = new Float32Array(FN * FN);
@@ -955,11 +1024,12 @@ const PUDDLES = [];
 for (let tries = 0; PUDDLES.length < 4 && tries < 400; tries++) {
   const poly = rand() < 0.7 ? mainPoly : branchPoly, p = poly[Math.floor(rand() * poly.length)];
   const x = p.x + rr(-1, 1), z = p.z + rr(-1, 1);
-  if (Math.abs(x) > HALF - 4 || Math.abs(z) > HALF - 4 || Math.hypot(x - BRIDGE.x, z - BRIDGE.z) < BRIDGE.hl + 4) continue;
+  if (Math.abs(x) > SQ - 4 || Math.abs(z) > SQ - 4 || Math.hypot(x - BRIDGE.x, z - BRIDGE.z) < BRIDGE.hl + 4) continue;
   if (PUDDLES.some(q => Math.hypot(q.x - x, q.y - z) < 12)) continue;
   PUDDLES.push(new THREE.Vector3(x, z, rr(0.9, 1.7)));
 }
 let terrainCol;
+const BOARD_RIM = [];   // 지형 윗면 둘레 점 (각도가 줄어드는 순서, {x, z, y, a}): 옆 단면이 이 점들을 그대로 이어 윗면과 딱 맞는다
 // 지형 메시
 {
   const geo = new THREE.PlaneGeometry(HALF * 2, HALF * 2, N - 1, N - 1);
@@ -970,8 +1040,13 @@ let terrainCol;
   // 풀 밑 흙은 풀색에 가깝게: 풀 사이 틈이 깜빡여 보이는 대비를 줄인다
   const cUnder = new THREE.Color(0x5a5034), cBed = new THREE.Color(0x3a3a33), cMud = new THREE.Color(0x40352a);
   const road = new Float32Array(pos.count), creek = new Float32Array(pos.count * 2), cliff = new Float32Array(pos.count);
+  // 흙 색 난수: 예전 사각 격자(301칸)가 쓰던 만큼을 예전 순서대로 먼저 뽑는다 (뒤 배치의 난수 순서가 밀리지 않게). 새로 생긴 가장자리 땅은 hash01
+  const N0 = SQ * 4 + 1, nOld = new Float32Array(N0 * N0);
+  for (let i = 0; i < N0 * N0; i++) nOld[i] = rand();
   for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i), z = pos.getZ(i), gi = gridIndex(x, z), d = roadD[gi], cd = creekD[gi], n = rand();
+    const ox = (i % N) - SQ_OFS, oz = ((i / N) | 0) - SQ_OFS;
+    const x = pos.getX(i), z = pos.getZ(i), gi = gridIndex(x, z), d = roadD[gi], cd = creekD[gi];
+    const n = ox >= 0 && oz >= 0 && ox < N0 && oz < N0 ? nOld[oz * N0 + ox] : hash01(i);
     pos.setY(i, hG[gi]); cliff[i] = cliffG[gi];
     road[i] = cd < CREEK_HW + 1.2 ? 99 : d;
     // 시냇물까지 거리, 수심 (물길 밖의 낮은 땅은 물이 없으니 물속 표현도 없다)
@@ -987,11 +1062,6 @@ let terrainCol;
     c.lerp(rc, 1 - smooth(CREEK_HW - 0.6, CREEK_HW + 0.4, cd));
     col.set([c.r, c.g, c.b], i * 3);
   }
-  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  geo.setAttribute('aRoad', new THREE.BufferAttribute(road, 1));
-  geo.setAttribute('aCreek', new THREE.BufferAttribute(creek, 2));
-  geo.setAttribute('aCliff', new THREE.BufferAttribute(cliff, 1));
-  geo.computeVertexNormals();
   // 픽셀 단위로: 흙 알갱이, 구불구불 끊기는 바퀴 자국, 탱크 궤도 자국, 그을림, 잉걸불
   const mat = ps1(new THREE.MeshLambertMaterial({ vertexColors: true }), (sh) => {
     sh.uniforms.uField = U.uField;
@@ -1073,25 +1143,38 @@ let terrainCol;
   mat.userData.ownWhite = true;   // 흰색 보기는 위 셰이더가 그늘을 남기며 직접 처리
   mat.userData.noOcc = true;   // 땅은 내 탱크를 가려도 비우지 않는다
   // 그리는 격자는 config map.terrainStep칸마다 하나만 (2 = 1m 간격, 삼각형 1/4). 세로 300줄 화면에서는 거의 구분이 안 되는데 GPU 부담은 크다.
-  // 위의 계산(난수 순서·terrainCol·물리 높이)은 원래 0.5m 격자 그대로 두고, 같은 자리의 값을 골라 옮긴다
-  let tgeo = geo;
-  const TS = Math.max(1, Math.round(CFG.map?.terrainStep ?? 2));
-  if (TS > 1 && (N - 1) % TS === 0) {
-    const M = (N - 1) / TS + 1, g2 = new THREE.PlaneGeometry(HALF * 2, HALF * 2, M - 1, M - 1);
-    g2.rotateX(-Math.PI / 2);
-    const p2 = g2.attributes.position, c2 = new Float32Array(M * M * 3), r2 = new Float32Array(M * M), k2 = new Float32Array(M * M * 2), l2 = new Float32Array(M * M);
-    for (let b = 0; b < M; b++) for (let a = 0; a < M; a++) {
-      const i = b * M + a, j = b * TS * N + a * TS;   // PlaneGeometry는 줄(z)마다 x 순서: 성긴 (a, b) = 원래 (a·TS, b·TS)
-      p2.setY(i, pos.getY(j)); c2[i * 3] = col[j * 3]; c2[i * 3 + 1] = col[j * 3 + 1]; c2[i * 3 + 2] = col[j * 3 + 2];
-      r2[i] = road[j]; k2[i * 2] = creek[j * 2]; k2[i * 2 + 1] = creek[j * 2 + 1]; l2[i] = cliff[j];
+  // 위의 계산(난수 순서·terrainCol·물리 높이)은 원래 0.5m 격자 그대로 두고, 같은 자리의 값을 골라 옮긴다.
+  // 보드는 64각형: 꼭짓점이 모두 보드 밖인 삼각형은 버리고, 걸친 삼각형의 바깥 꼭짓점은 반지름 방향으로 64각형 둘레에 끌어당긴다 (옆 단면이 그 점들을 그대로 잇는다: BOARD_RIM)
+  let TS = Math.max(1, Math.round(CFG.map?.terrainStep ?? 2));
+  if ((N - 1) % TS) TS = 1;
+  const M = (N - 1) / TS + 1, vid = new Int32Array(M * M).fill(-1), inside = new Uint8Array(M * M);
+  for (let b = 0; b < M; b++) for (let a = 0; a < M; a++) inside[b * M + a] = inBoard(-HALF + a * TS * STEP, -HALF + b * TS * STEP) ? 1 : 0;
+  const P = [], C = [], R = [], K = [], L = [], idx = [];
+  const vert = (a, b) => {
+    const k = b * M + a;
+    if (vid[k] < 0) {
+      let j = b * TS * N + a * TS, x = -HALF + a * TS * STEP, z = -HALF + b * TS * STEP, y;
+      if (inside[k]) y = pos.getY(j);
+      else { const f = BOARD_AP / boardD(x, z); x *= f; z *= f; y = heightAt(x, z); j = gridIndex(x, z); BOARD_RIM.push({ x, z, y, a: Math.atan2(z, x) }); }
+      vid[k] = P.length / 3;
+      P.push(x, y, z); C.push(col[j * 3], col[j * 3 + 1], col[j * 3 + 2]); R.push(road[j]); K.push(creek[j * 2], creek[j * 2 + 1]); L.push(cliff[j]);
     }
-    g2.setAttribute('color', new THREE.BufferAttribute(c2, 3));
-    g2.setAttribute('aRoad', new THREE.BufferAttribute(r2, 1));
-    g2.setAttribute('aCreek', new THREE.BufferAttribute(k2, 2));
-    g2.setAttribute('aCliff', new THREE.BufferAttribute(l2, 1));
-    g2.computeVertexNormals();
-    tgeo = g2; geo.dispose();
+    return vid[k];
+  };
+  for (let b = 0; b < M - 1; b++) for (let a = 0; a < M - 1; a++) {
+    const i00 = b * M + a, i10 = i00 + 1, i01 = i00 + M, i11 = i01 + 1;
+    if (inside[i00] || inside[i01] || inside[i10]) idx.push(vert(a, b), vert(a, b + 1), vert(a + 1, b));
+    if (inside[i01] || inside[i11] || inside[i10]) idx.push(vert(a, b + 1), vert(a + 1, b + 1), vert(a + 1, b));
   }
+  BOARD_RIM.sort((p, q) => q.a - p.a);   // 각도가 줄어드는 순서 (옆 단면 면이 바깥을 보게)
+  const tgeo = new THREE.BufferGeometry();
+  tgeo.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+  tgeo.setAttribute('color', new THREE.Float32BufferAttribute(C, 3));
+  tgeo.setAttribute('aRoad', new THREE.Float32BufferAttribute(R, 1));
+  tgeo.setAttribute('aCreek', new THREE.Float32BufferAttribute(K, 2));
+  tgeo.setAttribute('aCliff', new THREE.Float32BufferAttribute(L, 1));
+  tgeo.setIndex(idx); tgeo.computeVertexNormals();
+  geo.dispose();
   { const m = new THREE.Mesh(tgeo, mat); m.userData.noOutline = true; scene.add(m); }   // 땅은 외곽선 없음
 }
 
@@ -1125,35 +1208,33 @@ let terrainCol;
   });
   const soil = { pos: [], nor: [], col: [], uv: [] }, rock = { pos: [], nor: [], col: [], uv: [] }, water = { pos: [], nor: [], col: [], uv: [] };
   const LAYERS = [0x3b2e1f, 0x6a4c30, 0x6c665c].map(h => new THREE.Color(h));
-  const edges = [
-    { n: [0, 0, 1], pt: (s) => [s, HALF] },          // +z, x 증가
-    { n: [0, 0, -1], pt: (s) => [-s, -HALF] },       // -z, x 감소
-    { n: [1, 0, 0], pt: (s) => [HALF, -s] },         // +x, z 감소
-    { n: [-1, 0, 0], pt: (s) => [-HALF, s] },        // -x, z 증가
-  ];
   const quad = (o, A, B, ya0, ya1, yb0, yb1, n, c) => {
     o.pos.push(A.x, ya0, A.z, A.x, ya1, A.z, B.x, yb0, B.z, B.x, yb0, B.z, A.x, ya1, A.z, B.x, yb1, B.z);
     o.uv.push(A.s / 16, ya0 / 16, A.s / 16, ya1 / 16, B.s / 16, yb0 / 16, B.s / 16, yb0 / 16, A.s / 16, ya1 / 16, B.s / 16, yb1 / 16);   // 16m에 한 장
     for (let v = 0; v < 6; v++) { o.nor.push(...n); o.col.push(c.r, c.g, c.b); }
   };
-  for (const e of edges) {
-    const cols = [];
-    for (let k = 0; k < N; k++) {
-      const s = -HALF + k * STEP, [x, z] = e.pt(s), h = heightAt(x, z);
-      const w = (a, b) => 0.5 * Math.sin(s * 0.21 + a) + 0.3 * Math.sin(s * 0.67 + b);
-      const ys = [h, h - 0.45, Math.min(h - 1.4, 0.8 + w(3, 4) * 1.6), SECT_BOTTOM];   // 암반은 아주 깊이까지
-      for (let j = 1; j < 3; j++) ys[j] = Math.max(BOTTOM + 0.5, Math.min(ys[j], ys[j - 1] - 0.15));
-      cols.push({ x, z, s, ys, n: rand(), w: waterAt(x, z) });
-    }
-    const cW = new THREE.Color(0x4a6e7c);
-    for (let k = 0; k < N - 1; k++) {
-      const A = cols[k], B = cols[k + 1];
-      // 단면에 드러난 시냇물
-      if (A.w > A.ys[0] || B.w > B.ys[0]) quad(water, A, B, Math.max(A.w, A.ys[0]), A.ys[0], Math.max(B.w, B.ys[0]), B.ys[0], e.n, cW);
-      for (let b = 0; b < 3; b++) {
-        const c = LAYERS[b].clone().multiplyScalar(0.92 + A.n * 0.16);
-        quad(b < 2 ? soil : rock, A, B, A.ys[b], A.ys[b + 1], B.ys[b], B.ys[b + 1], e.n, c);
-      }
+  // 64각 띠: 지형 윗면 둘레 점(BOARD_RIM)을 한 바퀴 그대로 잇는다. 기둥마다 지층 높이, 띠 한 칸의 법선은 그 자리 변의 바깥 방향
+  for (let k = 0; k < 4 * (SQ * 4 + 1); k++) rand();   // 예전 사각 단면이 기둥마다 쓰던 난수 (뒤 배치의 난수 순서가 밀리지 않게)
+  const cols = [], RN = BOARD_RIM.length;
+  let arc = 0;
+  for (let k = 0; k <= RN; k++) {
+    const r = BOARD_RIM[k % RN];
+    if (k) { const q = BOARD_RIM[k - 1]; arc += Math.hypot(r.x - q.x, r.z - q.z); }
+    const s = arc, h = r.y;
+    const w = (a, b) => 0.5 * Math.sin(s * 0.21 + a) + 0.3 * Math.sin(s * 0.67 + b);
+    const ys = [h, h - 0.45, Math.min(h - 1.4, 0.8 + w(3, 4) * 1.6), SECT_BOTTOM];   // 암반은 아주 깊이까지
+    for (let j = 1; j < 3; j++) ys[j] = Math.max(BOTTOM + 0.5, Math.min(ys[j], ys[j - 1] - 0.15));
+    cols.push({ x: r.x, z: r.z, s, ys, n: hash01(k + 7777), w: waterAt(r.x, r.z) });
+  }
+  const cW = new THREE.Color(0x4a6e7c), en = [0, 0, 0];
+  for (let k = 0; k < RN; k++) {
+    const A = cols[k], B = cols[k + 1];
+    boardD((A.x + B.x) / 2, (A.z + B.z) / 2); en[0] = BOARD_NRM.x; en[2] = BOARD_NRM.z;
+    // 단면에 드러난 시냇물
+    if (A.w > A.ys[0] || B.w > B.ys[0]) quad(water, A, B, Math.max(A.w, A.ys[0]), A.ys[0], Math.max(B.w, B.ys[0]), B.ys[0], en, cW);
+    for (let b = 0; b < 3; b++) {
+      const c = LAYERS[b].clone().multiplyScalar(0.92 + A.n * 0.16);
+      quad(b < 2 ? soil : rock, A, B, A.ys[b], A.ys[b + 1], B.ys[b], B.ys[b + 1], en, c);
     }
   }
   for (const [o, map] of [[soil, soilTex], [rock, rockTex], [water, null]]) {
@@ -1174,9 +1255,10 @@ let terrainCol;
   const vert = (mx, mz) => {
     const k = mz * M + mx;
     if (vid[k] < 0) {
-      const i = mz * K * N + mx * K;
+      let i = mz * K * N + mx * K, x = -HALF + mx * K * STEP, z = -HALF + mz * K * STEP;
+      if (!inBoard(x, z)) { const f = BOARD_AP / boardD(x, z); x *= f; z *= f; i = gridIndex(x, z); }   // 보드 밖 꼭짓점은 지형처럼 64각형 둘레로
       vid[k] = pos.length / 3;
-      pos.push(-HALF + mx * K * STEP, waterY[i], -HALF + mz * K * STEP);
+      pos.push(x, waterY[i], z);
       uv.push(creekLat[i], creekS[i], creekWd[i], creekD[i]);
     }
     return vid[k];
@@ -1184,6 +1266,8 @@ let terrainCol;
   for (let mz = 0; mz < M - 1; mz++) for (let mx = 0; mx < M - 1; mx++) {
     const i00 = mz * K * N + mx * K, i10 = i00 + K, i01 = i00 + K * N, i11 = i01 + K;
     if (!(near(i00) || near(i10) || near(i01) || near(i11))) continue;
+    const x0 = -HALF + mx * K * STEP, z0 = -HALF + mz * K * STEP, e = K * STEP;
+    if (!(inBoard(x0, z0) || inBoard(x0 + e, z0) || inBoard(x0, z0 + e) || inBoard(x0 + e, z0 + e))) continue;
     const a = vert(mx, mz), b = vert(mx + 1, mz), c = vert(mx, mz + 1), d = vert(mx + 1, mz + 1);
     idx.push(a, c, b, b, c, d);
   }
@@ -1218,9 +1302,10 @@ let terrainCol;
   for (let k = 0; k < 140; k++) {
     const p = creekPoly[2 + Math.floor(rand() * (creekPoly.length - 4))];
     const off = rr(-p.w - 1.2, p.w + 1.2), x = p.x + rr(-0.4, 0.4), z = p.z + off;
-    if (Math.abs(x) > HALF - 0.5 || Math.abs(z) > HALF - 0.5 || Math.hypot(x - BRIDGE.x, z - BRIDGE.z) < 4) continue;
+    if (Math.abs(x) > SQ - 0.5 || Math.abs(z) > SQ - 0.5 || Math.hypot(x - BRIDGE.x, z - BRIDGE.z) < 4) continue;   // (예전 사각 범위: 난수 순서 그대로)
     const g = new THREE.DodecahedronGeometry(rr(0.12, 0.38), 0);
     g.scale(1, rr(0.4, 0.7), rr(0.7, 1.2)); g.rotateY(rand() * 6.28);
+    if (!inBoard(x, z, 0.5)) { g.dispose(); continue; }   // 64각형 밖으로 나간 것은 난수를 다 쓴 뒤 버린다
     g.translate(x, heightAt(x, z) + 0.02, z);
     stones.push(g.index ? g.toNonIndexed() : g);
   }
@@ -2313,7 +2398,7 @@ function polesAlong(poly, start, spacing, skip) {
     const l = Math.hypot(p1.x - p0.x, p1.z - p0.z) || 1, tx = (p1.x - p0.x) / l, tz = (p1.z - p0.z) / l;
     const nx = tz, nz = -tx;   // 진행 방향 오른쪽
     const x = p.x + nx * 3.2, z = p.z + nz * 3.2;
-    if (Math.abs(x) > HALF - 2 || Math.abs(z) > HALF - 2 || inFootprint(x, z, 0.5) || (skip && skip(x, z))) continue;
+    if (Math.abs(x) > SQ - 2 || Math.abs(z) > SQ - 2 || inFootprint(x, z, 0.5) || (skip && skip(x, z))) continue;   // (예전 사각 범위: 난수 순서 그대로. 모두 64각형 안)
     if (creekD[gridIndex(x, z)] < CREEK_HW + 3) continue;
     out.push(makePole(x, z, nx, nz));
   }
@@ -2357,7 +2442,7 @@ function extendPoles(list, atStart) {
     const end = atStart ? list[0] : list.at(-1), prev = atStart ? list[1] : list.at(-2);
     const d = end.position.clone().sub(prev.position); d.y = 0; d.normalize();
     const x = end.position.x + d.x * 15, z = end.position.z + d.z * 15;
-    if (Math.abs(x) > HALF - 1.5 || Math.abs(z) > HALF - 1.5 || inFootprint(x, z, 0.5) || creekD[gridIndex(x, z)] < CREEK_HW + 3) break;
+    if (Math.abs(x) > SQ - 1.5 || Math.abs(z) > SQ - 1.5 || inFootprint(x, z, 0.5) || creekD[gridIndex(x, z)] < CREEK_HW + 3) break;   // (예전 사각 범위: 난수 순서 그대로)
     const p = atStart ? makePole(x, z, -d.z, d.x) : makePole(x, z, d.z, -d.x);
     if (atStart) list.unshift(p); else list.push(p);
   }
@@ -2405,17 +2490,15 @@ function poleXform(i, v0, out) {
 }
 // 전선: 구간마다 처짐 + 흔들림. 전봇대에 탱크가 부딪히거나 근처에서 터지면 출렁이다 잦아든다
 const WIRE_SEG = 16, wireSpans = [];
-function wire(a, b, pa, pb) {
-  // 보드 밖으로 나가는 구간은 경계까지만 그린다 (xz 직선이 경계와 만나는 비율)
+function wire(a, b, pa, pb, ph) {
+  // 보드 밖으로 나가는 구간은 경계까지만 그린다 (xz 직선이 b 쪽 변과 만나는 비율)
   let tEnd = 1;
-  for (const [qa, qb] of [[a.x, b.x], [a.z, b.z]]) {
-    if (Math.abs(qb) > HALF) tEnd = Math.min(tEnd, (Math.sign(qb) * HALF - qa) / (qb - qa));
-  }
+  if (!inBoard(b.x, b.z)) { const db = boardD(b.x, b.z), da = a.x * BOARD_NRM.x + a.z * BOARD_NRM.z; tEnd = Math.max(0, Math.min(1, (BOARD_AP - da) / ((db - da) || 1))); }
   const len = a.distanceTo(b), dx = b.x - a.x, dz = b.z - a.z, l = Math.hypot(dx, dz);
   const sag = 0.9 + Math.min(len, 18) * 0.045;   // 축 늘어진 줄: 흔들림이 잘 보이게
   // 처진 줄을 진자로 보면 흔들림 주기는 처짐 깊이로 정해진다 (느릿하게 출렁)
   wireSpans.push({ a: a.clone(), b: b.clone(), a0: a, b0: b, pa, pb, poles: [pa, pb].filter(i => i >= 0), tEnd, sag,
-    side: new THREE.Vector3(-dz / l, 0, dx / l), amp: 0, ph: rand() * 6.28, w: Math.sqrt(9.8 / (sag * 1.6 + 0.4)) });
+    side: new THREE.Vector3(-dz / l, 0, dx / l), amp: 0, ph: ph ?? rand() * 6.28, w: Math.sqrt(9.8 / (sag * 1.6 + 0.4)) });
 }
 function linkPoles(p, q) {
   const [a0, a1] = p.userData.ends, [b0, b1] = q.userData.ends, i = p.userData.idx, j = q.userData.idx;
@@ -2427,12 +2510,18 @@ function linkPoles(p, q) {
 function wireToEdge(end, prev) {
   const d = end.position.clone().sub(prev.position); d.y = 0; d.normalize();
   for (const e of end.userData.ends) {
-    let cur = e, first = true;
-    for (let k = 0; k < 12; k++) {
+    let cur = e, first = true, k = 0;
+    for (; k < 12; k++) {
       const nxt = cur.clone().addScaledVector(d, 15);
       wire(cur, nxt, first ? end.userData.idx : -1, -1);
       first = false; cur = nxt;
-      if (Math.abs(nxt.x) > HALF || Math.abs(nxt.z) > HALF) break;
+      if (Math.abs(nxt.x) > SQ || Math.abs(nxt.z) > SQ) break;   // (예전 사각 경계까지는 난수 순서 그대로)
+    }
+    // 64각형 경계까지 더 잇는다 (흔들림 위상은 따로: 뒤 배치의 난수 순서가 밀리지 않게)
+    for (; k < 14 && inBoard(cur.x, cur.z); k++) {
+      const nxt = cur.clone().addScaledVector(d, 15);
+      wire(cur, nxt, -1, -1, hash01(wireSpans.length) * 6.28);
+      cur = nxt;
     }
   }
 }
@@ -3222,7 +3311,7 @@ const blobShadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent
 const blobShadowGeo = new THREE.PlaneGeometry(4.2, 4.2).rotateX(-Math.PI / 2);
 const _sq = new THREE.Quaternion(), _sn = new THREE.Vector3(), _sup = new THREE.Vector3(0, 1, 0);
 for (let tries = 0; targets.length < 10 && tries < 6000; tries++) {
-  const x = rr(-HALF + 8, HALF - 8), z = rr(-HALF + 8, HALF - 8), gi = gridIndex(x, z);
+  const x = rr(-SQ + 8, SQ - 8), z = rr(-SQ + 8, SQ - 8), gi = gridIndex(x, z);   // (예전 사각 범위: 난수 순서 그대로)
   if (roadD[gi] < 6 || creekD[gi] < CREEK_HW + 5 || Math.hypot(x, z) < 34) continue;
   if (Math.hypot(x - SPAWN_X, z - SPAWN_Z) < 18 || targets.some(t => Math.hypot(t.x - x, t.z - z) < 20)) continue;
   const hs = [[-1.5, -1.5], [1.5, -1.5], [-1.5, 1.5], [1.5, 1.5]].map(([a, b]) => heightAt(x + a, z + b));
@@ -3366,7 +3455,7 @@ function placeRepair(far = 0) {   // far: 다른 보급품과 이만큼은 떨�
   const w = WRECKS[0];
   for (let k = 0; k < 400; k++) {
     const a = rand() * 6.283, r = rr(6, 10 + far), x = w.x + Math.sin(a) * r, z = w.z + Math.cos(a) * r;
-    if (Math.abs(x) > HALF - 6 || Math.abs(z) > HALF - 6 || creekD[gridIndex(x, z)] < CREEK_HW + 4 || inFootprint(x, z, 2.5)) continue;
+    if (Math.abs(x) > SQ - 6 || Math.abs(z) > SQ - 6 || creekD[gridIndex(x, z)] < CREEK_HW + 4 || inFootprint(x, z, 2.5)) continue;
     if (allPoles.some(q => Math.hypot(q.x - x, q.z - z) < 3.5)) continue;
     if (far && targets.some((t) => Math.hypot(t.x - x, t.z - z) < far)) continue;
     const hs = [[-1.5, -1.5], [1.5, -1.5], [-1.5, 1.5], [1.5, 1.5]].map(([a, b]) => heightAt(x + a, z + b));
@@ -4057,7 +4146,7 @@ const grassHt = new Float32Array(FN * FN);   // 0.5m 칸마다 가장 큰 풀 �
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.7, 0.6, 0.15) * vFire + diffuseColor.rgb * vLampC * 2.6;');
   };
   // 25m 구역별 InstancedMesh: 화면 밖 구역은 통째로 건너뛴다
-  const CH = 6, CW = HALF * 2 / CH, chunks = Array.from({ length: CH * CH }, () => []);
+  const CH = Math.round(HALF * 2 / 25), CW = HALF * 2 / CH, chunks = Array.from({ length: CH * CH }, () => []), ring = Array.from({ length: CH * CH }, () => []);
   const PALETTE = [0xbda366, 0xa8925a, 0x968854, 0xb3995e, 0x8a844e, 0xc2ad76].map(h => new THREE.Color(h));
   // 색은 자리마다: 큰 얼룩(올리브빛/누런 들판) + 중간 얼룩(붉게 마른 곳) + 작은 덤불(바랜 색), 잎마다 조금씩 흔들기. 생성할 때 한 번만 계산
   const vn2 = (x, z) => {
@@ -4073,18 +4162,17 @@ const grassHt = new Float32Array(FN * FN);   // 0.5m 칸마다 가장 큰 풀 �
   let gseed = 0x9e3779b9;
   const grand = () => { gseed = (gseed + 0x6d2b79f5) | 0; let t = Math.imul(gseed ^ (gseed >>> 15), 1 | gseed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
   const grr = (a, b) => a + (b - a) * grand();
-  for (let tries = 0; grassCount < GRASS_TARGET && tries < GRASS_TARGET * 3; tries++) {
-    const x = grr(-HALF + 0.2, HALF - 0.2), z = grr(-HALF + 0.2, HALF - 0.2);
+  const plant = (x, z) => {   // 풀 하나 심기 (심을 수 없는 자리면 false)
     const gi = gridIndex(x, z), d = roadD[gi];
-    if (d < ROAD_HW + 0.1 || creekD[gi] < CREEK_HW + 0.9 || cliffG[gi] > 0.2) continue;   // 절벽엔 풀이 없다
-    if (cliffNear[gi] && creekD[gi] < CREEK_HW + 7) continue;   // 강가 절벽 발치의 좁은 땅도
-    if (WRECKS.some(w => Math.hypot(w.x - x, w.z - z) < 3.6)) continue;   // 부서진 탱크 주변은 맨땅
+    if (d < ROAD_HW + 0.1 || creekD[gi] < CREEK_HW + 0.9 || cliffG[gi] > 0.2) return false;   // 절벽엔 풀이 없다
+    if (cliffNear[gi] && creekD[gi] < CREEK_HW + 7) return false;   // 강가 절벽 발치의 좁은 땅도
+    if (WRECKS.some(w => Math.hypot(w.x - x, w.z - z) < 3.6)) return false;   // 부서진 탱크 주변은 맨땅
     const n1 = vn2(x * 0.05, z * 0.05), n2 = vn2(x * 0.13 + 17, z * 0.13 + 5), n3 = vn2(x * 0.31 + 3, z * 0.31 + 11);
     let hScale = grr(1.05, 1.8) * (0.8 + 0.4 * n2);
-    if (d < ROAD_HW + 1.4) { if (grand() > 0.45) continue; hScale *= 0.6; }
+    if (d < ROAD_HW + 1.4) { if (grand() > 0.45) return false; hScale *= 0.6; }
     const tw = townAt(x, z);   // 마을 쪽으로 갈수록 점점 성기고 짧게
-    if (tw > 0) { if (grand() > lerp(1, 0.3, tw)) continue; hScale *= lerp(1, 0.55, tw); }
-    if (inFootprint(x, z, 0.2)) continue;
+    if (tw > 0) { if (grand() > lerp(1, 0.3, tw)) return false; hScale *= lerp(1, 0.55, tw); }
+    if (inFootprint(x, z, 0.2)) return false;
     v.set(x, heightAt(x, z) - 0.05, z);
     q.setFromAxisAngle(yAxis, grand() * Math.PI * 2);
     const sw = grr(0.8, 1.3);
@@ -4095,9 +4183,31 @@ const grassHt = new Float32Array(FN * FN);   // 0.5m 칸마다 가장 큰 풀 �
     const gn = new THREE.Vector3((heightAt(x - 1, z) - heightAt(x + 1, z)) * 1.4, 2, (heightAt(x, z - 1) - heightAt(x, z + 1)) * 1.4).normalize();
     c.copy(cStraw).lerp(cOlive, smooth(0.35, 0.75, n1)).lerp(cRust, smooth(0.55, 0.85, n2) * 0.6).lerp(cPale, smooth(0.6, 0.9, n3) * 0.45);
     c.lerp(PALETTE[Math.floor(grand() * PALETTE.length)], 0.25).multiplyScalar(grr(0.9, 1.06));
+    if (!inBoard(x, z, 0.15)) return true;   // 64각형 밖 (예전 사각 보드의 모서리): 난수는 다 쓰고 심지 않는다
     const root = new THREE.Vector3().fromArray(terrainCol, gi * 3);
-    chunks[ci].push(m4.compose(v, q, s).clone(), c.clone(), gn, root);
-    grassCount++;
+    (planting2 ? ring : chunks)[ci].push(m4.compose(v, q, s).clone(), c.clone(), gn, root); grassCount++;
+    return true;
+  };
+  // 1) 예전 사각 보드 범위를 예전 난수 순서 그대로 (기존 풀 자리가 바뀌지 않게)
+  let tries = 0, planting2 = false;
+  for (let n = 0; n < GRASS_TARGET && tries < GRASS_TARGET * 3; tries++) {
+    const x = grr(-SQ + 0.2, SQ - 0.2), z = grr(-SQ + 0.2, SQ - 0.2);
+    if (plant(x, z)) n++;
+  }
+  // 2) 원 보드로 새로 생긴 가장자리 땅: 따로 시드한 난수로, 같은 넓이당 시도 횟수만큼
+  gseed = 0x51ed2701; planting2 = true;
+  const E = BOARD_R, tries2 = Math.round(tries * (E * E) / ((SQ - 0.2) * (SQ - 0.2)));
+  for (let k = 0; k < tries2; k++) {
+    const x = grr(-E, E), z = grr(-E, E);
+    if ((Math.abs(x) < SQ - 0.2 && Math.abs(z) < SQ - 0.2) || !inBoard(x, z, 0.15)) continue;
+    plant(x, z);
+  }
+  // 구역마다 앞의 절반만 그리므로(아래 cm.count) 두 묶음을 각각 반씩 앞에 둔다: 예전 풀의 앞 절반 + 새 풀의 앞 절반 + 나머지
+  const half4 = (l) => Math.ceil(l.length / 8) * 4;
+  for (let i = 0; i < chunks.length; i++) {
+    const a = chunks[i], b = ring[i], ha = half4(a), hb = half4(b);
+    chunks[i] = [...a.slice(0, ha), ...b.slice(0, hb), ...a.slice(ha), ...b.slice(hb)];
+    chunks[i].shown = (ha + hb) / 4;
   }
   // 텍스처 카드: 엇갈린 사각형 두 장에 풀잎 10개쯤 그린 1비트 알파 텍스처 (알파 0.5 기준으로 보이거나 안 보이거나).
   // 풀잎 폴리곤과 같은 자리·색·흔들림을 쓰고 개수는 절반 (카드 한 장이 훨씬 많은 풀잎을 그린다)
@@ -4172,7 +4282,7 @@ const grassHt = new Float32Array(FN * FN);   // 0.5m 칸마다 가장 큰 풀 �
     cg.setAttribute('aGround', new THREE.InstancedBufferAttribute(gnA, 3));
     cg.setAttribute('aRoot', new THREE.InstancedBufferAttribute(rtA, 3));
     cm.computeBoundingSphere(); cm.boundingSphere.radius += 2;
-    cm.count = Math.ceil(n * 0.5);   // 카드 한 장이 풀잎 여러 개를 그리니 절반만 (심은 순서가 무작위라 앞의 절반도 고르게 퍼져 있다)
+    cm.count = list.shown;   // 카드 한 장이 풀잎 여러 개를 그리니 절반만 (심은 순서가 무작위라 앞의 절반도 고르게 퍼져 있다)
     cm.userData.noOutline = true;
     scene.add(cm); grassCard.push(cm);
   }
@@ -4184,11 +4294,11 @@ for (let j = 0; j < FN; j++) for (let i = 0; i < FN; i++) {
   const gi = gridIndex(x, z);
   let cap = roadD[gi] < ROAD_HW + 0.1 || creekD[gi] < CREEK_HW + 0.9 || cliffG[gi] > 0.2 || (cliffNear[gi] && creekD[gi] < CREEK_HW + 7) ? 0 : 1;
   cap *= lerp(1, 0.3, townAt(x, z));   // 마을은 풀이 성기다
-  if (inFootprint(x, z)) cap = 0;
+  if (inFootprint(x, z) || !inBoard(x, z)) cap = 0;   // 보드 밖(정사각 격자의 모서리)에는 불이 번지지 않게
   fCap[k] = fFuel[k] = cap;
 }
 const burning = [];    // 이번 틱에 타고 있는 칸
-let fireBins = [];     // 화재 광원 배치용 (10x10 구역별 합)
+let fireBins = [];     // 화재 광원 배치용 (10m 구역별 합)
 const fireGlow = new Map();   // 구역 번호 → 지금 비추는 불빛 { x, z, I } (updateLights가 부드럽게 따라간다)
 const NB = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 0.7], [1, -1, 0.7], [-1, 1, 0.7], [-1, -1, 0.7]];
 // 번지기 계산용으로 풀어 둔 이웃: [di, dj, 가중치, 방향 x, 방향 z] × 8 (매번 배열 풀어 쓰기·Math.hypot을 하지 않게: 아이패드(WebKit)에서 특히 느렸다)
@@ -4252,7 +4362,7 @@ function fieldTick(dt) {
   }
   const bins = new Map();
   for (const k of burning) {
-    const i = k % FN, j = (k / FN) | 0, b = ((j / 20) | 0) * 10 + ((i / 20) | 0), w = fFire[k];
+    const i = k % FN, j = (k / FN) | 0, b = ((j / 20) | 0) * 20 + ((i / 20) | 0), w = fFire[k];
     let e = bins.get(b); if (!e) bins.set(b, e = { x: 0, z: 0, s: 0 });
     e.x += (-HALF + (i + 0.5) * FCELL) * w; e.z += (-HALF + (j + 0.5) * FCELL) * w; e.s += w;
   }
@@ -4661,7 +4771,7 @@ function updateWeather(dt) {
     const c0 = [sc.r * lk, sc.g * lk, sc.b * lk, 0.34], c1 = [sc.r * lk * 0.9, sc.g * lk * 0.9, sc.b * lk * 0.9, 0];
     for (WEATHER.sandAcc += dt * WEATHER.sand * wk * 26 * (0.3 + ws); WEATHER.sandAcc >= 1; WEATHER.sandAcc--) {
       const x = c.x + rr(-34, 34) - wd.x * 14, z = c.z + rr(-34, 34) - wd.y * 14;   // 바람 위쪽에서 생겨 화면을 가로질러 간다
-      if (Math.abs(x) > HALF - 1 || Math.abs(z) > HALF - 1) continue;
+      if (!inBoard(x, z, 1)) continue;
       const sp = rr(3, 6) * (0.4 + ws);
       smokeP.spawn(x, groundAt(x, z) + rr(0.1, 0.7), z, wd.x * sp + rr(-0.5, 0.5), rr(0, 0.35), wd.y * sp + rr(-0.5, 0.5), rr(2.6, 4.2), c0, c1, rr(2.2, 3.4), rr(5.5, 8.5), -0.04, 0.15, 0);
     }
@@ -4672,7 +4782,7 @@ function updateWeather(dt) {
     const c0 = [rc.r * lk, rc.g * lk, rc.b * lk, 0.75], c1 = [rc.r * lk, rc.g * lk, rc.b * lk, 0];
     for (WEATHER.splashAcc += dt * WEATHER.rain * wk * (CFG.map.rainCount ?? 1600) * 0.1; WEATHER.splashAcc >= 1; WEATHER.splashAcc--) {
       const x = c.x + rr(-24, 24), z = c.z + rr(-24, 24);
-      if (Math.abs(x) > HALF - 1 || Math.abs(z) > HALF - 1) continue;
+      if (!inBoard(x, z, 1)) continue;
       const y = rainTop(x, z) + 0.04;   // 탱크·상자·건물·풀 위에서도 튄다
       smokeP.spawn(x, y, z, 0, 0.15, 0, rr(0.2, 0.3), c0, c1, 0.08, rr(0.32, 0.48), 0, 0, 0.4);   // 퍼지는 물방울
       for (let k = 0; k < 2; k++) { const a = rand() * 6.283, s = rr(0.5, 1.1); smokeP.spawn(x, y, z, Math.cos(a) * s, rr(1.4, 2.4), Math.sin(a) * s, rr(0.28, 0.4), c0, c1, 0.08, 0.06, 9, 0, 0.6); }   // 튀는 방울
@@ -4804,11 +4914,11 @@ const _f = new THREE.Vector3(), _F = new THREE.Vector3(), _T = new THREE.Vector3
 const _fwd = new THREE.Vector3(), _loc = new THREE.Vector3(), _qi = new THREE.Quaternion(), _dq = new THREE.Quaternion();
 let _ws = 1;   // 이번 physStep에서 궤도 마찰에 곱할 배율 (벽에 붙어 멈춘 동안 줄어든다)
 function groundAt(x, z) {
-  if (Math.abs(x) <= HALF && Math.abs(z) <= HALF) return Math.max(heightAt(x, z), bridgeDeckAt(x, z));
+  if (inBoard(x, z)) return Math.max(heightAt(x, z), bridgeDeckAt(x, z));
   return -1e9;
 }
 function normalAt(x, z, out) {
-  if (Math.abs(x) > HALF || Math.abs(z) > HALF) return out.set(0, 1, 0);
+  if (!inBoard(x, z)) return out.set(0, 1, 0);
   const e = 0.3;
   if (bridgeDeckAt(x, z) > heightAt(x, z)) {   // 다리 위: 상판 경사를 따른다
     const sf = (x, z) => Math.max(heightAt(x, z), bridgeDeckAt(x, z));
@@ -4958,14 +5068,12 @@ function physStep(h, thr, turn, body = tank) {
     _vp.crossVectors(B.w, _rw).add(B.vel);
     let pen = groundAt(_pw.x, _pw.z) - _pw.y;
     if (pen > 0) {
-      if (Math.abs(_pw.x) <= HALF && Math.abs(_pw.z) <= HALF) normalAt(_pw.x, _pw.z, _n); else _n.set(0, 1, 0);
+      normalAt(_pw.x, _pw.z, _n);
       contactForce(cp, pen, _n, false);
       if (cp.side) B.contacts++;
     }
-    // 보드 경계 = 하늘 끝까지 막힌 투명한 벽
-    const ox = Math.abs(_pw.x) - WALL, oz = Math.abs(_pw.z) - WALL;
-    if (ox > 0) { _n.set(-Math.sign(_pw.x), 0, 0); contactForce(cp, ox, _n, true); }
-    if (oz > 0) { _n.set(0, 0, -Math.sign(_pw.z)); contactForce(cp, oz, _n, true); }
+    // 보드 경계 = 하늘 끝까지 막힌 투명한 벽 (64각 기둥, 법선은 그 자리 변의 안쪽)
+    if (_pw.x * _pw.x + _pw.z * _pw.z > WALL * WALL) { const ow = boardD(_pw.x, _pw.z) - WALL; if (ow > 0) { _n.set(-BOARD_NRM.x, 0, -BOARD_NRM.z); contactForce(cp, ow, _n, true); } }
     for (const fp of _nearFp) {
       if (_pw.y >= fp.top || _pw.y <= fp.y0 - 1) continue;
       fpLocal(fp, _pw.x, _pw.z, _fl);
@@ -5184,12 +5292,12 @@ function wreckScorch(w) {   // 잔해에 미리 만든 자국 한 벌을 붙인�
 for (const w of WRECKS) wreckScorch(w);
 // 벽 평면 위의 격자로 만들고, 보드 모서리를 넘는 부분은 옆 벽으로 꺾어 붙인다 (경계 밖으로 삐져나가지 않게)
 function addWallScorch(p, n) {
-  const s = rr(4.4, 6.4), a = rand() * 6.283, ca = Math.cos(a), sa = Math.sin(a), G = 8, E = HALF - 0.03;
+  const s = rr(4.4, 6.4), a = rand() * 6.283, ca = Math.cos(a), sa = Math.sin(a), G = 8, E = BOARD_AP - 0.03;
   const T = new THREE.Vector3(-n.z, 0, n.x), q = new THREE.Vector3(), pos = [], uv = [], idx = [];
   for (let j = 0; j <= G; j++) for (let i = 0; i <= G; i++) {
     const u = i / G - 0.5, v = j / G - 0.5;
     q.copy(p).addScaledVector(n, 0.03).addScaledVector(T, (u * ca - v * sa) * s).addScaledVector(UP, (u * sa + v * ca) * s);
-    for (const ax of ['x', 'z']) { const e = Math.abs(q[ax]) - E; if (e > 0) { q[ax] = Math.sign(q[ax]) * E; q.addScaledVector(n, e); } }
+    { const e = boardD(q.x, q.z) - E; if (e > 0) { q.x -= BOARD_NRM.x * e; q.z -= BOARD_NRM.z * e; q.addScaledVector(n, e); } }   // 변을 넘는 부분은 옆 변 쪽으로 꺾어 붙인다
     pos.push(q.x, q.y, q.z); uv.push(u + 0.5, v + 0.5);
     if (i < G && j < G) { const k = j * (G + 1) + i; idx.push(k, k + 1, k + G + 1, k + 1, k + G + 2, k + G + 1); }
   }
@@ -5409,7 +5517,7 @@ function slideTarget(t, dt) {
   if (sp > 0.02) {
     const nx = t.x + t.vx * dt, nz = t.z + t.vz * dt, m = TARGET_S / 2 - 0.2;
     // 보드 밖이나 다른 물체(건물·잔해·다른 보급품 등)에 닿으면 멈춘다
-    const hit = Math.abs(nx) > WALL - m || Math.abs(nz) > WALL - m || footprints.some((f) => {
+    const hit = !inBoard(nx, nz, BOARD_AP - WALL + m) || footprints.some((f) => {
       if (f === t.fp || f.bunker || f.sandbag || f.y0 > t.y + 1 || f.top < t.y - 1) return false;
       fpLocal(f, nx, nz, _fl); return Math.abs(_fl.x) < f.hx + m && Math.abs(_fl.z) < f.hz + m;
     });
@@ -5592,7 +5700,7 @@ function updateCoins(dt) {
       c.v.addScaledVector(_tmp, c.drift * fdt);
       c.p.addScaledVector(c.v, fdt);
       // 투명한 벽에 맞으면 튕겨 나온다
-      for (const ax of ['x', 'z']) if (Math.abs(c.p[ax]) > WALL - COIN_R) { c.p[ax] = Math.sign(c.p[ax]) * (WALL - COIN_R); c.v[ax] *= -0.5; }
+      if (boardClamp(c.p, BOARD_AP - WALL + COIN_R) > 0) { const vn = c.v.x * BOARD_NRM.x + c.v.z * BOARD_NRM.z; if (vn > 0) { c.v.x -= 1.5 * vn * BOARD_NRM.x; c.v.z -= 1.5 * vn * BOARD_NRM.z; } }
       _cq.setFromAxisAngle(_tmp.copy(c.w).normalize(), c.w.length() * fdt); c.q.premultiply(_cq);
       if (c.v.y < 0 && c.p.y < groundAt(c.p.x, c.p.z) + COIN_FLOAT) {
         // 착지: 딱 멈추지 않고 EaseOutBack처럼 조금 더 미끄러졌다 살짝 되돌아오고, 높이는 스프링으로 출렁
@@ -5617,7 +5725,7 @@ function updateCoins(dt) {
         if (d2 < m * m && d2 > 1e-6) { const d = Math.sqrt(d2), k = (m - d) * 0.5 * Math.min(1, dt * 8) / d; c.p.x += dx * k; c.p.z += dz * k; }
       }
       // 착지 미끄러짐·밀어내기로 투명한 벽 밖(땅이 없는 곳)으로 나가지 않게. 벽 밖 동전은 아무도 못 주워 적이 그쪽으로 끝없이 가려 했다
-      for (const ax of ['x', 'z']) if (Math.abs(c.p[ax]) > WALL - COIN_R) { c.p[ax] = Math.sign(c.p[ax]) * (WALL - COIN_R); if (ax === 'x') c.lx0 = c.p.x - c.ldx; else c.lz0 = c.p.z - c.ldz; }
+      if (boardClamp(c.p, BOARD_AP - WALL + COIN_R) > 0) { c.lx0 = c.p.x - c.ldx; c.lz0 = c.p.z - c.ldz; }
     }
   }
   let nc = 0, nk = 0;
@@ -5696,13 +5804,13 @@ const _bhL = new THREE.Vector3(), _bhF = new THREE.Vector3(), _bhQ = new THREE.Q
 function ballHit(a, p, b) {
   const R = BALL_R;
   // 보드 경계의 투명한 벽: 지나간 지점에서 터진다
-  if (Math.abs(p.x) > HALF || Math.abs(p.z) > HALF) {
-    let t = 1;
-    const n = new THREE.Vector3();
-    if (Math.abs(p.x) > HALF) { const tt = (Math.sign(p.x) * HALF - a.x) / (p.x - a.x); if (tt < t) { t = tt; n.set(-Math.sign(p.x), 0, 0); } }
-    if (Math.abs(p.z) > HALF) { const tt = (Math.sign(p.z) * HALF - a.z) / (p.z - a.z); if (tt < t) { t = tt; n.set(0, 0, -Math.sign(p.z)); } }
+  if (!inBoard(p.x, p.z)) {
+    // p 쪽 변과 만나는 비율 (한 스텝은 짧아서 그 변 하나로 충분하다). 법선은 변의 안쪽
+    const dp = boardD(p.x, p.z), da = a.x * BOARD_NRM.x + a.z * BOARD_NRM.z, t = (BOARD_AP - da) / ((dp - da) || 1);
+    const n = new THREE.Vector3(-BOARD_NRM.x, 0, -BOARD_NRM.z);
     const q = a.clone().lerp(p, Math.max(0, Math.min(1, t)));
-    if (q.y > groundAt(Math.max(-HALF, Math.min(HALF, q.x)), Math.max(-HALF, Math.min(HALF, q.z))) - 0.5) return { p: q, n, wall: true };
+    const g = { x: q.x, z: q.z }; boardClamp(g, 0.01);
+    if (q.y > groundAt(g.x, g.z) - 0.5) return { p: q, n, wall: true };
   }
   for (const t of targets) {
     if (!t.alive || Math.abs(p.y - t.y) > TARGET_S / 2 + R) continue;
@@ -6395,8 +6503,11 @@ function buildCollisionLines() {
   for (const q of allPoles) prism(q.x, q.z, 0.15, 0.15, 1, 0, q.y, q.y + 9.2);
   for (const c of crates) if (c.alive) prism(c.x, c.z, c.s / 2, c.s / 2, Math.cos(c.rot), Math.sin(c.rot), c.y - c.s / 2, c.y + c.s / 2);
   // 보드 경계의 투명한 벽
-  for (let y = 0; y <= 40; y += 10) prism(0, 0, WALL, WALL, 1, 0, y, y);
-  for (const [x, z] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) seg([x * WALL, BOTTOM, z * WALL], [x * WALL, 40, z * WALL]);
+  for (let k = 0; k < BOARD_SIDES; k++) {   // 64각 기둥: 높이마다 둘레 + 8곳 세로 모서리
+    const r = WALL / Math.cos(BOARD_A / 2), a0 = (k + 0.5) * BOARD_A, a1 = a0 + BOARD_A, x0 = Math.cos(a0) * r, z0 = Math.sin(a0) * r;
+    for (let y = 0; y <= 40; y += 10) seg([x0, y, z0], [Math.cos(a1) * r, y, Math.sin(a1) * r]);
+    if (k % 8 === 0) seg([x0, BOTTOM, z0], [x0, 40, z0]);
+  }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
   if (colLines) { colLines.geometry.dispose(); colLines.geometry = g; }
@@ -6439,7 +6550,7 @@ function uprightTank() {
   if (!tank.solid || tank.cool > 0) return;
   tank.cool = tank.reload;
   _fwd.set(0, 0, 1).applyQuaternion(tank.q);
-  if (Math.abs(tank.pos.x) < HALF - 2 && Math.abs(tank.pos.z) < HALF - 2) {
+  if (inBoard(tank.pos.x, tank.pos.z, 2)) {
     const yaw = Math.atan2(_fwd.x, _fwd.z), o = openHopSpot(tank.pos.x, tank.pos.z);   // 주변이 트여 있으면 null → 제자리
     if (o) hopUpright(tank, o.x, o.z, yaw, true);   // 밀려나도 차체 방향은 그대로
     else hopUpright(tank, tank.pos.x, tank.pos.z, yaw);
@@ -6452,7 +6563,7 @@ function uprightTank() {
 // 트임 = 그 자리에서 16방향 중 6m 넘게 막힘 없는 방향 수 (8방향 이상이면 트인 곳). 길이 열렸다 = 건물에서 1.6m 넘게 떨어져 탱크가 지나갈 수 있다
 const OPEN_N = 16, OPEN_LEN = 6, OPEN_NEED = 8, PATH_M = 1.6;
 function pathFree(x, z) {
-  if (Math.abs(x) > HALF - 3 || Math.abs(z) > HALF - 3 || inFootprint(x, z, PATH_M) || cliffG[gridIndex(x, z)] > 0.3) return false;
+  if (!inBoard(x, z, 3) || inFootprint(x, z, PATH_M) || cliffG[gridIndex(x, z)] > 0.3) return false;
   for (const p of allPoles) if (Math.hypot(p.x - x, p.z - z) < 1.8) return false;
   return true;   // (시냇물은 건너갈 수 있으니 막지 않는다)
 }
@@ -6467,7 +6578,7 @@ function openCount(x, z) {
   return n;
 }
 function hopLandOK(x, z) {   // 떨어져 앉을 수 있는 자리 (landSpot과 같은 조건: 땅 위, 물길·다리·절벽·급경사·전봇대·다른 탱크와 떨어진 곳)
-  if (Math.abs(x) > HALF - 7 || Math.abs(z) > HALF - 7 || creekD[gridIndex(x, z)] < CREEK_HW + 1 || bridgeDeckAt(x, z) > -1e8 || inFootprint(x, z, 2.6)) return false;
+  if (!inBoard(x, z, 7) || creekD[gridIndex(x, z)] < CREEK_HW + 1 || bridgeDeckAt(x, z) > -1e8 || inFootprint(x, z, 2.6)) return false;
   if (allPoles.some((p) => Math.hypot(p.x - x, p.z - z) < 3.5)) return false;
   if (TANKS.some((T) => T !== tank && (T.solid || T.falling) && Math.hypot(T.pos.x - x, T.pos.z - z) < 6)) return false;
   let cliff = 0;
@@ -6591,7 +6702,7 @@ const hexV3 = (h) => new THREE.Vector3(...[1, 3, 5].map((i) => parseInt(h.slice(
 const VF = Object.assign({ enabled: false, height: 2.5, cell: 1.5, density: 1.0, scale: 0.09, speed: 0.35, color: '#94a0b0', steps: 4, march: 6,
   tankRadius: 3, blastRadius: 7, refill: 6, swirl: 1.5, damping: 1.2, windFollow: 0.3, cannonPush: 14, flowWarp: 0.4 }, CFG.voxelFog);
 let vfOn = !!VF.enabled;
-const VF_N = 151;
+const VF_N = HALF * 2 + 1;   // 지형 격자 정사각을 1m 간격으로
 // 땅 높이 텍스처·유체 격자는 처음 켤 때 만든다 (꺼져 있으면 아무것도 만들지 않고, 매 프레임 일도 하지 않는다)
 let VF_TEX = null, vfFluid = null;
 function vfInit() {
@@ -6616,8 +6727,8 @@ const vfFluidMat = new THREE.ShaderMaterial({
     float n2(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(h2(i), h2(i + vec2(1, 0)), f.x), mix(h2(i + vec2(0, 1)), h2(i + vec2(1, 1)), f.x), f.y); }
     vec2 curl(vec2 p) { const float e = 0.5; return vec2(n2(p + vec2(0, e)) - n2(p - vec2(0, e)), n2(p - vec2(e, 0)) - n2(p + vec2(e, 0))) / (2.0 * e); }
     void main() {
-      vec4 s = texture2D(tPrev, vUv - texture2D(tPrev, vUv).gb * uDt / 150.0);   // 흐름을 따라 거슬러 가서 가져온다
-      float c = s.r; vec2 v = s.gb, w = vUv * 150.0 - 75.0;   // w = 월드 xz
+      vec4 s = texture2D(tPrev, vUv - texture2D(tPrev, vUv).gb * uDt / ${(HALF * 2).toFixed(1)});   // 흐름을 따라 거슬러 가서 가져온다
+      float c = s.r; vec2 v = s.gb, w = vUv * ${(HALF * 2).toFixed(1)} - ${HALF.toFixed(1)};   // w = 월드 xz
       v += curl(w * 0.12 + uT * 0.15) * uSwirl * uDt;   // 잔잔한 소용돌이
       v = uWind + (v - uWind) * exp(-uDamp * uDt);   // 바람 쪽으로 가라앉는다
       for (int i = 0; i < ${VF_IMP}; i++) {   // 밀기
@@ -6798,10 +6909,10 @@ const postMat = new THREE.ShaderMaterial({
         for (int i = 0; i < 12; i++) {
           if (float(i) >= uVFMarch) break;
           vec3 q = (floor((P + dir * (st * (float(i) + 0.5))) / uVFCell) + 0.5) * uVFCell;   // 칸 가운데
-          vec2 tu = (q.xz + 75.0) / 151.0 + 0.5 / 151.0;
+          vec2 tu = (q.xz + ${HALF.toFixed(1)}) / ${VF_N.toFixed(1)} + 0.5 / ${VF_N.toFixed(1)};
           float hy = q.y - texture2D(tHgt, tu).r;   // 땅에서 높이
           if (hy > uVFTop || hy < -uVFCell) continue;
-          vec3 fl = texture2D(tClr, (q.xz + 75.0) / 150.0).rgb;   // 흉내 유체: r = 걷힘, gb = 흐름 (m/s)
+          vec3 fl = texture2D(tClr, ${UVW('q.xz')}).rgb;   // 흉내 유체: r = 걷힘, gb = 흐름 (m/s)
           vec2 qw = q.xz - fl.gb * uVFWarp;   // 흐름만큼 무늬가 밀려 보인다
           float n = vfNoise(vec3(qw.x * uVFScale + uVFT, qw.y * uVFScale + uVFT * 0.6, q.y * uVFScale * 2.0 + uVFT * 0.25));
           float den = smoothstep(0.4, 0.7, n) * (1.0 - smoothstep(uVFTop * 0.4, uVFTop, hy)) * (1.0 - fl.r);
@@ -8400,7 +8511,7 @@ const rulesLocked = () => endState === 'clear';
 const enemyAiOff = () => aiFrozen || rulesLocked();   // 적 AI를 끈다: 개발 버튼(적 AI 정지) 또는 섬멸 창
 // 처음: 강 건너 본도로 위에서 나를 바라보며
 {
-  const E = newEnemy(false, 1), z = Math.min(HALF - 10, XB_Z + 26), x = mainRoadX(z);
+  const E = newEnemy(false, 1), z = Math.min(SQ - 10, XB_Z + 26), x = mainRoadX(z);
   resetTank(x, z, Math.atan2(tank.pos.x - x, tank.pos.z - z), E);
   E.solid = true; syncBody(E);
 }
@@ -8410,8 +8521,8 @@ function landSpot(clear, near, margin = 4, r0 = 12, r1 = 32) {
   for (let k = 0; k < 900; k++) {
     let x, z;
     if (near) { const a = rand() * 6.283, r = rr(r0, r1); x = near.x + Math.sin(a) * r; z = near.z + Math.cos(a) * r; }
-    else { x = rr(-HALF + 8, HALF - 8); z = rr(-HALF + 8, HALF - 8); }
-    if (Math.abs(x) > HALF - 7 || Math.abs(z) > HALF - 7) continue;
+    else { x = rr(-BOARD_AP + 7, BOARD_AP - 7); z = rr(-BOARD_AP + 7, BOARD_AP - 7); }
+    if (!inBoard(x, z, 7)) continue;
     if (creekD[gridIndex(x, z)] < CREEK_HW + 4 || bridgeDeckAt(x, z) > -1e8 || inFootprint(x, z, margin)) continue;
     if (allPoles.some(p => Math.hypot(p.x - x, p.z - z) < 4)) continue;
     if (!clear(x, z)) continue;
@@ -8574,9 +8685,9 @@ function destroyTankBody(T) {
   if (T.spg && spgWanted() && enemyDrops < MAX_DROPS) { enemyDrops++; spgTimers.push(SC.respawnDelay); }   // 남은 자리가 있으면 10초 뒤 다시 (한 대로 센다)
   checkMissionClear();
 }
-// 자주포를 지도 네 모서리 중 내 탱크에서 먼 쪽(다른 자주포가 없는 곳) 근처에 떨어뜨린다
+// 자주포를 지도 가장자리 대각선 네 곳(가장자리에서 cornerMargin 안쪽) 중 내 탱크에서 먼 쪽(다른 자주포가 없는 곳) 근처에 떨어뜨린다
 function spawnSpg() {
-  const m = HALF - SC.cornerMargin, P = tank.pos;
+  const m = (BOARD_AP - SC.cornerMargin) * Math.SQRT1_2, P = tank.pos;
   const corners = [[m, m], [-m, m], [m, -m], [-m, -m]].sort((a, b) => Math.hypot(b[0] - P.x, b[1] - P.z) - Math.hypot(a[0] - P.x, a[1] - P.z));
   const free = corners.filter(([x, z]) => !ENEMIES.some(E => E.spg && Math.hypot(E.pos.x - x, E.pos.z - z) < 30));
   const E = newEnemy(true);
@@ -8642,17 +8753,20 @@ function rescueTip(E, dt) {
   E.tip = _fwd.y < 0.55 ? (E.tip || 0) + dt : 0;
   if (E.tip > 2) {
     _fwd.set(0, 0, 1).applyQuaternion(E.q);
-    const x = Math.max(-HALF + 4, Math.min(HALF - 4, E.pos.x)), z = Math.max(-HALF + 4, Math.min(HALF - 4, E.pos.z));
-    hopUpright(E, x, z, Math.atan2(_fwd.x, _fwd.z) + Math.PI); E.tip = 0;
+    const c = { x: E.pos.x, z: E.pos.z }; boardClamp(c, 4);
+    hopUpright(E, c.x, c.z, Math.atan2(_fwd.x, _fwd.z) + Math.PI); E.tip = 0;
   }
 }
 // 도망칠 곳: 나와 반대쪽 25m. 그쪽이 지도 밖이면 조금씩 옆으로 틀어 지도 안에 드는 쪽으로 (벽에 붙어 버둥대지 않게)
-const GOAL_LIM = HALF - 7;
+const GOAL_M = 7;   // 가려는 곳은 지도 가장자리에서 이만큼 안쪽까지
+const goalIn = (x, z) => inBoard(x, z, GOAL_M);
+const _gc = { x: 0, z: 0 };
+const goalClamp = (x, z) => { _gc.x = x; _gc.z = z; boardClamp(_gc, GOAL_M); return _gc; };   // 지도 안쪽으로 자른 자리 (_gc를 돌려준다: 바로 꺼내 쓸 것)
 function fleeSpot(E, P) {
   const a0 = Math.atan2(E.pos.x - P.pos.x, E.pos.z - P.pos.z);
   for (const s of [0, 0.6, -0.6, 1.2, -1.2, 1.8, -1.8]) {
     const x = E.pos.x + Math.sin(a0 + s) * 25, z = E.pos.z + Math.cos(a0 + s) * 25;
-    if (Math.abs(x) < GOAL_LIM && Math.abs(z) < GOAL_LIM) return [x, z];
+    if (goalIn(x, z)) return [x, z];
   }
   return [0, 0];   // 구석에 몰렸으면 지도 가운데 쪽으로
 }
@@ -8742,7 +8856,7 @@ function enemyAI(E, dt) {
     }
   }
   // 가려는 곳은 늘 지도 안쪽으로 자른다 (내가 가장자리에 있을 때 옆으로 돌아 들어갈 자리 등이 지도 밖이면 벽을 향해 계속 버둥댔다)
-  if (gx !== null) { gx = Math.max(-GOAL_LIM, Math.min(GOAL_LIM, gx)); gz = Math.max(-GOAL_LIM, Math.min(GOAL_LIM, gz)); }
+  if (gx !== null) { goalClamp(gx, gz); gx = _gc.x; gz = _gc.z; }
   const goalYaw = hold ? Math.atan2(aim.x - E.pos.x, aim.z - E.pos.z) : look ? yaw + 1 : Math.atan2(gx - E.pos.x, gz - E.pos.z);
   if (hold) { E.goalX = aim.x; E.goalZ = aim.z; } else if (look) E.goalX = undefined; else { E.goalX = gx; E.goalZ = gz; }   // AI 표시용
   // 앞을 미리 살펴 막힌 방향(건물·절벽 등)은 피해 간다 (0.12초마다 다시 고름). 겨눌 때·두리번거릴 때는 그대로
@@ -8793,8 +8907,7 @@ function enemyAI(E, dt) {
       if ((!h || land < da - 4 || (h.enemy && h.enemy !== tank)) && ++E.blocked >= 8) {
         E.blocked = 0; E.elevBias = 0;
         const side = rand() < 0.5 ? -1 : 1;
-        E.dx = Math.max(-GOAL_LIM, Math.min(GOAL_LIM, E.pos.x + _fwd.z * side * 10));
-        E.dz = Math.max(-GOAL_LIM, Math.min(GOAL_LIM, E.pos.z - _fwd.x * side * 10));
+        goalClamp(E.pos.x + _fwd.z * side * 10, E.pos.z - _fwd.x * side * 10); E.dx = _gc.x; E.dz = _gc.z;
         E.detour = 3;
       }
     }
@@ -8812,8 +8925,7 @@ function enemyAI(E, dt) {
     E.rev = blockedYaw(E, yaw + Math.PI) ? 0 : 2.5; E.revX = E.pos.x; E.revZ = E.pos.z;
     const oL = openness(E, yaw + 1.3), oR = openness(E, yaw - 1.3);
     const a = yaw + (oL === oR ? (rand() < 0.5 ? 1.3 : -1.3) : oL > oR ? 1.3 : -1.3), d = rr(9, 14);
-    E.dx = Math.max(-GOAL_LIM, Math.min(GOAL_LIM, E.pos.x + Math.sin(a) * d - _fwd.x * 3));
-    E.dz = Math.max(-GOAL_LIM, Math.min(GOAL_LIM, E.pos.z + Math.cos(a) * d - _fwd.z * 3));
+    goalClamp(E.pos.x + Math.sin(a) * d - _fwd.x * 3, E.pos.z + Math.cos(a) * d - _fwd.z * 3); E.dx = _gc.x; E.dz = _gc.z;
     E.detour = 4; E.steerT = 0;
   }
   _eAim.thr = thr; _eAim.turn = turn;
@@ -8844,7 +8956,7 @@ function spgAI(E, dt) {
   _sa.thr = 0; _sa.turn = 0;
   if (!P) { E.mode = 'idle'; E.goalX = undefined; return _sa; }
   if (!E.aimOfs) { const a = rand() * 6.283, r = Math.sqrt(rand()) * SC.error; E.aimOfs = [Math.sin(a) * r, Math.cos(a) * r]; E.aimT = 0; }
-  const ax = Math.max(-HALF + 1, Math.min(HALF - 1, P.pos.x + E.aimOfs[0])), az = Math.max(-HALF + 1, Math.min(HALF - 1, P.pos.z + E.aimOfs[1]));
+  _gc.x = P.pos.x + E.aimOfs[0]; _gc.z = P.pos.z + E.aimOfs[1]; boardClamp(_gc, 1); const ax = _gc.x, az = _gc.z;
   E.goalX = ax; E.goalZ = az;
   // 방향은 차체가 아니라 실제 포신이 가리키는 쪽으로 잰다: 포각이 높아 차체가 비탈에 조금만 기울어도 옆으로 크게 빗나가므로
   const bd = muzzle(E), byaw = Math.hypot(bd.x, bd.z) > 0.05 ? Math.atan2(bd.x, bd.z) : yaw;
@@ -8971,7 +9083,7 @@ function jeepAI(E, dt) {
     if (E.wx === undefined || Math.hypot(E.wx - E.pos.x, E.wz - E.pos.z) < 6 || (E.wanderT = (E.wanderT || 0) - dt) <= 0) { const s = dropSpot(E); E.wx = s.x; E.wz = s.z; E.wanderT = 20; }
     gx = E.wx; gz = E.wz; E.mode = 'explore';
   }
-  gx = Math.max(-GOAL_LIM, Math.min(GOAL_LIM, gx)); gz = Math.max(-GOAL_LIM, Math.min(GOAL_LIM, gz));
+  goalClamp(gx, gz); gx = _gc.x; gz = _gc.z;
   E.goalX = gx; E.goalZ = gz;
   const want = clearYaw(E, Math.atan2(gx - E.pos.x, gz - E.pos.z));
   const diff = Math.atan2(Math.sin(want - yaw), Math.cos(want - yaw));
@@ -9029,7 +9141,7 @@ function blockedYaw(E, a) {
   const sx = Math.sin(a), cz = Math.cos(a), h0 = heightAt(E.pos.x, E.pos.z);
   for (const d of [2.6, 4.4, 6.4]) {
     const x = E.pos.x + sx * d, z = E.pos.z + cz * d;
-    if (Math.abs(x) > WALL - 2.5 || Math.abs(z) > WALL - 2.5 || inFootprint(x, z, 1.6)) return true;
+    if (!inBoard(x, z, BOARD_AP - WALL + 2.5) || inFootprint(x, z, 1.6)) return true;
     if (cliffG[gridIndex(x, z)] > 0.3 || Math.abs(heightAt(x, z) - h0) > d * 0.55) return true;   // 절벽·급경사
     if (allPoles.some(p => Math.abs(p.x - x) < 1.8 && Math.abs(p.z - z) < 1.8)) return true;
     for (const T of TANKS) if (T !== E && T.solid && Math.hypot(T.pos.x - x, T.pos.z - z) < 3.4) return true;
@@ -9042,7 +9154,7 @@ function openness(E, a) {
   let n = 0;
   for (let d = 2; d <= 12; d += 2, n++) {
     const x = E.pos.x + sx * d, z = E.pos.z + cz * d;
-    if (Math.abs(x) > GOAL_LIM || Math.abs(z) > GOAL_LIM || inFootprint(x, z, 1.6) || cliffG[gridIndex(x, z)] > 0.3 || Math.abs(heightAt(x, z) - h0) > d * 0.55) break;
+    if (!goalIn(x, z) || inFootprint(x, z, 1.6) || cliffG[gridIndex(x, z)] > 0.3 || Math.abs(heightAt(x, z) - h0) > d * 0.55) break;
     if (TANKS.some(T => T !== E && T.solid && Math.hypot(T.pos.x - x, T.pos.z - z) < 3.4)) break;
   }
   return n;
@@ -9174,7 +9286,7 @@ function updateAiView() {
   aiLines.visible = aiShow;
   if (!aiShow) { for (const d of aiTagPool) d.style.display = 'none'; return; }
   const p = [];
-  const gy = (x, z) => groundAt(Math.max(-HALF, Math.min(HALF, x)), Math.max(-HALF, Math.min(HALF, z))) + 0.4;
+  const gy = (x, z) => { _gc.x = x; _gc.z = z; boardClamp(_gc, 0.1); return groundAt(_gc.x, _gc.z) + 0.4; };
   const seg = (a, b) => p.push(a[0], gy(a[0], a[1]), a[1], b[0], gy(b[0], b[1]), b[1]);
   const tagAt = (i) => {   // 글자 줄 + 작은 체력 게이지
     let tag = aiTagPool[i];
@@ -10486,7 +10598,7 @@ function updateLeaves(dt) {
     L.p.z += (wd.y * v + wd.x * sway * 0.8) * dt;
     L.p.y -= L.fall * (0.7 + 0.3 * Math.abs(sway)) * dt;
     L.ang += L.spin * dt;
-    if (L.p.y < groundAt(L.p.x, L.p.z) + 0.05 || Math.abs(L.p.x) > HALF || Math.abs(L.p.z) > HALF) leaves.splice(i, 1);
+    if (L.p.y < groundAt(L.p.x, L.p.z) + 0.05 || !inBoard(L.p.x, L.p.z)) leaves.splice(i, 1);
   }
   _ln.fill(0);
   for (const L of leaves) {
@@ -10505,7 +10617,7 @@ document.getElementById('debris').value = windDebris; document.getElementById('d
 function updateWindDebris(dt) {
   if (windDebris <= 0 || dt <= 0) return;
   const wd = U.uWindDir.value, ws = U.uWind.value, c = controls.target;
-  const spawnAt = (out) => { const x = c.x + rr(-34, 34) - wd.x * 10, z = c.z + rr(-34, 34) - wd.y * 10; if (Math.abs(x) > HALF - 1 || Math.abs(z) > HALF - 1) return null; out.set(x, groundAt(x, z), z); return out; };
+  const spawnAt = (out) => { const x = c.x + rr(-34, 34) - wd.x * 10, z = c.z + rr(-34, 34) - wd.y * 10; if (!inBoard(x, z, 1)) return null; out.set(x, groundAt(x, z), z); return out; };
   for (debrisAcc += dt * windDebris * 70 * (0.3 + ws); debrisAcc >= 1; debrisAcc--) {
     if (!spawnAt(_tmp)) continue;
     const sp = rr(2.5, 6) * (0.4 + ws), g = rr(0.4, 0.6);
@@ -10780,8 +10892,8 @@ function editSync() {
   else { editOut.position.copy(o.group.position); editOut.quaternion.copy(o.group.quaternion); editOut.scale.setScalar(1.05); }
 }
 function editMove(dx, dz, dr) {
-  const s = editSel, p = editPos(s), lim = HALF - 3;
-  dx = Math.max(-lim, Math.min(lim, p.x + dx)) - p.x; dz = Math.max(-lim, Math.min(lim, p.z + dz)) - p.z;   // 판 밖으로는 못 간다
+  const s = editSel, p = editPos(s), q = { x: p.x + dx, z: p.z + dz };
+  boardClamp(q, 3); dx = q.x - p.x; dz = q.z - p.z;   // 판 밖으로는 못 간다
   if (s.kind === 'crate') moveCrate(s.o, dx, dz, dr);
   else if (s.kind === 'wreck') moveWreck(s.o, dx, dz, dr);
   else if (s.kind === 'sandbag') { moveSandbag(s.o, dx, dz, dr); editSelect(s); }   // 땅에 맞춰 새로 만드니 선택 표시도 새로
@@ -10901,8 +11013,8 @@ function editUpdate(dt) {
   if (editKeys.has('KeyA')) { dx += _eF.z; dz -= _eF.x; }
   if (editKeys.has('KeyD')) { dx -= _eF.z; dz += _eF.x; }
   if (dx || dz) {
-    const L = Math.hypot(dx, dz), lim = HALF - 2;
-    const nx = Math.max(-lim, Math.min(lim, controls.target.x + dx / L * sp)), nz = Math.max(-lim, Math.min(lim, controls.target.z + dz / L * sp));
+    const L = Math.hypot(dx, dz), q = { x: controls.target.x + dx / L * sp, z: controls.target.z + dz / L * sp };
+    boardClamp(q, 2); const nx = q.x, nz = q.z;
     _eV.set(nx - controls.target.x, 0, nz - controls.target.z);
     controls.target.add(_eV); camera.position.add(_eV);
     controls.target.y = heightAt(controls.target.x, controls.target.z);

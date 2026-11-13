@@ -63,8 +63,8 @@ function editSync() {
   else { editOut.position.copy(o.group.position); editOut.quaternion.copy(o.group.quaternion); editOut.scale.setScalar(1.05); }
 }
 function editMove(dx, dz, dr) {
-  const s = editSel, p = editPos(s), lim = HALF - 3;
-  dx = Math.max(-lim, Math.min(lim, p.x + dx)) - p.x; dz = Math.max(-lim, Math.min(lim, p.z + dz)) - p.z;   // 판 밖으로는 못 간다
+  const s = editSel, p = editPos(s), q = { x: p.x + dx, z: p.z + dz };
+  boardClamp(q, 3); dx = q.x - p.x; dz = q.z - p.z;   // 판 밖으로는 못 간다
   if (s.kind === 'crate') moveCrate(s.o, dx, dz, dr);
   else if (s.kind === 'wreck') moveWreck(s.o, dx, dz, dr);
   else if (s.kind === 'sandbag') { moveSandbag(s.o, dx, dz, dr); editSelect(s); }   // 땅에 맞춰 새로 만드니 선택 표시도 새로
@@ -184,8 +184,8 @@ function editUpdate(dt) {
   if (editKeys.has('KeyA')) { dx += _eF.z; dz -= _eF.x; }
   if (editKeys.has('KeyD')) { dx -= _eF.z; dz += _eF.x; }
   if (dx || dz) {
-    const L = Math.hypot(dx, dz), lim = HALF - 2;
-    const nx = Math.max(-lim, Math.min(lim, controls.target.x + dx / L * sp)), nz = Math.max(-lim, Math.min(lim, controls.target.z + dz / L * sp));
+    const L = Math.hypot(dx, dz), q = { x: controls.target.x + dx / L * sp, z: controls.target.z + dz / L * sp };
+    boardClamp(q, 2); const nx = q.x, nz = q.z;
     _eV.set(nx - controls.target.x, 0, nz - controls.target.z);
     controls.target.add(_eV); camera.position.add(_eV);
     controls.target.y = heightAt(controls.target.x, controls.target.z);

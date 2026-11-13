@@ -66,7 +66,7 @@ const grassHt = new Float32Array(FN * FN);   // 0.5m 칸마다 가장 큰 풀 �
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.7, 0.6, 0.15) * vFire + diffuseColor.rgb * vLampC * 2.6;');
   };
   // 25m 구역별 InstancedMesh: 화면 밖 구역은 통째로 건너뛴다
-  const CH = 6, CW = HALF * 2 / CH, chunks = Array.from({ length: CH * CH }, () => []);
+  const CH = Math.round(HALF * 2 / 25), CW = HALF * 2 / CH, chunks = Array.from({ length: CH * CH }, () => []), ring = Array.from({ length: CH * CH }, () => []);
   const PALETTE = [0xbda366, 0xa8925a, 0x968854, 0xb3995e, 0x8a844e, 0xc2ad76].map(h => new THREE.Color(h));
   // 색은 자리마다: 큰 얼룩(올리브빛/누런 들판) + 중간 얼룩(붉게 마른 곳) + 작은 덤불(바랜 색), 잎마다 조금씩 흔들기. 생성할 때 한 번만 계산
   const vn2 = (x, z) => {
@@ -82,18 +82,17 @@ const grassHt = new Float32Array(FN * FN);   // 0.5m 칸마다 가장 큰 풀 �
   let gseed = 0x9e3779b9;
   const grand = () => { gseed = (gseed + 0x6d2b79f5) | 0; let t = Math.imul(gseed ^ (gseed >>> 15), 1 | gseed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
   const grr = (a, b) => a + (b - a) * grand();
-  for (let tries = 0; grassCount < GRASS_TARGET && tries < GRASS_TARGET * 3; tries++) {
-    const x = grr(-HALF + 0.2, HALF - 0.2), z = grr(-HALF + 0.2, HALF - 0.2);
+  const plant = (x, z) => {   // 풀 하나 심기 (심을 수 없는 자리면 false)
     const gi = gridIndex(x, z), d = roadD[gi];
-    if (d < ROAD_HW + 0.1 || creekD[gi] < CREEK_HW + 0.9 || cliffG[gi] > 0.2) continue;   // 절벽엔 풀이 없다
-    if (cliffNear[gi] && creekD[gi] < CREEK_HW + 7) continue;   // 강가 절벽 발치의 좁은 땅도
-    if (WRECKS.some(w => Math.hypot(w.x - x, w.z - z) < 3.6)) continue;   // 부서진 탱크 주변은 맨땅
+    if (d < ROAD_HW + 0.1 || creekD[gi] < CREEK_HW + 0.9 || cliffG[gi] > 0.2) return false;   // 절벽엔 풀이 없다
+    if (cliffNear[gi] && creekD[gi] < CREEK_HW + 7) return false;   // 강가 절벽 발치의 좁은 땅도
+    if (WRECKS.some(w => Math.hypot(w.x - x, w.z - z) < 3.6)) return false;   // 부서진 탱크 주변은 맨땅
     const n1 = vn2(x * 0.05, z * 0.05), n2 = vn2(x * 0.13 + 17, z * 0.13 + 5), n3 = vn2(x * 0.31 + 3, z * 0.31 + 11);
     let hScale = grr(1.05, 1.8) * (0.8 + 0.4 * n2);
-    if (d < ROAD_HW + 1.4) { if (grand() > 0.45) continue; hScale *= 0.6; }
+    if (d < ROAD_HW + 1.4) { if (grand() > 0.45) return false; hScale *= 0.6; }
     const tw = townAt(x, z);   // 마을 쪽으로 갈수록 점점 성기고 짧게
-    if (tw > 0) { if (grand() > lerp(1, 0.3, tw)) continue; hScale *= lerp(1, 0.55, tw); }
-    if (inFootprint(x, z, 0.2)) continue;
+    if (tw > 0) { if (grand() > lerp(1, 0.3, tw)) return false; hScale *= lerp(1, 0.55, tw); }
+    if (inFootprint(x, z, 0.2)) return false;
     v.set(x, heightAt(x, z) - 0.05, z);
     q.setFromAxisAngle(yAxis, grand() * Math.PI * 2);
     const sw = grr(0.8, 1.3);
@@ -104,9 +103,31 @@ const grassHt = new Float32Array(FN * FN);   // 0.5m 칸마다 가장 큰 풀 �
     const gn = new THREE.Vector3((heightAt(x - 1, z) - heightAt(x + 1, z)) * 1.4, 2, (heightAt(x, z - 1) - heightAt(x, z + 1)) * 1.4).normalize();
     c.copy(cStraw).lerp(cOlive, smooth(0.35, 0.75, n1)).lerp(cRust, smooth(0.55, 0.85, n2) * 0.6).lerp(cPale, smooth(0.6, 0.9, n3) * 0.45);
     c.lerp(PALETTE[Math.floor(grand() * PALETTE.length)], 0.25).multiplyScalar(grr(0.9, 1.06));
+    if (!inBoard(x, z, 0.15)) return true;   // 64각형 밖 (예전 사각 보드의 모서리): 난수는 다 쓰고 심지 않는다
     const root = new THREE.Vector3().fromArray(terrainCol, gi * 3);
-    chunks[ci].push(m4.compose(v, q, s).clone(), c.clone(), gn, root);
-    grassCount++;
+    (planting2 ? ring : chunks)[ci].push(m4.compose(v, q, s).clone(), c.clone(), gn, root); grassCount++;
+    return true;
+  };
+  // 1) 예전 사각 보드 범위를 예전 난수 순서 그대로 (기존 풀 자리가 바뀌지 않게)
+  let tries = 0, planting2 = false;
+  for (let n = 0; n < GRASS_TARGET && tries < GRASS_TARGET * 3; tries++) {
+    const x = grr(-SQ + 0.2, SQ - 0.2), z = grr(-SQ + 0.2, SQ - 0.2);
+    if (plant(x, z)) n++;
+  }
+  // 2) 원 보드로 새로 생긴 가장자리 땅: 따로 시드한 난수로, 같은 넓이당 시도 횟수만큼
+  gseed = 0x51ed2701; planting2 = true;
+  const E = BOARD_R, tries2 = Math.round(tries * (E * E) / ((SQ - 0.2) * (SQ - 0.2)));
+  for (let k = 0; k < tries2; k++) {
+    const x = grr(-E, E), z = grr(-E, E);
+    if ((Math.abs(x) < SQ - 0.2 && Math.abs(z) < SQ - 0.2) || !inBoard(x, z, 0.15)) continue;
+    plant(x, z);
+  }
+  // 구역마다 앞의 절반만 그리므로(아래 cm.count) 두 묶음을 각각 반씩 앞에 둔다: 예전 풀의 앞 절반 + 새 풀의 앞 절반 + 나머지
+  const half4 = (l) => Math.ceil(l.length / 8) * 4;
+  for (let i = 0; i < chunks.length; i++) {
+    const a = chunks[i], b = ring[i], ha = half4(a), hb = half4(b);
+    chunks[i] = [...a.slice(0, ha), ...b.slice(0, hb), ...a.slice(ha), ...b.slice(hb)];
+    chunks[i].shown = (ha + hb) / 4;
   }
   // 텍스처 카드: 엇갈린 사각형 두 장에 풀잎 10개쯤 그린 1비트 알파 텍스처 (알파 0.5 기준으로 보이거나 안 보이거나).
   // 풀잎 폴리곤과 같은 자리·색·흔들림을 쓰고 개수는 절반 (카드 한 장이 훨씬 많은 풀잎을 그린다)
@@ -181,7 +202,7 @@ const grassHt = new Float32Array(FN * FN);   // 0.5m 칸마다 가장 큰 풀 �
     cg.setAttribute('aGround', new THREE.InstancedBufferAttribute(gnA, 3));
     cg.setAttribute('aRoot', new THREE.InstancedBufferAttribute(rtA, 3));
     cm.computeBoundingSphere(); cm.boundingSphere.radius += 2;
-    cm.count = Math.ceil(n * 0.5);   // 카드 한 장이 풀잎 여러 개를 그리니 절반만 (심은 순서가 무작위라 앞의 절반도 고르게 퍼져 있다)
+    cm.count = list.shown;   // 카드 한 장이 풀잎 여러 개를 그리니 절반만 (심은 순서가 무작위라 앞의 절반도 고르게 퍼져 있다)
     cm.userData.noOutline = true;
     scene.add(cm); grassCard.push(cm);
   }
@@ -193,11 +214,11 @@ for (let j = 0; j < FN; j++) for (let i = 0; i < FN; i++) {
   const gi = gridIndex(x, z);
   let cap = roadD[gi] < ROAD_HW + 0.1 || creekD[gi] < CREEK_HW + 0.9 || cliffG[gi] > 0.2 || (cliffNear[gi] && creekD[gi] < CREEK_HW + 7) ? 0 : 1;
   cap *= lerp(1, 0.3, townAt(x, z));   // 마을은 풀이 성기다
-  if (inFootprint(x, z)) cap = 0;
+  if (inFootprint(x, z) || !inBoard(x, z)) cap = 0;   // 보드 밖(정사각 격자의 모서리)에는 불이 번지지 않게
   fCap[k] = fFuel[k] = cap;
 }
 const burning = [];    // 이번 틱에 타고 있는 칸
-let fireBins = [];     // 화재 광원 배치용 (10x10 구역별 합)
+let fireBins = [];     // 화재 광원 배치용 (10m 구역별 합)
 const fireGlow = new Map();   // 구역 번호 → 지금 비추는 불빛 { x, z, I } (updateLights가 부드럽게 따라간다)
 const NB = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 0.7], [1, -1, 0.7], [-1, 1, 0.7], [-1, -1, 0.7]];
 // 번지기 계산용으로 풀어 둔 이웃: [di, dj, 가중치, 방향 x, 방향 z] × 8 (매번 배열 풀어 쓰기·Math.hypot을 하지 않게: 아이패드(WebKit)에서 특히 느렸다)
@@ -261,7 +282,7 @@ function fieldTick(dt) {
   }
   const bins = new Map();
   for (const k of burning) {
-    const i = k % FN, j = (k / FN) | 0, b = ((j / 20) | 0) * 10 + ((i / 20) | 0), w = fFire[k];
+    const i = k % FN, j = (k / FN) | 0, b = ((j / 20) | 0) * 20 + ((i / 20) | 0), w = fFire[k];
     let e = bins.get(b); if (!e) bins.set(b, e = { x: 0, z: 0, s: 0 });
     e.x += (-HALF + (i + 0.5) * FCELL) * w; e.z += (-HALF + (j + 0.5) * FCELL) * w; e.s += w;
   }

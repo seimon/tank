@@ -89,7 +89,7 @@ const rulesLocked = () => endState === 'clear';
 const enemyAiOff = () => aiFrozen || rulesLocked();   // 적 AI를 끈다: 개발 버튼(적 AI 정지) 또는 섬멸 창
 // 처음: 강 건너 본도로 위에서 나를 바라보며
 {
-  const E = newEnemy(false, 1), z = Math.min(HALF - 10, XB_Z + 26), x = mainRoadX(z);
+  const E = newEnemy(false, 1), z = Math.min(SQ - 10, XB_Z + 26), x = mainRoadX(z);
   resetTank(x, z, Math.atan2(tank.pos.x - x, tank.pos.z - z), E);
   E.solid = true; syncBody(E);
 }
@@ -99,8 +99,8 @@ function landSpot(clear, near, margin = 4, r0 = 12, r1 = 32) {
   for (let k = 0; k < 900; k++) {
     let x, z;
     if (near) { const a = rand() * 6.283, r = rr(r0, r1); x = near.x + Math.sin(a) * r; z = near.z + Math.cos(a) * r; }
-    else { x = rr(-HALF + 8, HALF - 8); z = rr(-HALF + 8, HALF - 8); }
-    if (Math.abs(x) > HALF - 7 || Math.abs(z) > HALF - 7) continue;
+    else { x = rr(-BOARD_AP + 7, BOARD_AP - 7); z = rr(-BOARD_AP + 7, BOARD_AP - 7); }
+    if (!inBoard(x, z, 7)) continue;
     if (creekD[gridIndex(x, z)] < CREEK_HW + 4 || bridgeDeckAt(x, z) > -1e8 || inFootprint(x, z, margin)) continue;
     if (allPoles.some(p => Math.hypot(p.x - x, p.z - z) < 4)) continue;
     if (!clear(x, z)) continue;
@@ -263,9 +263,9 @@ function destroyTankBody(T) {
   if (T.spg && spgWanted() && enemyDrops < MAX_DROPS) { enemyDrops++; spgTimers.push(SC.respawnDelay); }   // 남은 자리가 있으면 10초 뒤 다시 (한 대로 센다)
   checkMissionClear();
 }
-// 자주포를 지도 네 모서리 중 내 탱크에서 먼 쪽(다른 자주포가 없는 곳) 근처에 떨어뜨린다
+// 자주포를 지도 가장자리 대각선 네 곳(가장자리에서 cornerMargin 안쪽) 중 내 탱크에서 먼 쪽(다른 자주포가 없는 곳) 근처에 떨어뜨린다
 function spawnSpg() {
-  const m = HALF - SC.cornerMargin, P = tank.pos;
+  const m = (BOARD_AP - SC.cornerMargin) * Math.SQRT1_2, P = tank.pos;
   const corners = [[m, m], [-m, m], [m, -m], [-m, -m]].sort((a, b) => Math.hypot(b[0] - P.x, b[1] - P.z) - Math.hypot(a[0] - P.x, a[1] - P.z));
   const free = corners.filter(([x, z]) => !ENEMIES.some(E => E.spg && Math.hypot(E.pos.x - x, E.pos.z - z) < 30));
   const E = newEnemy(true);
@@ -331,17 +331,20 @@ function rescueTip(E, dt) {
   E.tip = _fwd.y < 0.55 ? (E.tip || 0) + dt : 0;
   if (E.tip > 2) {
     _fwd.set(0, 0, 1).applyQuaternion(E.q);
-    const x = Math.max(-HALF + 4, Math.min(HALF - 4, E.pos.x)), z = Math.max(-HALF + 4, Math.min(HALF - 4, E.pos.z));
-    hopUpright(E, x, z, Math.atan2(_fwd.x, _fwd.z) + Math.PI); E.tip = 0;
+    const c = { x: E.pos.x, z: E.pos.z }; boardClamp(c, 4);
+    hopUpright(E, c.x, c.z, Math.atan2(_fwd.x, _fwd.z) + Math.PI); E.tip = 0;
   }
 }
 // 도망칠 곳: 나와 반대쪽 25m. 그쪽이 지도 밖이면 조금씩 옆으로 틀어 지도 안에 드는 쪽으로 (벽에 붙어 버둥대지 않게)
-const GOAL_LIM = HALF - 7;
+const GOAL_M = 7;   // 가려는 곳은 지도 가장자리에서 이만큼 안쪽까지
+const goalIn = (x, z) => inBoard(x, z, GOAL_M);
+const _gc = { x: 0, z: 0 };
+const goalClamp = (x, z) => { _gc.x = x; _gc.z = z; boardClamp(_gc, GOAL_M); return _gc; };   // 지도 안쪽으로 자른 자리 (_gc를 돌려준다: 바로 꺼내 쓸 것)
 function fleeSpot(E, P) {
   const a0 = Math.atan2(E.pos.x - P.pos.x, E.pos.z - P.pos.z);
   for (const s of [0, 0.6, -0.6, 1.2, -1.2, 1.8, -1.8]) {
     const x = E.pos.x + Math.sin(a0 + s) * 25, z = E.pos.z + Math.cos(a0 + s) * 25;
-    if (Math.abs(x) < GOAL_LIM && Math.abs(z) < GOAL_LIM) return [x, z];
+    if (goalIn(x, z)) return [x, z];
   }
   return [0, 0];   // 구석에 몰렸으면 지도 가운데 쪽으로
 }
@@ -431,7 +434,7 @@ function enemyAI(E, dt) {
     }
   }
   // 가려는 곳은 늘 지도 안쪽으로 자른다 (내가 가장자리에 있을 때 옆으로 돌아 들어갈 자리 등이 지도 밖이면 벽을 향해 계속 버둥댔다)
-  if (gx !== null) { gx = Math.max(-GOAL_LIM, Math.min(GOAL_LIM, gx)); gz = Math.max(-GOAL_LIM, Math.min(GOAL_LIM, gz)); }
+  if (gx !== null) { goalClamp(gx, gz); gx = _gc.x; gz = _gc.z; }
   const goalYaw = hold ? Math.atan2(aim.x - E.pos.x, aim.z - E.pos.z) : look ? yaw + 1 : Math.atan2(gx - E.pos.x, gz - E.pos.z);
   if (hold) { E.goalX = aim.x; E.goalZ = aim.z; } else if (look) E.goalX = undefined; else { E.goalX = gx; E.goalZ = gz; }   // AI 표시용
   // 앞을 미리 살펴 막힌 방향(건물·절벽 등)은 피해 간다 (0.12초마다 다시 고름). 겨눌 때·두리번거릴 때는 그대로
@@ -482,8 +485,7 @@ function enemyAI(E, dt) {
       if ((!h || land < da - 4 || (h.enemy && h.enemy !== tank)) && ++E.blocked >= 8) {
         E.blocked = 0; E.elevBias = 0;
         const side = rand() < 0.5 ? -1 : 1;
-        E.dx = Math.max(-GOAL_LIM, Math.min(GOAL_LIM, E.pos.x + _fwd.z * side * 10));
-        E.dz = Math.max(-GOAL_LIM, Math.min(GOAL_LIM, E.pos.z - _fwd.x * side * 10));
+        goalClamp(E.pos.x + _fwd.z * side * 10, E.pos.z - _fwd.x * side * 10); E.dx = _gc.x; E.dz = _gc.z;
         E.detour = 3;
       }
     }
@@ -501,8 +503,7 @@ function enemyAI(E, dt) {
     E.rev = blockedYaw(E, yaw + Math.PI) ? 0 : 2.5; E.revX = E.pos.x; E.revZ = E.pos.z;
     const oL = openness(E, yaw + 1.3), oR = openness(E, yaw - 1.3);
     const a = yaw + (oL === oR ? (rand() < 0.5 ? 1.3 : -1.3) : oL > oR ? 1.3 : -1.3), d = rr(9, 14);
-    E.dx = Math.max(-GOAL_LIM, Math.min(GOAL_LIM, E.pos.x + Math.sin(a) * d - _fwd.x * 3));
-    E.dz = Math.max(-GOAL_LIM, Math.min(GOAL_LIM, E.pos.z + Math.cos(a) * d - _fwd.z * 3));
+    goalClamp(E.pos.x + Math.sin(a) * d - _fwd.x * 3, E.pos.z + Math.cos(a) * d - _fwd.z * 3); E.dx = _gc.x; E.dz = _gc.z;
     E.detour = 4; E.steerT = 0;
   }
   _eAim.thr = thr; _eAim.turn = turn;
@@ -533,7 +534,7 @@ function spgAI(E, dt) {
   _sa.thr = 0; _sa.turn = 0;
   if (!P) { E.mode = 'idle'; E.goalX = undefined; return _sa; }
   if (!E.aimOfs) { const a = rand() * 6.283, r = Math.sqrt(rand()) * SC.error; E.aimOfs = [Math.sin(a) * r, Math.cos(a) * r]; E.aimT = 0; }
-  const ax = Math.max(-HALF + 1, Math.min(HALF - 1, P.pos.x + E.aimOfs[0])), az = Math.max(-HALF + 1, Math.min(HALF - 1, P.pos.z + E.aimOfs[1]));
+  _gc.x = P.pos.x + E.aimOfs[0]; _gc.z = P.pos.z + E.aimOfs[1]; boardClamp(_gc, 1); const ax = _gc.x, az = _gc.z;
   E.goalX = ax; E.goalZ = az;
   // 방향은 차체가 아니라 실제 포신이 가리키는 쪽으로 잰다: 포각이 높아 차체가 비탈에 조금만 기울어도 옆으로 크게 빗나가므로
   const bd = muzzle(E), byaw = Math.hypot(bd.x, bd.z) > 0.05 ? Math.atan2(bd.x, bd.z) : yaw;
@@ -660,7 +661,7 @@ function jeepAI(E, dt) {
     if (E.wx === undefined || Math.hypot(E.wx - E.pos.x, E.wz - E.pos.z) < 6 || (E.wanderT = (E.wanderT || 0) - dt) <= 0) { const s = dropSpot(E); E.wx = s.x; E.wz = s.z; E.wanderT = 20; }
     gx = E.wx; gz = E.wz; E.mode = 'explore';
   }
-  gx = Math.max(-GOAL_LIM, Math.min(GOAL_LIM, gx)); gz = Math.max(-GOAL_LIM, Math.min(GOAL_LIM, gz));
+  goalClamp(gx, gz); gx = _gc.x; gz = _gc.z;
   E.goalX = gx; E.goalZ = gz;
   const want = clearYaw(E, Math.atan2(gx - E.pos.x, gz - E.pos.z));
   const diff = Math.atan2(Math.sin(want - yaw), Math.cos(want - yaw));
@@ -718,7 +719,7 @@ function blockedYaw(E, a) {
   const sx = Math.sin(a), cz = Math.cos(a), h0 = heightAt(E.pos.x, E.pos.z);
   for (const d of [2.6, 4.4, 6.4]) {
     const x = E.pos.x + sx * d, z = E.pos.z + cz * d;
-    if (Math.abs(x) > WALL - 2.5 || Math.abs(z) > WALL - 2.5 || inFootprint(x, z, 1.6)) return true;
+    if (!inBoard(x, z, BOARD_AP - WALL + 2.5) || inFootprint(x, z, 1.6)) return true;
     if (cliffG[gridIndex(x, z)] > 0.3 || Math.abs(heightAt(x, z) - h0) > d * 0.55) return true;   // 절벽·급경사
     if (allPoles.some(p => Math.abs(p.x - x) < 1.8 && Math.abs(p.z - z) < 1.8)) return true;
     for (const T of TANKS) if (T !== E && T.solid && Math.hypot(T.pos.x - x, T.pos.z - z) < 3.4) return true;
@@ -731,7 +732,7 @@ function openness(E, a) {
   let n = 0;
   for (let d = 2; d <= 12; d += 2, n++) {
     const x = E.pos.x + sx * d, z = E.pos.z + cz * d;
-    if (Math.abs(x) > GOAL_LIM || Math.abs(z) > GOAL_LIM || inFootprint(x, z, 1.6) || cliffG[gridIndex(x, z)] > 0.3 || Math.abs(heightAt(x, z) - h0) > d * 0.55) break;
+    if (!goalIn(x, z) || inFootprint(x, z, 1.6) || cliffG[gridIndex(x, z)] > 0.3 || Math.abs(heightAt(x, z) - h0) > d * 0.55) break;
     if (TANKS.some(T => T !== E && T.solid && Math.hypot(T.pos.x - x, T.pos.z - z) < 3.4)) break;
   }
   return n;
@@ -863,7 +864,7 @@ function updateAiView() {
   aiLines.visible = aiShow;
   if (!aiShow) { for (const d of aiTagPool) d.style.display = 'none'; return; }
   const p = [];
-  const gy = (x, z) => groundAt(Math.max(-HALF, Math.min(HALF, x)), Math.max(-HALF, Math.min(HALF, z))) + 0.4;
+  const gy = (x, z) => { _gc.x = x; _gc.z = z; boardClamp(_gc, 0.1); return groundAt(_gc.x, _gc.z) + 0.4; };
   const seg = (a, b) => p.push(a[0], gy(a[0], a[1]), a[1], b[0], gy(b[0], b[1]), b[1]);
   const tagAt = (i) => {   // 글자 줄 + 작은 체력 게이지
     let tag = aiTagPool[i];

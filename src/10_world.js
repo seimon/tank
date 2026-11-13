@@ -44,9 +44,10 @@ function branchZ(x) {
 }
 // 마을 북쪽을 서→동으로 가로지르는 시냇물 (creekZ는 위에)
 const mainPoly = [], branchPoly = [], creekPoly = [];
-for (let z = -HALF - 4; z <= HALF + 4; z += 0.75) mainPoly.push({ x: mainRoadX(z), z });
-for (let x = 0; x >= -HALF - 4; x -= 0.75) branchPoly.push({ x, z: branchZ(x) });
-for (let x = -HALF - 4; x <= HALF + 4; x += 0.75) creekPoly.push({ x, z: creekZ(x) });
+// (예전 사각 보드 범위 그대로: 난수로 점을 고르는 쪽이 예전과 같게. 원 보드 가장자리까지 잇는 연장은 아래 mainPolyX 등)
+for (let z = -SQ - 4; z <= SQ + 4; z += 0.75) mainPoly.push({ x: mainRoadX(z), z });
+for (let x = 0; x >= -SQ - 4; x -= 0.75) branchPoly.push({ x, z: branchZ(x) });
+for (let x = -SQ - 4; x <= SQ + 4; x += 0.75) creekPoly.push({ x, z: creekZ(x) });
 
 // 길 방향으로 높이를 부드럽게
 function smoothHeights(poly, passes, win) {
@@ -69,14 +70,15 @@ smoothHeights(mainPoly, 4, 6); smoothHeights(branchPoly, 4, 6); smoothHeights(cr
   for (let i = 1; i < order.length; i++) order[i].y = Math.min(order[i].y - 1.1, order[i - 1].y - 0.004);
   // 반폭: 상류 쪽으로 갈수록 넓어져 끝에서 2배, 군데군데 불규칙하게 넓었다 좁았다. 다리 근처는 원래 폭
   CREEK_UP = down ? -1 : 1;
-  const span = HALF - CREEK_UP * XB_X;
-  for (const p of c) {
-    const far = smooth(4, 14, Math.abs(p.x - XB_X));
-    const wob = 1 + (0.22 * Math.sin(p.x * 0.19 + 0.7) + 0.12 * Math.sin(p.x * 0.53 + 2.1)) * far;
-    p.w = CREEK_HW * (1 + 3 * smooth(4, span, (p.x - XB_X) * CREEK_UP)) * wob;
-  }
+  for (const p of c) p.w = creekW(p.x);
   // 물길을 따라 잰 거리 (물결 무늬가 흐르는 방향)
   c.forEach((p, i) => { p.s = i ? c[i - 1].s + Math.hypot(p.x - c[i - 1].x, p.z - c[i - 1].z) : 0; });
+}
+// 시냇물 반폭 (위 설명)
+function creekW(x) {
+  const far = smooth(4, 14, Math.abs(x - XB_X));
+  const wob = 1 + (0.22 * Math.sin(x * 0.19 + 0.7) + 0.12 * Math.sin(x * 0.53 + 2.1)) * far;
+  return CREEK_HW * (1 + 3 * smooth(4, SQ - CREEK_UP * XB_X, (x - XB_X) * CREEK_UP)) * wob;
 }
 // 본도로와 시냇물이 만나는 곳 = 다리. 물은 다리 밑으로 충분히 낮게
 let ci = 0;
@@ -94,6 +96,36 @@ const BRIDGE = { x: XB_X, z: XB_Z };
   BRIDGE.sinX = Math.max(0.5, Math.abs(BRIDGE.s * (b.z - a.z) - BRIDGE.c * (b.x - a.x)) / cl);
   BRIDGE.hl = (creekPoly[ci].w + 2.2) / BRIDGE.sinX; BRIDGE.hw = 3.6; BRIDGE.top = rp.y + 0.28;
 }
+
+// 원 보드 가장자리까지 길·시냇물을 잇는다 (예전 배열은 그대로 두고 앞뒤에 덧붙인 새 배열). 높이는 같은 식으로 부드럽게 한 뒤 이음매에 맞춘다
+// ax = 매개변수 축('x'·'z'), d = 한 칸(0.75m, 바깥 방향 부호), at(t) = 그 자리 점
+function polyExt(poly, fwd, ax, d, at, passes, win) {
+  const H = 24, end = fwd ? poly[poly.length - 1] : poly[0];
+  const old = fwd ? poly.slice(-H) : poly.slice(0, H).reverse();   // 끝에서 바깥 순서
+  const ext = [];
+  for (let k = 1; k <= Math.ceil((BOARD_R - SQ) / 0.75) + 1; k++) ext.push(at(end[ax] + d * k));
+  let ys = [...old, ...ext].map(p => preH(p.x, p.z));
+  for (let pass = 0; pass < passes; pass++) ys = ys.map((_, i) => { let s = 0, c = 0; for (let k = -win; k <= win; k++) { const j = i + k; if (j >= 0 && j < ys.length) { s += ys[j]; c++; } } return s / c; });
+  const off = end.y - ys[H - 1];
+  ext.forEach((p, k) => p.y = ys[H + k] + off);
+  return ext;
+}
+const atMain = (z) => ({ x: mainRoadX(z), z }), atBranch = (x) => ({ x, z: branchZ(x) }), atCreek = (x) => ({ x, z: creekZ(x) });
+const mainPolyX = [...polyExt(mainPoly, false, 'z', -0.75, atMain, 4, 6).reverse(), ...mainPoly, ...polyExt(mainPoly, true, 'z', 0.75, atMain, 4, 6)];
+const branchPolyX = [...branchPoly, ...polyExt(branchPoly, true, 'x', -0.75, atBranch, 4, 6)];
+const creekPolyX = (() => {
+  const side = (fwd) => {
+    const ext = polyExt(creekPoly, fwd, 'x', fwd ? 0.75 : -0.75, atCreek, 8, 10), up = (fwd ? 1 : -1) === CREEK_UP;
+    let prev = fwd ? creekPoly[creekPoly.length - 1] : creekPoly[0];
+    for (const p of ext) {   // 물은 높은 쪽에서 낮은 쪽으로만: 상류 쪽 연장은 바깥으로 갈수록 높게, 하류 쪽은 낮게
+      p.y = up ? Math.max(p.y, prev.y + 0.004) : Math.min(p.y, prev.y - 0.004);
+      p.w = creekW(p.x); p.s = prev.s + (fwd ? 1 : -1) * Math.hypot(p.x - prev.x, p.z - prev.z);
+      prev = p;
+    }
+    return ext;
+  };
+  return [...side(false).reverse(), ...creekPoly, ...side(true)];
+})();
 
 // 격자마다 도로/시냇물까지의 거리, 도로 높이, 수면 높이
 function nearestOnSegs(segs, x, z, out) {
@@ -113,7 +145,7 @@ function nearestOnSegs(segs, x, z, out) {
   return out;
 }
 const toSegs = (polys) => { const s = []; for (const p of polys) for (let i = 1; i < p.length; i++) s.push(p[i - 1], p[i]); return s; };
-const roadSegs = toSegs([mainPoly, branchPoly]), creekSegs = toSegs([creekPoly]);
+const roadSegs = toSegs([mainPolyX, branchPolyX]), creekSegs = toSegs([creekPolyX]);
 const roadD = new Float32Array(N * N), hG = new Float32Array(N * N);
 const creekD = new Float32Array(N * N), waterY = new Float32Array(N * N);
 const creekS = new Float32Array(N * N), creekLat = new Float32Array(N * N), creekWd = new Float32Array(N * N);   // 물결 좌표: 물길 방향 거리, 가로 위치, 기준보다 넓은 폭
@@ -121,6 +153,8 @@ const creekS = new Float32Array(N * N), creekLat = new Float32Array(N * N), cree
   const r = {}, c = {};
   for (let iz = 0; iz < N; iz++) for (let ix = 0; ix < N; ix++) {
     const x = -HALF + ix * STEP, z = -HALF + iz * STEP, i = iz * N + ix;
+    // 보드 밖 먼 칸(정사각 격자의 모서리)은 길·물 계산을 건너뛴다 (가장자리 보간에 쓰는 바로 바깥 칸은 계산)
+    if (x * x + z * z > (BOARD_R + 6) ** 2) { roadD[i] = 99; creekD[i] = 99; waterY[i] = -99; creekWd[i] = 0; hG[i] = preH(x, z); continue; }
     nearestOnSegs(roadSegs, x, z, r);
     // 시냇물은 대략 z=26~42 띠 안에만 있으니 멀면 계산 생략
     if (Math.abs(z - creekZ(x)) < 28) nearestOnSegs(creekSegs, x, z, c); else { c.d = 99; c.y = -99; c.w = CREEK_HW; c.s = 0; c.side = 1; }
@@ -234,7 +268,7 @@ function distPoly(poly, x, z) {
 
 // ---------------------------------------------------------------- 필드 상태 (0.5m 격자)
 // R=눌림, G=불, B=그을림, A=풀 성장도. 셰이더가 이 텍스처를 읽어 풀/지면을 표현한다
-const FN = 300, FCELL = 0.5;
+const FN = HALF * 4, FCELL = 0.5;   // 지형 격자와 같은 172m 정사각
 const fTr = new Float32Array(FN * FN), fFire = new Float32Array(FN * FN), fChar = new Float32Array(FN * FN);
 const fGrow = new Float32Array(FN * FN).fill(1), fFuel = new Float32Array(FN * FN), fCap = new Float32Array(FN * FN);
 const fPower = new Float32Array(FN * FN), fRegrow = new Float32Array(FN * FN);
@@ -370,11 +404,12 @@ const PUDDLES = [];
 for (let tries = 0; PUDDLES.length < 4 && tries < 400; tries++) {
   const poly = rand() < 0.7 ? mainPoly : branchPoly, p = poly[Math.floor(rand() * poly.length)];
   const x = p.x + rr(-1, 1), z = p.z + rr(-1, 1);
-  if (Math.abs(x) > HALF - 4 || Math.abs(z) > HALF - 4 || Math.hypot(x - BRIDGE.x, z - BRIDGE.z) < BRIDGE.hl + 4) continue;
+  if (Math.abs(x) > SQ - 4 || Math.abs(z) > SQ - 4 || Math.hypot(x - BRIDGE.x, z - BRIDGE.z) < BRIDGE.hl + 4) continue;
   if (PUDDLES.some(q => Math.hypot(q.x - x, q.y - z) < 12)) continue;
   PUDDLES.push(new THREE.Vector3(x, z, rr(0.9, 1.7)));
 }
 let terrainCol;
+const BOARD_RIM = [];   // 지형 윗면 둘레 점 (각도가 줄어드는 순서, {x, z, y, a}): 옆 단면이 이 점들을 그대로 이어 윗면과 딱 맞는다
 // 지형 메시
 {
   const geo = new THREE.PlaneGeometry(HALF * 2, HALF * 2, N - 1, N - 1);
@@ -385,8 +420,13 @@ let terrainCol;
   // 풀 밑 흙은 풀색에 가깝게: 풀 사이 틈이 깜빡여 보이는 대비를 줄인다
   const cUnder = new THREE.Color(0x5a5034), cBed = new THREE.Color(0x3a3a33), cMud = new THREE.Color(0x40352a);
   const road = new Float32Array(pos.count), creek = new Float32Array(pos.count * 2), cliff = new Float32Array(pos.count);
+  // 흙 색 난수: 예전 사각 격자(301칸)가 쓰던 만큼을 예전 순서대로 먼저 뽑는다 (뒤 배치의 난수 순서가 밀리지 않게). 새로 생긴 가장자리 땅은 hash01
+  const N0 = SQ * 4 + 1, nOld = new Float32Array(N0 * N0);
+  for (let i = 0; i < N0 * N0; i++) nOld[i] = rand();
   for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i), z = pos.getZ(i), gi = gridIndex(x, z), d = roadD[gi], cd = creekD[gi], n = rand();
+    const ox = (i % N) - SQ_OFS, oz = ((i / N) | 0) - SQ_OFS;
+    const x = pos.getX(i), z = pos.getZ(i), gi = gridIndex(x, z), d = roadD[gi], cd = creekD[gi];
+    const n = ox >= 0 && oz >= 0 && ox < N0 && oz < N0 ? nOld[oz * N0 + ox] : hash01(i);
     pos.setY(i, hG[gi]); cliff[i] = cliffG[gi];
     road[i] = cd < CREEK_HW + 1.2 ? 99 : d;
     // 시냇물까지 거리, 수심 (물길 밖의 낮은 땅은 물이 없으니 물속 표현도 없다)
@@ -402,11 +442,6 @@ let terrainCol;
     c.lerp(rc, 1 - smooth(CREEK_HW - 0.6, CREEK_HW + 0.4, cd));
     col.set([c.r, c.g, c.b], i * 3);
   }
-  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  geo.setAttribute('aRoad', new THREE.BufferAttribute(road, 1));
-  geo.setAttribute('aCreek', new THREE.BufferAttribute(creek, 2));
-  geo.setAttribute('aCliff', new THREE.BufferAttribute(cliff, 1));
-  geo.computeVertexNormals();
   // 픽셀 단위로: 흙 알갱이, 구불구불 끊기는 바퀴 자국, 탱크 궤도 자국, 그을림, 잉걸불
   const mat = ps1(new THREE.MeshLambertMaterial({ vertexColors: true }), (sh) => {
     sh.uniforms.uField = U.uField;
@@ -488,25 +523,38 @@ let terrainCol;
   mat.userData.ownWhite = true;   // 흰색 보기는 위 셰이더가 그늘을 남기며 직접 처리
   mat.userData.noOcc = true;   // 땅은 내 탱크를 가려도 비우지 않는다
   // 그리는 격자는 config map.terrainStep칸마다 하나만 (2 = 1m 간격, 삼각형 1/4). 세로 300줄 화면에서는 거의 구분이 안 되는데 GPU 부담은 크다.
-  // 위의 계산(난수 순서·terrainCol·물리 높이)은 원래 0.5m 격자 그대로 두고, 같은 자리의 값을 골라 옮긴다
-  let tgeo = geo;
-  const TS = Math.max(1, Math.round(CFG.map?.terrainStep ?? 2));
-  if (TS > 1 && (N - 1) % TS === 0) {
-    const M = (N - 1) / TS + 1, g2 = new THREE.PlaneGeometry(HALF * 2, HALF * 2, M - 1, M - 1);
-    g2.rotateX(-Math.PI / 2);
-    const p2 = g2.attributes.position, c2 = new Float32Array(M * M * 3), r2 = new Float32Array(M * M), k2 = new Float32Array(M * M * 2), l2 = new Float32Array(M * M);
-    for (let b = 0; b < M; b++) for (let a = 0; a < M; a++) {
-      const i = b * M + a, j = b * TS * N + a * TS;   // PlaneGeometry는 줄(z)마다 x 순서: 성긴 (a, b) = 원래 (a·TS, b·TS)
-      p2.setY(i, pos.getY(j)); c2[i * 3] = col[j * 3]; c2[i * 3 + 1] = col[j * 3 + 1]; c2[i * 3 + 2] = col[j * 3 + 2];
-      r2[i] = road[j]; k2[i * 2] = creek[j * 2]; k2[i * 2 + 1] = creek[j * 2 + 1]; l2[i] = cliff[j];
+  // 위의 계산(난수 순서·terrainCol·물리 높이)은 원래 0.5m 격자 그대로 두고, 같은 자리의 값을 골라 옮긴다.
+  // 보드는 64각형: 꼭짓점이 모두 보드 밖인 삼각형은 버리고, 걸친 삼각형의 바깥 꼭짓점은 반지름 방향으로 64각형 둘레에 끌어당긴다 (옆 단면이 그 점들을 그대로 잇는다: BOARD_RIM)
+  let TS = Math.max(1, Math.round(CFG.map?.terrainStep ?? 2));
+  if ((N - 1) % TS) TS = 1;
+  const M = (N - 1) / TS + 1, vid = new Int32Array(M * M).fill(-1), inside = new Uint8Array(M * M);
+  for (let b = 0; b < M; b++) for (let a = 0; a < M; a++) inside[b * M + a] = inBoard(-HALF + a * TS * STEP, -HALF + b * TS * STEP) ? 1 : 0;
+  const P = [], C = [], R = [], K = [], L = [], idx = [];
+  const vert = (a, b) => {
+    const k = b * M + a;
+    if (vid[k] < 0) {
+      let j = b * TS * N + a * TS, x = -HALF + a * TS * STEP, z = -HALF + b * TS * STEP, y;
+      if (inside[k]) y = pos.getY(j);
+      else { const f = BOARD_AP / boardD(x, z); x *= f; z *= f; y = heightAt(x, z); j = gridIndex(x, z); BOARD_RIM.push({ x, z, y, a: Math.atan2(z, x) }); }
+      vid[k] = P.length / 3;
+      P.push(x, y, z); C.push(col[j * 3], col[j * 3 + 1], col[j * 3 + 2]); R.push(road[j]); K.push(creek[j * 2], creek[j * 2 + 1]); L.push(cliff[j]);
     }
-    g2.setAttribute('color', new THREE.BufferAttribute(c2, 3));
-    g2.setAttribute('aRoad', new THREE.BufferAttribute(r2, 1));
-    g2.setAttribute('aCreek', new THREE.BufferAttribute(k2, 2));
-    g2.setAttribute('aCliff', new THREE.BufferAttribute(l2, 1));
-    g2.computeVertexNormals();
-    tgeo = g2; geo.dispose();
+    return vid[k];
+  };
+  for (let b = 0; b < M - 1; b++) for (let a = 0; a < M - 1; a++) {
+    const i00 = b * M + a, i10 = i00 + 1, i01 = i00 + M, i11 = i01 + 1;
+    if (inside[i00] || inside[i01] || inside[i10]) idx.push(vert(a, b), vert(a, b + 1), vert(a + 1, b));
+    if (inside[i01] || inside[i11] || inside[i10]) idx.push(vert(a, b + 1), vert(a + 1, b + 1), vert(a + 1, b));
   }
+  BOARD_RIM.sort((p, q) => q.a - p.a);   // 각도가 줄어드는 순서 (옆 단면 면이 바깥을 보게)
+  const tgeo = new THREE.BufferGeometry();
+  tgeo.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+  tgeo.setAttribute('color', new THREE.Float32BufferAttribute(C, 3));
+  tgeo.setAttribute('aRoad', new THREE.Float32BufferAttribute(R, 1));
+  tgeo.setAttribute('aCreek', new THREE.Float32BufferAttribute(K, 2));
+  tgeo.setAttribute('aCliff', new THREE.Float32BufferAttribute(L, 1));
+  tgeo.setIndex(idx); tgeo.computeVertexNormals();
+  geo.dispose();
   { const m = new THREE.Mesh(tgeo, mat); m.userData.noOutline = true; scene.add(m); }   // 땅은 외곽선 없음
 }
 
@@ -540,35 +588,33 @@ let terrainCol;
   });
   const soil = { pos: [], nor: [], col: [], uv: [] }, rock = { pos: [], nor: [], col: [], uv: [] }, water = { pos: [], nor: [], col: [], uv: [] };
   const LAYERS = [0x3b2e1f, 0x6a4c30, 0x6c665c].map(h => new THREE.Color(h));
-  const edges = [
-    { n: [0, 0, 1], pt: (s) => [s, HALF] },          // +z, x 증가
-    { n: [0, 0, -1], pt: (s) => [-s, -HALF] },       // -z, x 감소
-    { n: [1, 0, 0], pt: (s) => [HALF, -s] },         // +x, z 감소
-    { n: [-1, 0, 0], pt: (s) => [-HALF, s] },        // -x, z 증가
-  ];
   const quad = (o, A, B, ya0, ya1, yb0, yb1, n, c) => {
     o.pos.push(A.x, ya0, A.z, A.x, ya1, A.z, B.x, yb0, B.z, B.x, yb0, B.z, A.x, ya1, A.z, B.x, yb1, B.z);
     o.uv.push(A.s / 16, ya0 / 16, A.s / 16, ya1 / 16, B.s / 16, yb0 / 16, B.s / 16, yb0 / 16, A.s / 16, ya1 / 16, B.s / 16, yb1 / 16);   // 16m에 한 장
     for (let v = 0; v < 6; v++) { o.nor.push(...n); o.col.push(c.r, c.g, c.b); }
   };
-  for (const e of edges) {
-    const cols = [];
-    for (let k = 0; k < N; k++) {
-      const s = -HALF + k * STEP, [x, z] = e.pt(s), h = heightAt(x, z);
-      const w = (a, b) => 0.5 * Math.sin(s * 0.21 + a) + 0.3 * Math.sin(s * 0.67 + b);
-      const ys = [h, h - 0.45, Math.min(h - 1.4, 0.8 + w(3, 4) * 1.6), SECT_BOTTOM];   // 암반은 아주 깊이까지
-      for (let j = 1; j < 3; j++) ys[j] = Math.max(BOTTOM + 0.5, Math.min(ys[j], ys[j - 1] - 0.15));
-      cols.push({ x, z, s, ys, n: rand(), w: waterAt(x, z) });
-    }
-    const cW = new THREE.Color(0x4a6e7c);
-    for (let k = 0; k < N - 1; k++) {
-      const A = cols[k], B = cols[k + 1];
-      // 단면에 드러난 시냇물
-      if (A.w > A.ys[0] || B.w > B.ys[0]) quad(water, A, B, Math.max(A.w, A.ys[0]), A.ys[0], Math.max(B.w, B.ys[0]), B.ys[0], e.n, cW);
-      for (let b = 0; b < 3; b++) {
-        const c = LAYERS[b].clone().multiplyScalar(0.92 + A.n * 0.16);
-        quad(b < 2 ? soil : rock, A, B, A.ys[b], A.ys[b + 1], B.ys[b], B.ys[b + 1], e.n, c);
-      }
+  // 64각 띠: 지형 윗면 둘레 점(BOARD_RIM)을 한 바퀴 그대로 잇는다. 기둥마다 지층 높이, 띠 한 칸의 법선은 그 자리 변의 바깥 방향
+  for (let k = 0; k < 4 * (SQ * 4 + 1); k++) rand();   // 예전 사각 단면이 기둥마다 쓰던 난수 (뒤 배치의 난수 순서가 밀리지 않게)
+  const cols = [], RN = BOARD_RIM.length;
+  let arc = 0;
+  for (let k = 0; k <= RN; k++) {
+    const r = BOARD_RIM[k % RN];
+    if (k) { const q = BOARD_RIM[k - 1]; arc += Math.hypot(r.x - q.x, r.z - q.z); }
+    const s = arc, h = r.y;
+    const w = (a, b) => 0.5 * Math.sin(s * 0.21 + a) + 0.3 * Math.sin(s * 0.67 + b);
+    const ys = [h, h - 0.45, Math.min(h - 1.4, 0.8 + w(3, 4) * 1.6), SECT_BOTTOM];   // 암반은 아주 깊이까지
+    for (let j = 1; j < 3; j++) ys[j] = Math.max(BOTTOM + 0.5, Math.min(ys[j], ys[j - 1] - 0.15));
+    cols.push({ x: r.x, z: r.z, s, ys, n: hash01(k + 7777), w: waterAt(r.x, r.z) });
+  }
+  const cW = new THREE.Color(0x4a6e7c), en = [0, 0, 0];
+  for (let k = 0; k < RN; k++) {
+    const A = cols[k], B = cols[k + 1];
+    boardD((A.x + B.x) / 2, (A.z + B.z) / 2); en[0] = BOARD_NRM.x; en[2] = BOARD_NRM.z;
+    // 단면에 드러난 시냇물
+    if (A.w > A.ys[0] || B.w > B.ys[0]) quad(water, A, B, Math.max(A.w, A.ys[0]), A.ys[0], Math.max(B.w, B.ys[0]), B.ys[0], en, cW);
+    for (let b = 0; b < 3; b++) {
+      const c = LAYERS[b].clone().multiplyScalar(0.92 + A.n * 0.16);
+      quad(b < 2 ? soil : rock, A, B, A.ys[b], A.ys[b + 1], B.ys[b], B.ys[b + 1], en, c);
     }
   }
   for (const [o, map] of [[soil, soilTex], [rock, rockTex], [water, null]]) {
@@ -589,9 +635,10 @@ let terrainCol;
   const vert = (mx, mz) => {
     const k = mz * M + mx;
     if (vid[k] < 0) {
-      const i = mz * K * N + mx * K;
+      let i = mz * K * N + mx * K, x = -HALF + mx * K * STEP, z = -HALF + mz * K * STEP;
+      if (!inBoard(x, z)) { const f = BOARD_AP / boardD(x, z); x *= f; z *= f; i = gridIndex(x, z); }   // 보드 밖 꼭짓점은 지형처럼 64각형 둘레로
       vid[k] = pos.length / 3;
-      pos.push(-HALF + mx * K * STEP, waterY[i], -HALF + mz * K * STEP);
+      pos.push(x, waterY[i], z);
       uv.push(creekLat[i], creekS[i], creekWd[i], creekD[i]);
     }
     return vid[k];
@@ -599,6 +646,8 @@ let terrainCol;
   for (let mz = 0; mz < M - 1; mz++) for (let mx = 0; mx < M - 1; mx++) {
     const i00 = mz * K * N + mx * K, i10 = i00 + K, i01 = i00 + K * N, i11 = i01 + K;
     if (!(near(i00) || near(i10) || near(i01) || near(i11))) continue;
+    const x0 = -HALF + mx * K * STEP, z0 = -HALF + mz * K * STEP, e = K * STEP;
+    if (!(inBoard(x0, z0) || inBoard(x0 + e, z0) || inBoard(x0, z0 + e) || inBoard(x0 + e, z0 + e))) continue;
     const a = vert(mx, mz), b = vert(mx + 1, mz), c = vert(mx, mz + 1), d = vert(mx + 1, mz + 1);
     idx.push(a, c, b, b, c, d);
   }
@@ -633,9 +682,10 @@ let terrainCol;
   for (let k = 0; k < 140; k++) {
     const p = creekPoly[2 + Math.floor(rand() * (creekPoly.length - 4))];
     const off = rr(-p.w - 1.2, p.w + 1.2), x = p.x + rr(-0.4, 0.4), z = p.z + off;
-    if (Math.abs(x) > HALF - 0.5 || Math.abs(z) > HALF - 0.5 || Math.hypot(x - BRIDGE.x, z - BRIDGE.z) < 4) continue;
+    if (Math.abs(x) > SQ - 0.5 || Math.abs(z) > SQ - 0.5 || Math.hypot(x - BRIDGE.x, z - BRIDGE.z) < 4) continue;   // (예전 사각 범위: 난수 순서 그대로)
     const g = new THREE.DodecahedronGeometry(rr(0.12, 0.38), 0);
     g.scale(1, rr(0.4, 0.7), rr(0.7, 1.2)); g.rotateY(rand() * 6.28);
+    if (!inBoard(x, z, 0.5)) { g.dispose(); continue; }   // 64각형 밖으로 나간 것은 난수를 다 쓴 뒤 버린다
     g.translate(x, heightAt(x, z) + 0.02, z);
     stones.push(g.index ? g.toNonIndexed() : g);
   }

@@ -24,7 +24,7 @@ function uprightTank() {
   if (!tank.solid || tank.cool > 0) return;
   tank.cool = tank.reload;
   _fwd.set(0, 0, 1).applyQuaternion(tank.q);
-  if (Math.abs(tank.pos.x) < HALF - 2 && Math.abs(tank.pos.z) < HALF - 2) {
+  if (inBoard(tank.pos.x, tank.pos.z, 2)) {
     const yaw = Math.atan2(_fwd.x, _fwd.z), o = openHopSpot(tank.pos.x, tank.pos.z);   // 주변이 트여 있으면 null → 제자리
     if (o) hopUpright(tank, o.x, o.z, yaw, true);   // 밀려나도 차체 방향은 그대로
     else hopUpright(tank, tank.pos.x, tank.pos.z, yaw);
@@ -37,7 +37,7 @@ function uprightTank() {
 // 트임 = 그 자리에서 16방향 중 6m 넘게 막힘 없는 방향 수 (8방향 이상이면 트인 곳). 길이 열렸다 = 건물에서 1.6m 넘게 떨어져 탱크가 지나갈 수 있다
 const OPEN_N = 16, OPEN_LEN = 6, OPEN_NEED = 8, PATH_M = 1.6;
 function pathFree(x, z) {
-  if (Math.abs(x) > HALF - 3 || Math.abs(z) > HALF - 3 || inFootprint(x, z, PATH_M) || cliffG[gridIndex(x, z)] > 0.3) return false;
+  if (!inBoard(x, z, 3) || inFootprint(x, z, PATH_M) || cliffG[gridIndex(x, z)] > 0.3) return false;
   for (const p of allPoles) if (Math.hypot(p.x - x, p.z - z) < 1.8) return false;
   return true;   // (시냇물은 건너갈 수 있으니 막지 않는다)
 }
@@ -52,7 +52,7 @@ function openCount(x, z) {
   return n;
 }
 function hopLandOK(x, z) {   // 떨어져 앉을 수 있는 자리 (landSpot과 같은 조건: 땅 위, 물길·다리·절벽·급경사·전봇대·다른 탱크와 떨어진 곳)
-  if (Math.abs(x) > HALF - 7 || Math.abs(z) > HALF - 7 || creekD[gridIndex(x, z)] < CREEK_HW + 1 || bridgeDeckAt(x, z) > -1e8 || inFootprint(x, z, 2.6)) return false;
+  if (!inBoard(x, z, 7) || creekD[gridIndex(x, z)] < CREEK_HW + 1 || bridgeDeckAt(x, z) > -1e8 || inFootprint(x, z, 2.6)) return false;
   if (allPoles.some((p) => Math.hypot(p.x - x, p.z - z) < 3.5)) return false;
   if (TANKS.some((T) => T !== tank && (T.solid || T.falling) && Math.hypot(T.pos.x - x, T.pos.z - z) < 6)) return false;
   let cliff = 0;
@@ -176,7 +176,7 @@ const hexV3 = (h) => new THREE.Vector3(...[1, 3, 5].map((i) => parseInt(h.slice(
 const VF = Object.assign({ enabled: false, height: 2.5, cell: 1.5, density: 1.0, scale: 0.09, speed: 0.35, color: '#94a0b0', steps: 4, march: 6,
   tankRadius: 3, blastRadius: 7, refill: 6, swirl: 1.5, damping: 1.2, windFollow: 0.3, cannonPush: 14, flowWarp: 0.4 }, CFG.voxelFog);
 let vfOn = !!VF.enabled;
-const VF_N = 151;
+const VF_N = HALF * 2 + 1;   // 지형 격자 정사각을 1m 간격으로
 // 땅 높이 텍스처·유체 격자는 처음 켤 때 만든다 (꺼져 있으면 아무것도 만들지 않고, 매 프레임 일도 하지 않는다)
 let VF_TEX = null, vfFluid = null;
 function vfInit() {
@@ -201,8 +201,8 @@ const vfFluidMat = new THREE.ShaderMaterial({
     float n2(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(h2(i), h2(i + vec2(1, 0)), f.x), mix(h2(i + vec2(0, 1)), h2(i + vec2(1, 1)), f.x), f.y); }
     vec2 curl(vec2 p) { const float e = 0.5; return vec2(n2(p + vec2(0, e)) - n2(p - vec2(0, e)), n2(p - vec2(e, 0)) - n2(p + vec2(e, 0))) / (2.0 * e); }
     void main() {
-      vec4 s = texture2D(tPrev, vUv - texture2D(tPrev, vUv).gb * uDt / 150.0);   // 흐름을 따라 거슬러 가서 가져온다
-      float c = s.r; vec2 v = s.gb, w = vUv * 150.0 - 75.0;   // w = 월드 xz
+      vec4 s = texture2D(tPrev, vUv - texture2D(tPrev, vUv).gb * uDt / ${(HALF * 2).toFixed(1)});   // 흐름을 따라 거슬러 가서 가져온다
+      float c = s.r; vec2 v = s.gb, w = vUv * ${(HALF * 2).toFixed(1)} - ${HALF.toFixed(1)};   // w = 월드 xz
       v += curl(w * 0.12 + uT * 0.15) * uSwirl * uDt;   // 잔잔한 소용돌이
       v = uWind + (v - uWind) * exp(-uDamp * uDt);   // 바람 쪽으로 가라앉는다
       for (int i = 0; i < ${VF_IMP}; i++) {   // 밀기
@@ -383,10 +383,10 @@ const postMat = new THREE.ShaderMaterial({
         for (int i = 0; i < 12; i++) {
           if (float(i) >= uVFMarch) break;
           vec3 q = (floor((P + dir * (st * (float(i) + 0.5))) / uVFCell) + 0.5) * uVFCell;   // 칸 가운데
-          vec2 tu = (q.xz + 75.0) / 151.0 + 0.5 / 151.0;
+          vec2 tu = (q.xz + ${HALF.toFixed(1)}) / ${VF_N.toFixed(1)} + 0.5 / ${VF_N.toFixed(1)};
           float hy = q.y - texture2D(tHgt, tu).r;   // 땅에서 높이
           if (hy > uVFTop || hy < -uVFCell) continue;
-          vec3 fl = texture2D(tClr, (q.xz + 75.0) / 150.0).rgb;   // 흉내 유체: r = 걷힘, gb = 흐름 (m/s)
+          vec3 fl = texture2D(tClr, ${UVW('q.xz')}).rgb;   // 흉내 유체: r = 걷힘, gb = 흐름 (m/s)
           vec2 qw = q.xz - fl.gb * uVFWarp;   // 흐름만큼 무늬가 밀려 보인다
           float n = vfNoise(vec3(qw.x * uVFScale + uVFT, qw.y * uVFScale + uVFT * 0.6, q.y * uVFScale * 2.0 + uVFT * 0.25));
           float den = smoothstep(0.4, 0.7, n) * (1.0 - smoothstep(uVFTop * 0.4, uVFTop, hy)) * (1.0 - fl.r);

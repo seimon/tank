@@ -834,7 +834,7 @@ function updateLeaves(dt) {
     L.p.z += (wd.y * v + wd.x * sway * 0.8) * dt;
     L.p.y -= L.fall * (0.7 + 0.3 * Math.abs(sway)) * dt;
     L.ang += L.spin * dt;
-    if (L.p.y < groundAt(L.p.x, L.p.z) + 0.05 || Math.abs(L.p.x) > HALF || Math.abs(L.p.z) > HALF) leaves.splice(i, 1);
+    if (L.p.y < groundAt(L.p.x, L.p.z) + 0.05 || !inBoard(L.p.x, L.p.z)) leaves.splice(i, 1);
   }
   _ln.fill(0);
   for (const L of leaves) {
@@ -853,7 +853,7 @@ document.getElementById('debris').value = windDebris; document.getElementById('d
 function updateWindDebris(dt) {
   if (windDebris <= 0 || dt <= 0) return;
   const wd = U.uWindDir.value, ws = U.uWind.value, c = controls.target;
-  const spawnAt = (out) => { const x = c.x + rr(-34, 34) - wd.x * 10, z = c.z + rr(-34, 34) - wd.y * 10; if (Math.abs(x) > HALF - 1 || Math.abs(z) > HALF - 1) return null; out.set(x, groundAt(x, z), z); return out; };
+  const spawnAt = (out) => { const x = c.x + rr(-34, 34) - wd.x * 10, z = c.z + rr(-34, 34) - wd.y * 10; if (!inBoard(x, z, 1)) return null; out.set(x, groundAt(x, z), z); return out; };
   for (debrisAcc += dt * windDebris * 70 * (0.3 + ws); debrisAcc >= 1; debrisAcc--) {
     if (!spawnAt(_tmp)) continue;
     const sp = rr(2.5, 6) * (0.4 + ws), g = rr(0.4, 0.6);

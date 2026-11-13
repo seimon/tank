@@ -648,7 +648,7 @@ const blobShadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent
 const blobShadowGeo = new THREE.PlaneGeometry(4.2, 4.2).rotateX(-Math.PI / 2);
 const _sq = new THREE.Quaternion(), _sn = new THREE.Vector3(), _sup = new THREE.Vector3(0, 1, 0);
 for (let tries = 0; targets.length < 10 && tries < 6000; tries++) {
-  const x = rr(-HALF + 8, HALF - 8), z = rr(-HALF + 8, HALF - 8), gi = gridIndex(x, z);
+  const x = rr(-SQ + 8, SQ - 8), z = rr(-SQ + 8, SQ - 8), gi = gridIndex(x, z);   // (예전 사각 범위: 난수 순서 그대로)
   if (roadD[gi] < 6 || creekD[gi] < CREEK_HW + 5 || Math.hypot(x, z) < 34) continue;
   if (Math.hypot(x - SPAWN_X, z - SPAWN_Z) < 18 || targets.some(t => Math.hypot(t.x - x, t.z - z) < 20)) continue;
   const hs = [[-1.5, -1.5], [1.5, -1.5], [-1.5, 1.5], [1.5, 1.5]].map(([a, b]) => heightAt(x + a, z + b));
@@ -792,7 +792,7 @@ function placeRepair(far = 0) {   // far: 다른 보급품과 이만큼은 떨�
   const w = WRECKS[0];
   for (let k = 0; k < 400; k++) {
     const a = rand() * 6.283, r = rr(6, 10 + far), x = w.x + Math.sin(a) * r, z = w.z + Math.cos(a) * r;
-    if (Math.abs(x) > HALF - 6 || Math.abs(z) > HALF - 6 || creekD[gridIndex(x, z)] < CREEK_HW + 4 || inFootprint(x, z, 2.5)) continue;
+    if (Math.abs(x) > SQ - 6 || Math.abs(z) > SQ - 6 || creekD[gridIndex(x, z)] < CREEK_HW + 4 || inFootprint(x, z, 2.5)) continue;
     if (allPoles.some(q => Math.hypot(q.x - x, q.z - z) < 3.5)) continue;
     if (far && targets.some((t) => Math.hypot(t.x - x, t.z - z) < far)) continue;
     const hs = [[-1.5, -1.5], [1.5, -1.5], [-1.5, 1.5], [1.5, 1.5]].map(([a, b]) => heightAt(x + a, z + b));

@@ -39,11 +39,11 @@ const _f = new THREE.Vector3(), _F = new THREE.Vector3(), _T = new THREE.Vector3
 const _fwd = new THREE.Vector3(), _loc = new THREE.Vector3(), _qi = new THREE.Quaternion(), _dq = new THREE.Quaternion();
 let _ws = 1;   // 이번 physStep에서 궤도 마찰에 곱할 배율 (벽에 붙어 멈춘 동안 줄어든다)
 function groundAt(x, z) {
-  if (Math.abs(x) <= HALF && Math.abs(z) <= HALF) return Math.max(heightAt(x, z), bridgeDeckAt(x, z));
+  if (inBoard(x, z)) return Math.max(heightAt(x, z), bridgeDeckAt(x, z));
   return -1e9;
 }
 function normalAt(x, z, out) {
-  if (Math.abs(x) > HALF || Math.abs(z) > HALF) return out.set(0, 1, 0);
+  if (!inBoard(x, z)) return out.set(0, 1, 0);
   const e = 0.3;
   if (bridgeDeckAt(x, z) > heightAt(x, z)) {   // 다리 위: 상판 경사를 따른다
     const sf = (x, z) => Math.max(heightAt(x, z), bridgeDeckAt(x, z));
@@ -193,14 +193,12 @@ function physStep(h, thr, turn, body = tank) {
     _vp.crossVectors(B.w, _rw).add(B.vel);
     let pen = groundAt(_pw.x, _pw.z) - _pw.y;
     if (pen > 0) {
-      if (Math.abs(_pw.x) <= HALF && Math.abs(_pw.z) <= HALF) normalAt(_pw.x, _pw.z, _n); else _n.set(0, 1, 0);
+      normalAt(_pw.x, _pw.z, _n);
       contactForce(cp, pen, _n, false);
       if (cp.side) B.contacts++;
     }
-    // 보드 경계 = 하늘 끝까지 막힌 투명한 벽
-    const ox = Math.abs(_pw.x) - WALL, oz = Math.abs(_pw.z) - WALL;
-    if (ox > 0) { _n.set(-Math.sign(_pw.x), 0, 0); contactForce(cp, ox, _n, true); }
-    if (oz > 0) { _n.set(0, 0, -Math.sign(_pw.z)); contactForce(cp, oz, _n, true); }
+    // 보드 경계 = 하늘 끝까지 막힌 투명한 벽 (64각 기둥, 법선은 그 자리 변의 안쪽)
+    if (_pw.x * _pw.x + _pw.z * _pw.z > WALL * WALL) { const ow = boardD(_pw.x, _pw.z) - WALL; if (ow > 0) { _n.set(-BOARD_NRM.x, 0, -BOARD_NRM.z); contactForce(cp, ow, _n, true); } }
     for (const fp of _nearFp) {
       if (_pw.y >= fp.top || _pw.y <= fp.y0 - 1) continue;
       fpLocal(fp, _pw.x, _pw.z, _fl);
@@ -419,12 +417,12 @@ function wreckScorch(w) {   // 잔해에 미리 만든 자국 한 벌을 붙인�
 for (const w of WRECKS) wreckScorch(w);
 // 벽 평면 위의 격자로 만들고, 보드 모서리를 넘는 부분은 옆 벽으로 꺾어 붙인다 (경계 밖으로 삐져나가지 않게)
 function addWallScorch(p, n) {
-  const s = rr(4.4, 6.4), a = rand() * 6.283, ca = Math.cos(a), sa = Math.sin(a), G = 8, E = HALF - 0.03;
+  const s = rr(4.4, 6.4), a = rand() * 6.283, ca = Math.cos(a), sa = Math.sin(a), G = 8, E = BOARD_AP - 0.03;
   const T = new THREE.Vector3(-n.z, 0, n.x), q = new THREE.Vector3(), pos = [], uv = [], idx = [];
   for (let j = 0; j <= G; j++) for (let i = 0; i <= G; i++) {
     const u = i / G - 0.5, v = j / G - 0.5;
     q.copy(p).addScaledVector(n, 0.03).addScaledVector(T, (u * ca - v * sa) * s).addScaledVector(UP, (u * sa + v * ca) * s);
-    for (const ax of ['x', 'z']) { const e = Math.abs(q[ax]) - E; if (e > 0) { q[ax] = Math.sign(q[ax]) * E; q.addScaledVector(n, e); } }
+    { const e = boardD(q.x, q.z) - E; if (e > 0) { q.x -= BOARD_NRM.x * e; q.z -= BOARD_NRM.z * e; q.addScaledVector(n, e); } }   // 변을 넘는 부분은 옆 변 쪽으로 꺾어 붙인다
     pos.push(q.x, q.y, q.z); uv.push(u + 0.5, v + 0.5);
     if (i < G && j < G) { const k = j * (G + 1) + i; idx.push(k, k + 1, k + G + 1, k + 1, k + G + 2, k + G + 1); }
   }
@@ -644,7 +642,7 @@ function slideTarget(t, dt) {
   if (sp > 0.02) {
     const nx = t.x + t.vx * dt, nz = t.z + t.vz * dt, m = TARGET_S / 2 - 0.2;
     // 보드 밖이나 다른 물체(건물·잔해·다른 보급품 등)에 닿으면 멈춘다
-    const hit = Math.abs(nx) > WALL - m || Math.abs(nz) > WALL - m || footprints.some((f) => {
+    const hit = !inBoard(nx, nz, BOARD_AP - WALL + m) || footprints.some((f) => {
       if (f === t.fp || f.bunker || f.sandbag || f.y0 > t.y + 1 || f.top < t.y - 1) return false;
       fpLocal(f, nx, nz, _fl); return Math.abs(_fl.x) < f.hx + m && Math.abs(_fl.z) < f.hz + m;
     });
@@ -827,7 +825,7 @@ function updateCoins(dt) {
       c.v.addScaledVector(_tmp, c.drift * fdt);
       c.p.addScaledVector(c.v, fdt);
       // 투명한 벽에 맞으면 튕겨 나온다
-      for (const ax of ['x', 'z']) if (Math.abs(c.p[ax]) > WALL - COIN_R) { c.p[ax] = Math.sign(c.p[ax]) * (WALL - COIN_R); c.v[ax] *= -0.5; }
+      if (boardClamp(c.p, BOARD_AP - WALL + COIN_R) > 0) { const vn = c.v.x * BOARD_NRM.x + c.v.z * BOARD_NRM.z; if (vn > 0) { c.v.x -= 1.5 * vn * BOARD_NRM.x; c.v.z -= 1.5 * vn * BOARD_NRM.z; } }
       _cq.setFromAxisAngle(_tmp.copy(c.w).normalize(), c.w.length() * fdt); c.q.premultiply(_cq);
       if (c.v.y < 0 && c.p.y < groundAt(c.p.x, c.p.z) + COIN_FLOAT) {
         // 착지: 딱 멈추지 않고 EaseOutBack처럼 조금 더 미끄러졌다 살짝 되돌아오고, 높이는 스프링으로 출렁
@@ -852,7 +850,7 @@ function updateCoins(dt) {
         if (d2 < m * m && d2 > 1e-6) { const d = Math.sqrt(d2), k = (m - d) * 0.5 * Math.min(1, dt * 8) / d; c.p.x += dx * k; c.p.z += dz * k; }
       }
       // 착지 미끄러짐·밀어내기로 투명한 벽 밖(땅이 없는 곳)으로 나가지 않게. 벽 밖 동전은 아무도 못 주워 적이 그쪽으로 끝없이 가려 했다
-      for (const ax of ['x', 'z']) if (Math.abs(c.p[ax]) > WALL - COIN_R) { c.p[ax] = Math.sign(c.p[ax]) * (WALL - COIN_R); if (ax === 'x') c.lx0 = c.p.x - c.ldx; else c.lz0 = c.p.z - c.ldz; }
+      if (boardClamp(c.p, BOARD_AP - WALL + COIN_R) > 0) { c.lx0 = c.p.x - c.ldx; c.lz0 = c.p.z - c.ldz; }
     }
   }
   let nc = 0, nk = 0;
@@ -931,13 +929,13 @@ const _bhL = new THREE.Vector3(), _bhF = new THREE.Vector3(), _bhQ = new THREE.Q
 function ballHit(a, p, b) {
   const R = BALL_R;
   // 보드 경계의 투명한 벽: 지나간 지점에서 터진다
-  if (Math.abs(p.x) > HALF || Math.abs(p.z) > HALF) {
-    let t = 1;
-    const n = new THREE.Vector3();
-    if (Math.abs(p.x) > HALF) { const tt = (Math.sign(p.x) * HALF - a.x) / (p.x - a.x); if (tt < t) { t = tt; n.set(-Math.sign(p.x), 0, 0); } }
-    if (Math.abs(p.z) > HALF) { const tt = (Math.sign(p.z) * HALF - a.z) / (p.z - a.z); if (tt < t) { t = tt; n.set(0, 0, -Math.sign(p.z)); } }
+  if (!inBoard(p.x, p.z)) {
+    // p 쪽 변과 만나는 비율 (한 스텝은 짧아서 그 변 하나로 충분하다). 법선은 변의 안쪽
+    const dp = boardD(p.x, p.z), da = a.x * BOARD_NRM.x + a.z * BOARD_NRM.z, t = (BOARD_AP - da) / ((dp - da) || 1);
+    const n = new THREE.Vector3(-BOARD_NRM.x, 0, -BOARD_NRM.z);
     const q = a.clone().lerp(p, Math.max(0, Math.min(1, t)));
-    if (q.y > groundAt(Math.max(-HALF, Math.min(HALF, q.x)), Math.max(-HALF, Math.min(HALF, q.z))) - 0.5) return { p: q, n, wall: true };
+    const g = { x: q.x, z: q.z }; boardClamp(g, 0.01);
+    if (q.y > groundAt(g.x, g.z) - 0.5) return { p: q, n, wall: true };
   }
   for (const t of targets) {
     if (!t.alive || Math.abs(p.y - t.y) > TARGET_S / 2 + R) continue;
@@ -1630,8 +1628,11 @@ function buildCollisionLines() {
   for (const q of allPoles) prism(q.x, q.z, 0.15, 0.15, 1, 0, q.y, q.y + 9.2);
   for (const c of crates) if (c.alive) prism(c.x, c.z, c.s / 2, c.s / 2, Math.cos(c.rot), Math.sin(c.rot), c.y - c.s / 2, c.y + c.s / 2);
   // 보드 경계의 투명한 벽
-  for (let y = 0; y <= 40; y += 10) prism(0, 0, WALL, WALL, 1, 0, y, y);
-  for (const [x, z] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) seg([x * WALL, BOTTOM, z * WALL], [x * WALL, 40, z * WALL]);
+  for (let k = 0; k < BOARD_SIDES; k++) {   // 64각 기둥: 높이마다 둘레 + 8곳 세로 모서리
+    const r = WALL / Math.cos(BOARD_A / 2), a0 = (k + 0.5) * BOARD_A, a1 = a0 + BOARD_A, x0 = Math.cos(a0) * r, z0 = Math.sin(a0) * r;
+    for (let y = 0; y <= 40; y += 10) seg([x0, y, z0], [Math.cos(a1) * r, y, Math.sin(a1) * r]);
+    if (k % 8 === 0) seg([x0, BOTTOM, z0], [x0, 40, z0]);
+  }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
   if (colLines) { colLines.geometry.dispose(); colLines.geometry = g; }

@@ -768,7 +768,7 @@ function polesAlong(poly, start, spacing, skip) {
     const l = Math.hypot(p1.x - p0.x, p1.z - p0.z) || 1, tx = (p1.x - p0.x) / l, tz = (p1.z - p0.z) / l;
     const nx = tz, nz = -tx;   // 진행 방향 오른쪽
     const x = p.x + nx * 3.2, z = p.z + nz * 3.2;
-    if (Math.abs(x) > HALF - 2 || Math.abs(z) > HALF - 2 || inFootprint(x, z, 0.5) || (skip && skip(x, z))) continue;
+    if (Math.abs(x) > SQ - 2 || Math.abs(z) > SQ - 2 || inFootprint(x, z, 0.5) || (skip && skip(x, z))) continue;   // (예전 사각 범위: 난수 순서 그대로. 모두 64각형 안)
     if (creekD[gridIndex(x, z)] < CREEK_HW + 3) continue;
     out.push(makePole(x, z, nx, nz));
   }
@@ -812,7 +812,7 @@ function extendPoles(list, atStart) {
     const end = atStart ? list[0] : list.at(-1), prev = atStart ? list[1] : list.at(-2);
     const d = end.position.clone().sub(prev.position); d.y = 0; d.normalize();
     const x = end.position.x + d.x * 15, z = end.position.z + d.z * 15;
-    if (Math.abs(x) > HALF - 1.5 || Math.abs(z) > HALF - 1.5 || inFootprint(x, z, 0.5) || creekD[gridIndex(x, z)] < CREEK_HW + 3) break;
+    if (Math.abs(x) > SQ - 1.5 || Math.abs(z) > SQ - 1.5 || inFootprint(x, z, 0.5) || creekD[gridIndex(x, z)] < CREEK_HW + 3) break;   // (예전 사각 범위: 난수 순서 그대로)
     const p = atStart ? makePole(x, z, -d.z, d.x) : makePole(x, z, d.z, -d.x);
     if (atStart) list.unshift(p); else list.push(p);
   }
@@ -860,17 +860,15 @@ function poleXform(i, v0, out) {
 }
 // 전선: 구간마다 처짐 + 흔들림. 전봇대에 탱크가 부딪히거나 근처에서 터지면 출렁이다 잦아든다
 const WIRE_SEG = 16, wireSpans = [];
-function wire(a, b, pa, pb) {
-  // 보드 밖으로 나가는 구간은 경계까지만 그린다 (xz 직선이 경계와 만나는 비율)
+function wire(a, b, pa, pb, ph) {
+  // 보드 밖으로 나가는 구간은 경계까지만 그린다 (xz 직선이 b 쪽 변과 만나는 비율)
   let tEnd = 1;
-  for (const [qa, qb] of [[a.x, b.x], [a.z, b.z]]) {
-    if (Math.abs(qb) > HALF) tEnd = Math.min(tEnd, (Math.sign(qb) * HALF - qa) / (qb - qa));
-  }
+  if (!inBoard(b.x, b.z)) { const db = boardD(b.x, b.z), da = a.x * BOARD_NRM.x + a.z * BOARD_NRM.z; tEnd = Math.max(0, Math.min(1, (BOARD_AP - da) / ((db - da) || 1))); }
   const len = a.distanceTo(b), dx = b.x - a.x, dz = b.z - a.z, l = Math.hypot(dx, dz);
   const sag = 0.9 + Math.min(len, 18) * 0.045;   // 축 늘어진 줄: 흔들림이 잘 보이게
   // 처진 줄을 진자로 보면 흔들림 주기는 처짐 깊이로 정해진다 (느릿하게 출렁)
   wireSpans.push({ a: a.clone(), b: b.clone(), a0: a, b0: b, pa, pb, poles: [pa, pb].filter(i => i >= 0), tEnd, sag,
-    side: new THREE.Vector3(-dz / l, 0, dx / l), amp: 0, ph: rand() * 6.28, w: Math.sqrt(9.8 / (sag * 1.6 + 0.4)) });
+    side: new THREE.Vector3(-dz / l, 0, dx / l), amp: 0, ph: ph ?? rand() * 6.28, w: Math.sqrt(9.8 / (sag * 1.6 + 0.4)) });
 }
 function linkPoles(p, q) {
   const [a0, a1] = p.userData.ends, [b0, b1] = q.userData.ends, i = p.userData.idx, j = q.userData.idx;
@@ -882,12 +880,18 @@ function linkPoles(p, q) {
 function wireToEdge(end, prev) {
   const d = end.position.clone().sub(prev.position); d.y = 0; d.normalize();
   for (const e of end.userData.ends) {
-    let cur = e, first = true;
-    for (let k = 0; k < 12; k++) {
+    let cur = e, first = true, k = 0;
+    for (; k < 12; k++) {
       const nxt = cur.clone().addScaledVector(d, 15);
       wire(cur, nxt, first ? end.userData.idx : -1, -1);
       first = false; cur = nxt;
-      if (Math.abs(nxt.x) > HALF || Math.abs(nxt.z) > HALF) break;
+      if (Math.abs(nxt.x) > SQ || Math.abs(nxt.z) > SQ) break;   // (예전 사각 경계까지는 난수 순서 그대로)
+    }
+    // 64각형 경계까지 더 잇는다 (흔들림 위상은 따로: 뒤 배치의 난수 순서가 밀리지 않게)
+    for (; k < 14 && inBoard(cur.x, cur.z); k++) {
+      const nxt = cur.clone().addScaledVector(d, 15);
+      wire(cur, nxt, -1, -1, hash01(wireSpans.length) * 6.28);
+      cur = nxt;
     }
   }
 }

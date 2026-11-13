@@ -205,14 +205,47 @@ let mapIdx = Math.min(MAP_PRESETS.length - 1, Math.max(0, CFG.map.preset ?? 0));
 const MAP0 = MAP_PRESETS[mapIdx];
 if (!CFG) { loadLabel = 'CONFIG.JS NOT FOUND - PUT IT NEXT TO INDEX.HTML'; drawLoading(); throw new Error('config.js 없음'); }
 const DEG = Math.PI / 180;
-const HALF = 75;              // 보드 반경 (150m x 150m)
-const N = 301, STEP = 0.5;    // 지형 격자 (0.5m 간격)
+// 보드: 위에서 보면 64각형(거의 원). 넓이는 예전 150m x 150m 사각형과 같다
+const SQ = 75;                // 예전 사각 보드 반 폭: 자동 배치가 난수를 예전 순서대로 쓰도록 그 판정에만 쓴다 (원 밖으로 나간 것은 뒤에 따로 거른다)
+const BOARD_SIDES = 64, BOARD_A = Math.PI * 2 / BOARD_SIDES;
+const BOARD_R = Math.sqrt(4 * SQ * SQ / (BOARD_SIDES / 2 * Math.sin(BOARD_A)));   // 꼭짓점까지 (≈84.7m)
+const BOARD_AP = BOARD_R * Math.cos(BOARD_A / 2);   // 변까지 (≈84.6m). 변은 ±x·±z를 마주본다
+const HALF = 86;              // 지형 격자 반 폭 (보드를 감싸는 172m 정사각. 필드·그늘·궤도 자국 텍스처도 이 정사각 기준)
+const N = HALF * 4 + 1, STEP = 0.5;    // 지형 격자 (0.5m 간격)
+const SQ_OFS = (HALF - SQ) / STEP;     // 예전 격자(301칸) 번호 → 지금 격자 번호
+const BCOS = [], BSIN = [];
+for (let k = -BOARD_SIDES / 2; k <= BOARD_SIDES / 2; k++) { BCOS.push(Math.cos(k * BOARD_A)); BSIN.push(Math.sin(k * BOARD_A)); }
+const BOARD_NRM = { x: 1, z: 0 };   // boardD가 고른 변의 바깥 법선
+// 가장 가까운 변 쪽으로 잰 거리 (BOARD_AP면 가장자리). 고른 변의 법선을 BOARD_NRM에
+function boardD(x, z) {
+  const k = Math.round(Math.atan2(z, x) / BOARD_A) + BOARD_SIDES / 2, c = BCOS[k], s = BSIN[k];
+  BOARD_NRM.x = c; BOARD_NRM.z = s;
+  return x * c + z * s;
+}
+// 보드 안인가 (가장자리에서 m 넘게 안쪽). 대부분은 원 두 개로 바로 정한다
+function inBoard(x, z, m = 0) {
+  const r2 = x * x + z * z, L = BOARD_AP - m;
+  if (r2 <= L * L) return true;
+  if (r2 > L * L * 1.0025) return false;   // 1/cos²(π/64) ≈ 1.00242: 깎인 64각형의 꼭짓점 밖
+  return boardD(x, z) <= L;
+}
+// 가장자리에서 m 안쪽 선으로 끌어들인다 (out = {x, z}를 고친다). 밖이었으면 넘친 거리 (법선은 BOARD_NRM)
+function boardClamp(out, m = 0) {
+  const L = BOARD_AP - m;
+  if (out.x * out.x + out.z * out.z <= L * L) return 0;
+  const e = boardD(out.x, out.z) - L;
+  if (e <= 0) return 0;
+  out.x -= BOARD_NRM.x * e; out.z -= BOARD_NRM.z * e;
+  const e2 = boardD(out.x, out.z) - L;   // 꼭짓점 근처: 옆 변 밖이면 한 번 더
+  if (e2 > 0) { out.x -= BOARD_NRM.x * e2; out.z -= BOARD_NRM.z * e2; }
+  return e;
+}
 const ROAD_HW = 2.2;          // 도로 반폭
 const CREEK_HW = 2.4;         // 시냇물 기준 반폭 (다리 자리, 탱크 길이의 1.5배 정도). 상류로 갈수록 넓어진다
 let CREEK_UP = 1;             // 상류 쪽 x 방향
 const BOTTOM = -6;            // 보드 바닥 높이
 const SPAWN = CFG.player.start || { x: -22, z: -41.1, yaw: 55 }, SPAWN_X = SPAWN.x, SPAWN_Z = SPAWN.z;   // 탱크 출발 지점·방향 (본도로 남쪽. 설정)
-const WALL = HALF - 0.05;     // 보드 경계의 투명한 벽
+const WALL = BOARD_AP - 0.05; // 보드 경계의 투명한 벽 (64각 기둥)
 const params = new URLSearchParams(location.search);
 const GRASS_TARGET = Math.round((+params.get('grass') || 1) * 165000);
 const UVW = (v) => `((${v} + ${HALF.toFixed(1)}) / ${(HALF * 2).toFixed(1)})`;   // 월드 xz → 필드 텍스처 uv (GLSL)
@@ -221,6 +254,8 @@ let lowH = 300;
 let seed = 20261027;
 const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
 const rr = (a, b) => a + (b - a) * rand();
+// 자리 번호 → 0~1 (전역 rand와 따로: 원 보드로 새로 생긴 가장자리 땅처럼 예전 난수 순서를 건드리면 안 되는 곳)
+const hash01 = (i) => { let t = Math.imul((i | 0) ^ 0x9e3779b9, 0x85ebca6b); t ^= t >>> 13; t = Math.imul(t, 0xc2b2ae35); t ^= t >>> 16; return (t >>> 0) / 4294967296; };
 const lerp = (a, b, t) => a + (b - a) * t;
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
