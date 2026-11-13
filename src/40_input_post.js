@@ -16,6 +16,7 @@ addEventListener('keydown', (e) => {
     else if (endState === 'dead') { if (continuesLeft > 0) { sfx.ui('button'); uiPress('respawn'); } respawn(); }
     else if (!winUp()) uprightTank();   // 창이 떠 있으면 세우기도 안 됨
   }
+  if (e.code === 'KeyC' && !e.repeat && titleState === 'play' && !winUp() && !editMode) { nextCamPreset(); sfx.ui('tab'); }   // C (패드 X): 카메라 모드 바꾸기
   if (e.code === 'KeyT' && (endState === 'clear' || endState === 'dead') && winUp()) { sfx.ui('button'); uiPress('title'); restartGame(true); }   // T: 첫 화면으로 (전투 불능·적군 섬멸 창)
 });
 // 뒤집혔을 때 세운다 (G키, 터치 '세우기' 버튼): 포탄 한 발을 쏜 것처럼 장전돼 있을 때만 되고, 하면 한 발 소모 (포탄은 안 나감)
@@ -249,15 +250,78 @@ function vfReset() {   // 안개를 끄면 유체를 비운다 (지우는 색은
   renderer.setRenderTarget(null); renderer.setClearColor(c, al);
 }
 const _vfM = new THREE.Matrix4();
-// 아웃포커싱 (config screen.dof, 설정 탭): 초점(카메라 → 내 탱크 거리)에서 range m 밖으로 멀어질수록(앞·뒤 모두) 주변을 섞어 흐리게 (틸트시프트 미니어처 느낌).
-// 세기는 타이틀·플레이·임무 완료마다 따로, 15비트 색·디더링 전에 섞는다. 모바일(터치) 기기는 처음 값을 끈다
-const DOF = Object.assign({ enabled: true, mobile: false, title: 1, play: 0.35, clear: 1, range: 3, fall: 18, px: 2.5 }, CFG.screen?.dof);
+// 카메라 모드 (config camera 안에서 name이 있는 묶음마다 하나: default 기본, miniature 미니어처 …. 묶음을 더하면 설정 탭·C키에 그대로 나온다).
+// 모드마다: fov·distance·minDistance·maxDistance·pitch·yaw·lead·follow·height(화면 가운데를 탱크보다 위로)·fog(맵 안개 짙기 배율)·moon(맵 주광 세기 배율)·drag(끌어 돌리기)·dof(아웃포커싱).
+// 바꾸면 camera.switchTime초에 걸쳐 EaseInOutCubic으로 넘어간다: CAMV = 지금 섞인 값 (camPreTick이 매 프레임 맞춘다). 게임을 시작할 때는 늘 camera.start.
+// 아웃포커싱: 초점(카메라 → 내 탱크 거리)에서 range m 밖으로 멀어질수록(앞·뒤 모두) 주변을 섞어 흐리게 (15비트 색·디더링 전).
+// 값은 화면마다의 카메라에서: 타이틀 = title.camera.dof, 플레이 = 카메라 모드 dof, 임무 완료 = clear.camera.dof (titleK·clearSeq.k로 섞는다)
 const IS_MOBILE = matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 1 && /Mac|iPad|iPhone|Android/.test(navigator.userAgent);
-let dofOn = loadOpt('dof', !!DOF.enabled && (DOF.mobile || !IS_MOBILE));
+const CAM_BASE = { fov: 45, distance: 42, minDistance: 8, maxDistance: 70, pitch: 28, yaw: 20, lead: 9, follow: 1.8, height: 0, fog: 1, moon: 1 };
+const DOF_BASE = { strength: 1, range: 4, fall: 30, px: 2.6 }, DOF_KEYS = ['strength', 'range', 'fall', 'px'];
+const dofOf = (d, s0) => Object.assign({}, DOF_BASE, { strength: s0 }, d);   // (빠진 값 채우기. s0 = 세기 기본값)
+const TITLE_DOF = dofOf(CFG.title?.camera?.dof, 0);
+if (CFG.title) (CFG.title.camera = CFG.title.camera || {}).dof = TITLE_DOF;
+const CAMP_KEYS = (() => {
+  const C = CFG.camera = CFG.camera || {};
+  let L = Object.keys(C).filter((k) => C[k] && typeof C[k] === 'object' && !Array.isArray(C[k]) && C[k].name);
+  if (!L.length) { C.default = { name: '기본' }; L = ['default']; }   // 예전 형식 (camera에 값이 바로 있음): 그 값으로 모드 하나
+  for (const k of L) {
+    const m = C[k];
+    for (const a in CAM_BASE) if (m[a] === undefined) m[a] = C[a] ?? CAM_BASE[a];
+    m.dof = dofOf(m.dof, 1);
+  }
+  return L;
+})();
+const CAMP_CFG0 = JSON.stringify(CAMP_KEYS.map((k) => CFG.camera[k]));   // 처음 값 (설정 메뉴 카메라 [초기화])
+const CAMP_START = CAMP_KEYS.includes(CFG.camera.start) ? CFG.camera.start : CAMP_KEYS[0];
+let camPre = CAMP_START;   // (기억하지 않는다: 시작할 때마다 start)
+const camPreCfg = () => CFG.camera[camPre];
+const CAMV = { dof: {} };   // 지금 섞인 카메라 값
+let camTr = null;   // 넘어가는 중: { from: 그때의 CAMV, t, T }
+const _camEase = (t) => t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
+function camValues() {
+  const to = camPreCfg(), f = camTr && camTr.from, e = f ? _camEase(Math.min(1, camTr.t / camTr.T)) : 1;
+  for (const a in CAM_BASE) CAMV[a] = f ? lerp(f[a], to[a], e) : to[a];
+  for (const a of DOF_KEYS) CAMV.dof[a] = f ? lerp(f.dof[a], to.dof[a], e) : to.dof[a];
+}
+camValues();
+function camLimits() {   // 끌기·휠을 OrbitControls가 맡을지 (거리 범위는 camRange가 매 프레임)
+  const m = camPreCfg();
+  const A = camDragAxes(); controls.enableRotate = A.h.m === 'free' && A.v.m === 'free';   // 한쪽이라도 러버밴딩·꺼짐이면 OrbitControls로는 돌리지 않는다 (camElastic)
+  controls.enableZoom = m.zoom !== 'spring';   // 휠 스프링이면 camElastic이 직접
+}
+camLimits();
+camera.fov = CAMV.fov; camera.updateProjectionMatrix();
+function setCamPreset(k) {
+  if (!CAMP_KEYS.includes(k) || k === camPre) return;
+  camTr = { from: { ...CAMV, dof: { ...CAMV.dof } }, t: 0, T: Math.max(0.01, CFG.camera.switchTime ?? 1) };
+  camPre = k;
+  camLimits(); camElReset();
+  if (titleK >= 1 && !clearSeq) camRetBegin(camTr.T);   // 플레이: 카메라 자리도 같은 시간에 새 거리·각도로 (자동 카메라를 꺼도)
+}
+function nextCamPreset() {   // C키 / 패드 X: 다음 모드로, 좌하단에 알림 (82_dmgtext.js)
+  setCamPreset(CAMP_KEYS[(CAMP_KEYS.indexOf(camPre) + 1) % CAMP_KEYS.length]);
+  showCamToast(`카메라 모드: ${camPreCfg().name}`);
+}
+let _camFog = CAMV.fog, _camMoon = CAMV.moon, _camYaw = CAMV.yaw;
+// 마우스 휠 거리 범위: 플레이 중에만 모드의 min·maxDistance (OrbitControls는 update마다 거리를 이 범위로 자르므로, 타이틀·임무 완료·편집 모드·모드를 바꾸는 중에는 풀어 둔다.
+// 안 그러면 미니어처의 90m 아래로 못 가서 임무 완료 카메라(20m)가 멀리 밀려난다)
+function camRange() {
+  const m = camPreCfg(), play = !camTr && titleK >= 1 && !clearSeq && !editMode && !decalMode;
+  controls.minDistance = play ? Math.min(m.minDistance, m.distance) : 0.5;
+  controls.maxDistance = play ? Math.max(m.maxDistance, m.distance) : 1e4;
+}
+function camPreTick(dt) {   // 매 프레임 (카메라 맞추기 전)
+  if (camTr && (camTr.t += dt) >= camTr.T) { camTr = null; camLimits(); }
+  camValues(); camRange();
+  if (CAMV.yaw !== _camYaw) { if (titleK >= 1 && !clearSeq) camYaw += (CAMV.yaw - _camYaw) * DEG; _camYaw = CAMV.yaw; }   // 모드의 yaw가 바뀐 만큼은 follow를 기다리지 않고 바로 (넘어가는 시간 그대로)
+  if (CAMV.fog !== _camFog || CAMV.moon !== _camMoon) { _camFog = CAMV.fog; _camMoon = CAMV.moon; applyEnv(); }   // 안개 짙기·주광 세기 (넘어가는 동안만)
+  if (titleK >= 1 && !clearSeq && camera.fov !== CAMV.fov) { camera.fov = CAMV.fov; camera.updateProjectionMatrix(); U.uPointScale.value = lowH / (2 * Math.tan(CAMV.fov * DEG / 2)); }
+}
 const postMat = new THREE.ShaderMaterial({
   uniforms: { tDrop: { value: LDROP_TEX }, uDrop: { value: 0 }, uDropR: { value: 0.035 * (LD.refract ?? 1) }, tDiffuse: { value: rt.texture }, tCut: { value: cutRT.texture }, tCutD: { value: cutRT.depthTexture }, uCut: { value: 0 }, uFlash: { value: 0 }, tDepth: { value: rt.depthTexture }, tOL: { value: olRT.depthTexture },
     uOL: { value: 0 }, uNear: { value: camera.near }, uFar: { value: camera.far }, uTexel: { value: new THREE.Vector2(1, 1) },
-    uFogN: FOGN, uFogF: FOGF, uFogC: { value: FOG }, uDof: { value: 0 }, uFocus: { value: 20 }, uFocusR: { value: DOF.range }, uFocusF: { value: DOF.fall }, uDofPx: { value: DOF.px },
+    uFogN: FOGN, uFogF: FOGF, uFogC: { value: FOG }, uDof: { value: 0 }, uFocus: { value: 20 }, uFocusR: { value: CAMV.dof.range }, uFocusF: { value: CAMV.dof.fall }, uDofPx: { value: CAMV.dof.px },
     uGrad: { value: 0 }, uGradA: { value: 0.6 }, uGradB: { value: 0.9 }, uGradC: { value: new THREE.Color(1, 1, 1) },
     uGray: { value: 0 }, uGrayA: { value: hexV3(POP.dark) }, uGrayB: { value: hexV3(POP.light) }, uBright: { value: 1 },
     tHgt: { value: null }, tClr: { value: null }, uVFWarp: { value: VF.flowWarp }, uCamP: { value: new THREE.Vector3() }, uVFMarch: { value: VF.march }, uInvPV: { value: new THREE.Matrix4() }, uVF: { value: 0 }, uVFTop: { value: VF.height }, uVFCell: { value: VF.cell }, uVFDen: { value: VF.density },
@@ -346,7 +410,8 @@ postMat.uniforms.uVFC.value.convertSRGBToLinear();   // 장면 색(선형)에 �
 postMat.onBeforeRender = () => {   // 복셀 안개: 화면 → 월드 행렬, 흐르는 시간(게임 시간: 멈추면 같이 멈춘다)
   const u = postMat.uniforms;
   // 아웃포커싱 세기: 타이틀 → 플레이(titleK) → 임무 완료(clearSeq.k)로 섞는다. 초점은 내 탱크까지 거리
-  u.uDof.value = dofOn ? lerp(lerp(DOF.title, DOF.play, titleK), DOF.clear, clearSeq ? clearSeq.k : 0) : 0;
+  const dA = TITLE_DOF, dB = CAMV.dof, dC = CLR_CAM.dof, ck = clearSeq ? clearSeq.k : 0, dm = (a) => lerp(lerp(dA[a], dB[a], titleK), dC[a], ck);   // 타이틀 → 플레이(카메라 모드) → 임무 완료
+  u.uDof.value = dm('strength'); u.uFocusR.value = dm('range'); u.uFocusF.value = Math.max(0.1, dm('fall')); u.uDofPx.value = dm('px');
   if (u.uDof.value > 0) u.uFocus.value = camera.position.distanceTo(_dofT.copy(tank.pos).setY(tank.pos.y + 0.6));
   u.uVF.value = vfOn ? titleK : 0;   // 타이틀에서는 안 보이고 플레이로 넘어가며 나타난다
   if (!vfOn) return;
@@ -394,8 +459,8 @@ function applyEnv() {
   FOG.lerpColors(A.fog, B.fog, k); scene.fog.color.copy(FOG);
   if (B.bgAuto) bgDarken(B.bg.copy(B.fog));   // (bgColor 없는 셋팅: 안개색 슬라이더를 따라간다)
   SKY.lerpColors(A.fog, B.bg, k);   // 하늘: 타이틀은 타이틀 안개색 그대로
-  scene.fog.near = FOGN.value = lerp(A.near, B.near, k); scene.fog.far = FOGF.value = lerp(A.far, B.far, k);
-  moon.intensity = lerp(A.moon, B.moon, k); moon.color.lerpColors(A.moonC, B.moonC, k);
+  scene.fog.near = FOGN.value = lerp(A.near, B.near, k); scene.fog.far = FOGF.value = lerp(A.far, B.far / Math.max(0.01, CAMV.fog), k);   // (플레이 안개 짙기 × 카메라 모드 fog)
+  moon.intensity = lerp(A.moon, B.moon * CAMV.moon, k); moon.color.lerpColors(A.moonC, B.moonC, k);
   hemi.intensity = lerp(A.sky, B.sky, k); hemi.color.lerpColors(A.skyC, B.skyC, k); hemi.groundColor.lerpColors(A.gndC, B.gndC, k);
   postMat.uniforms.uGrad.value = lerp(A.grad, B.grad, k);
   if (clearSeq && clearSeq.k > 0) {   // 임무 완료: 주광·하늘빛을 타이틀 조명으로 (52_clear.js)
@@ -755,21 +820,128 @@ const CAM_BACK_WAIT = 2000, CAM_BACK_T = 1.5;
 let camDrag = false, camBackAt = 0, camRet = null;
 controls.addEventListener('start', () => { camDrag = true; camBackAt = 0; camRet = null; });
 controls.addEventListener('end', () => { camDrag = false; camBackAt = autoCam ? performance.now() + CAM_BACK_WAIT : 0; });
+function camRetBegin(T) {   // 지금 자리에서 기본 방향·거리로 돌아가기 시작 (T: 걸리는 시간, 없으면 CAM_BACK_T)
+  _tmp.copy(camera.position).sub(controls.target);
+  const r = _tmp.length();
+  camRet = { yaw: Math.atan2(-_tmp.x, -_tmp.z), pit: Math.asin(Math.max(-1, Math.min(1, _tmp.y / r))), r, t: 0, T };   // 돌아오기 시작한 자리
+  camBackAt = 0; camElReset();   // (끌어 둔 어긋남도 함께 제자리로 가니 잊는다)
+}
 function camBack(dt) {
-  if (camDrag || !autoCam) return;
+  if (camDrag || camEl.on || camPinch || (!autoCam && !(camRet && camRet.T))) return;   // 끄는 중(직접 처리하는 끌기·두 손가락 포함)에는 기다린다. (카메라 모드를 바꿀 때는 자동 카메라를 꺼도 옮긴다)
   if (!camRet) {
-    if (!camBackAt || performance.now() < camBackAt) return;
-    _tmp.copy(camera.position).sub(controls.target);
-    const r = _tmp.length();
-    camRet = { yaw: Math.atan2(-_tmp.x, -_tmp.z), pit: Math.asin(Math.max(-1, Math.min(1, _tmp.y / r))), r, t: 0 };   // 돌아오기 시작한 자리
-    camBackAt = 0;
+    if (!autoCam || !camBackAt || performance.now() < camBackAt) return;
+    camRetBegin();
   }
   camRet.t += dt;
-  const e = easeInOutCubic(Math.min(1, camRet.t / CAM_BACK_T));
+  const RT = camRet.T || CAM_BACK_T, e = easeInOutCubic(Math.min(1, camRet.t / RT));
   let dy = camYaw - camRet.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));   // 기본 방향은 탱크를 따라 계속 바뀐다
-  const yaw = camRet.yaw + dy * e, pit = camRet.pit + (CC.pitch * DEG - camRet.pit) * e, r = camRet.r + (CC.distance - camRet.r) * e;
+  const yaw = camRet.yaw + dy * e, pit = camRet.pit + (CAMV.pitch * DEG - camRet.pit) * e, r = camRet.r + (CAMV.distance - camRet.r) * e;
   camera.position.copy(controls.target).add(_tmp.set(-Math.sin(yaw) * Math.cos(pit) * r, Math.sin(pit) * r, -Math.cos(yaw) * Math.cos(pit) * r));
-  if (camRet.t >= CAM_BACK_T) camRet = null;
+  if (camRet.t >= RT) camRet = null;
+}
+// 끌어 돌리기·휠 거리 (카메라 모드 drag·dragHalf·zoom·zoomHalf). drag의 x = 가로(좌우로 도는 각), y = 세로(위아래):
+//   true = 그 방향은 자유롭게, 손을 뗀 뒤부터 자동 카메라 설정대로 (켜져 있으면 CAM_BACK_WAIT 뒤 camBack이 CAM_BACK_T초에 걸쳐 제자리로, 꺼져 있으면 그대로)
+//   숫자 L° = 러버밴딩: 끈 거리 r(화면 높이 단위)에 대해 보이는 각도 = L·r/(r + dragHalf) (끌수록 L에 끝없이 가까워진다). 놓으면 스프링으로 바로 튕겨 제자리
+//   false·0 = 그 방향은 안 돎. 둘 다 true면 예전처럼 OrbitControls가 돌린다 (camBack이 되돌림)
+// zoom: 'auto' = 휠 거리는 OrbitControls (min~maxDistance, 자동 카메라면 2초 뒤 distance로), 'spring' = 휠로 끄는 만큼 러버밴딩 (distance에서 min·maxDistance까지,
+//   휠 한 칸 = 0.1, zoomHalf만큼 굴리면 그 폭의 절반), 휠을 멈추고 CAM_ZOOM_IDLE초가 지나면 스프링으로 바로 튕겨 distance로.
+//   두 손가락(터치)도 같게: 손가락 사이가 처음의 e배로 좁아질 때마다 CAM_PINCH_K만큼 (벌리면 당겨진다), 손가락을 떼면 바로 튕겨 돌아간다.
+// 지금 적용한 어긋남(ah·av·az)과의 차이만큼만 카메라를 돌리고 당긴다 (따라 돌기·이동은 그대로). 스프링: CAM_RB_W rad/s, 감쇠 CAM_RB_Z
+const CAM_RB_W = 28, CAM_RB_Z = 0.5, CAM_ZOOM_IDLE = 0.15, CAM_PINCH_K = 0.5, TAU = Math.PI * 2;
+const camTouches = new Map();   // 캔버스 위 손가락 (id → 자리)
+let camPinch = null;   // 두 손가락 거리 조절 중: { d0: 처음 손가락 사이, z0: 그때 끈 양 }
+const pinchD = () => { const [a, b] = [...camTouches.values()]; return Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)); };
+const zoomIn = (m, D) => camEl.zt < 0 ? rbIn(camEl.az, camEl.az > 0 ? m.maxDistance - m.distance : m.distance - m.minDistance, D) : camEl.zr;   // 지금 거리 어긋남 → 끈 양 (튕기는 중이면 그 자리에서 이어서)
+const camEl = { on: false, id: null, px: 0, py: 0, rh: 0, rv: 0, ah: 0, av: 0, vh: 0, vv: 0, zr: 0, az: 0, vz: 0, zt: -1 };
+function camElReset() { Object.assign(camEl, { on: false, rh: 0, rv: 0, ah: 0, av: 0, vh: 0, vv: 0, zr: 0, az: 0, vz: 0, zt: -1 }); camPinch = null; }
+function dragAxis(v) { return v === true ? { m: 'free' } : typeof v === 'number' && v > 0 ? { m: 'rb', L: v * DEG } : { m: 'off' }; }   // (함수 선언: camLimits가 앞에서 부른다)
+function camDragAxes() {   // 지금 모드의 { h: 가로, v: 세로 } (m = 'free'·'rb'·'off', L = 러버밴딩 한계 rad)
+  const d = camPreCfg().drag;
+  if (d === undefined || d === true) return { h: { m: 'free' }, v: { m: 'free' } };
+  if (d && typeof d === 'object') return { h: dragAxis(d.x), v: dragAxis(d.y) };
+  return { h: dragAxis(d), v: dragAxis(d) };   // 숫자 하나 (가로·세로 같게) 또는 false
+}
+const camDragHalf = () => Math.max(1e-3, camPreCfg().dragHalf ?? 0.35);
+const rbOut = (r, L, D) => Math.sign(r) * L * Math.abs(r) / (Math.abs(r) + D);   // 끈 양 → 보이는 값 (L에 끝없이 가까워진다)
+const rbIn = (a, L, D) => { if (!(L > 0)) return 0; const m = Math.min(Math.abs(a), L * 0.999); return Math.sign(a) * D * m / (L - m); };   // 보이는 값 → 끈 양 (튕기는 중에 다시 잡을 때)
+const axIn = (A, a, D) => A.m === 'free' ? a / TAU : A.m === 'rb' ? rbIn(a, A.L, D) : 0;   // 지금 각도 → 끈 거리
+const axOut = (A, r, D) => A.m === 'free' ? r * TAU : A.m === 'rb' ? rbOut(r, A.L, D) : 0;   // 끈 거리 → 각도 (자유는 OrbitControls와 같은 빠르기)
+const camElUsed = (A) => !(A.h.m === 'free' && A.v.m === 'free') && !(A.h.m === 'off' && A.v.m === 'off');   // 직접 처리하는 경우 (둘 다 자유면 OrbitControls, 둘 다 꺼짐이면 없음)
+const camCanTouch = () => titleK >= 1 && !clearSeq && !editMode && !winUp();
+canvas.addEventListener('pointerdown', (e) => {
+  if (e.pointerType === 'touch') camTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  const m = camPreCfg();
+  if (camTouches.size >= 2) {   // 두 손가락: 끌기는 멈추고 (러버밴딩은 튕겨 돌아간다) 거리 조절로 ('spring'일 때만. 'auto'면 OrbitControls)
+    camEl.on = false;
+    if (m.zoom === 'spring' && camCanTouch() && !camPinch) {
+      const D = Math.max(1e-3, m.zoomHalf ?? 0.35);
+      camEl.zr = zoomIn(m, D); camEl.zt = 0; camEl.vz = 0;
+      camPinch = { d0: pinchD(), z0: camEl.zr };
+      camRet = null; camBackAt = 0;
+    }
+    return;
+  }
+  const A = camDragAxes();
+  if (!camElUsed(A) || e.button !== 0 || !camCanTouch()) return;
+  const D = camDragHalf();
+  Object.assign(camEl, { on: true, id: e.pointerId, px: e.clientX, py: e.clientY, rh: axIn(A.h, camEl.ah, D), rv: axIn(A.v, camEl.av, D), vh: 0, vv: 0 });
+  camRet = null; camBackAt = 0;   // 끄는 동안은 자동 카메라를 멈춘다 (돌아가던 중이면 그만)
+});
+addEventListener('pointermove', (e) => {
+  if (camTouches.has(e.pointerId)) camTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (camPinch && camTouches.size >= 2) { camEl.zr = camPinch.z0 + Math.log(camPinch.d0 / pinchD()) * CAM_PINCH_K; camEl.zt = 0; return; }   // (벌리면 음수 = 당겨진다)
+  if (!camEl.on || e.pointerId !== camEl.id) return;
+  const k = 1 / innerHeight;   // 끈 거리는 화면 높이 단위 (해상도와 상관없게)
+  camEl.rh -= (e.clientX - camEl.px) * k; camEl.rv += (e.clientY - camEl.py) * k; camEl.px = e.clientX; camEl.py = e.clientY;
+});
+for (const ev of ['pointerup', 'pointercancel']) addEventListener(ev, (e) => {
+  camTouches.delete(e.pointerId);
+  if (camPinch && camTouches.size < 2) { camPinch = null; camEl.zt = CAM_ZOOM_IDLE; if (autoCam) camBackAt = performance.now() + CAM_BACK_WAIT; }   // 손가락을 떼면 바로 튕겨 돌아간다
+  if (!camEl.on || e.pointerId !== camEl.id) return;
+  camEl.on = false;
+  if (autoCam) camBackAt = performance.now() + CAM_BACK_WAIT;   // 손을 뗀 뒤부터 자동 카메라 (자유 방향을 되돌린다)
+});
+// 휠 (zoom 'spring'일 때만. 'auto'면 OrbitControls)
+canvas.addEventListener('wheel', (e) => {
+  const m = camPreCfg();
+  if (m.zoom !== 'spring' || titleK < 1 || clearSeq || editMode) return;
+  e.preventDefault();
+  const D = Math.max(1e-3, m.zoomHalf ?? 0.35), dy = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1);
+  camEl.zr = zoomIn(m, D) + dy / 1000; camEl.zt = 0; camEl.vz = 0;   // (휠 한 칸 = 100 → 0.1)
+  camRet = null; if (autoCam) camBackAt = performance.now() + CAM_BACK_WAIT;
+}, { passive: false });
+const springStep = (x, v, h) => { v += (-CAM_RB_W * CAM_RB_W * x - 2 * CAM_RB_Z * CAM_RB_W * v) * h; return [x + v * h, v]; };
+function camElastic(dt) {
+  const A = camDragAxes(), m = camPreCfg(), D = camDragHalf();
+  if (!camElUsed(A) && m.zoom !== 'spring') { if (camEl.ah || camEl.av || camEl.az || camEl.on) camElReset(); return; }
+  let th = camEl.ah, tv = camEl.av, tz = camEl.az;
+  const h = Math.min(dt, 0.05) / 4;   // 스프링은 작은 단계 4번 (프레임이 길어도 튀지 않게)
+  if (camEl.on) { th = axOut(A.h, camEl.rh, D); tv = axOut(A.v, camEl.rv, D); }
+  else {
+    // 러버밴딩 방향: 스프링으로 제자리. 꺼진 방향: 0
+    if (A.h.m === 'rb') for (let i = 0; i < 4; i++) [th, camEl.vh] = springStep(th, camEl.vh, h); else if (A.h.m === 'off') th = 0;
+    if (A.v.m === 'rb') for (let i = 0; i < 4; i++) [tv, camEl.vv] = springStep(tv, camEl.vv, h); else if (A.v.m === 'off') tv = 0;
+    // (자유 방향은 그대로 둔다: 자동 카메라면 camBack이 제자리로 옮기고 camRetBegin이 어긋남을 잊는다)
+    if (Math.abs(th) < 1e-5 && Math.abs(camEl.vh) < 1e-3) { th = 0; camEl.vh = 0; }
+    if (Math.abs(tv) < 1e-5 && Math.abs(camEl.vv) < 1e-3) { tv = 0; camEl.vv = 0; }
+  }
+  if (m.zoom === 'spring') {   // 휠 거리: 굴리는 동안 러버밴딩, 멈추면 스프링으로 distance로
+    const Dz = Math.max(1e-3, m.zoomHalf ?? 0.35);
+    if (camPinch) camEl.zt = 0;   // (두 손가락을 대고 있는 동안은 멈춰 있어도 그대로)
+    if (camEl.zt >= 0 && (camEl.zt += dt) < CAM_ZOOM_IDLE) tz = rbOut(camEl.zr, camEl.zr > 0 ? Math.max(0, m.maxDistance - m.distance) : Math.max(0, m.distance - m.minDistance), Dz);
+    else { camEl.zt = -1; for (let i = 0; i < 4; i++) [tz, camEl.vz] = springStep(tz, camEl.vz, h); if (Math.abs(tz) < 1e-4 && Math.abs(camEl.vz) < 1e-3) { tz = 0; camEl.vz = 0; } }
+  } else tz = 0;
+  const dh = th - camEl.ah, dv = tv - camEl.av, dz = tz - camEl.az;
+  camEl.ah = th; camEl.av = tv; camEl.az = tz;
+  if (!dh && !dv && !dz) return;
+  _tmp.copy(camera.position).sub(controls.target);
+  if (dh) _tmp.applyAxisAngle(UP, dh);
+  if (dv) {
+    const r = _tmp.length(), hz = Math.hypot(_tmp.x, _tmp.z) || 1e-6, p = Math.max(-0.2, Math.min(1.5, Math.atan2(_tmp.y, hz) + dv)), s = r * Math.cos(p) / hz;
+    _tmp.x *= s; _tmp.z *= s; _tmp.y = r * Math.sin(p);
+  }
+  if (dz) _tmp.setLength(Math.max(0.5, _tmp.length() + dz));
+  camera.position.copy(controls.target).add(_tmp);
 }
 // AO 한 줄: 켜기/끄기, 세기, 흰색 보기
 let aoOn = true;
@@ -834,8 +1006,7 @@ Object.assign(window.dbg, { U, ballHit, cliffG, mainRoadX, addScorchDecal, reset
 // 카메라는 탱크 뒤에서 시작해 탱크를 따라 이동. 마우스로 자유롭게 돌릴 수 있다.
 // 화면 가운데에는 탱크가 아니라 탱크가 바라보는 쪽 9m 앞을 둔다: 기본 시점에서 탱크는 화면 세로 2/3쯤 아래에 보이고
 // 앞이 넓게 보인다. 바라보는 쪽 = 포탑이 겨눈 방향(기본) 또는 차체 앞 (HUD 토글). 탱크·포탑이 돌면 부드럽게 따라 돈다
-const CC = CFG.camera;
-let CAM_LEAD = CC.lead, CAM_YAW = CC.yaw * DEG;   // (설정 메뉴 카메라 게이지로 바꿀 수 있게 let)
+const CC = CFG.camera;   // 모드와 상관없는 값 (seeThrough·minHeight). 모드 값은 CAMV
 const camLead = new THREE.Vector3(), _cf = new THREE.Vector3(), _cl2 = new THREE.Vector3();
 // 보는 방향 기준: 'auto' 자동(키보드 = 포탑, 게임패드 = 차체) · 'hull' 차체 방향 · 'turret' 포탑 방향. 고른 것은 localStorage에 기억
 const CAM_MODES = ['auto', 'hull', 'turret'], CAM_MODE_KO = { auto: '자동', hull: '차체 방향', turret: '포탑 방향' };
@@ -863,23 +1034,22 @@ let autoCam = loadOpt('autoCam', true), shakeOn = true,   // (화면 흔들림�
     rumbleOn = loadOpt('rumble', true);
 const setAutoCam = (v) => { autoCam = v; saveOpt('autoCam', v); if (!v) { camBackAt = 0; camRet = null; } };
 const _dofT = new THREE.Vector3();
-const setDofOn = (v) => { dofOn = v; saveOpt('dof', v); pausedDrawn = false; pauseScene = false; };
 const setRumbleOn = (v) => { rumbleOn = v; saveOpt('rumble', v); if (v) padRumbleNow(0.5, 0.7, 160); };   // 켜면 한 번 울려서 되는지 알 수 있게
 // 화면 밝기 (0.5~1.5, 1 = 그대로): 후처리에서 감마로 (어두운 곳이 밝아진다)
 let brightness = 1;
 try { const b = parseFloat(localStorage.getItem('MightyMolly.bright')); if (b >= 0.5 && b <= 1.5) brightness = b; } catch (_) {}
 // 설정 탭 모두 초기 값으로 (일시정지 → 설정 → [R], 확인 창에서 예)
 function resetSettings() {
-  setVolume(0.5); setCamMode('auto'); setAutoCam(true); setRumbleOn(true); setBright(1); setDofOn(!!DOF.enabled && (DOF.mobile || !IS_MOBILE));
+  setVolume(0.5); setCamMode('auto'); setAutoCam(true); setRumbleOn(true); setBright(1); setCamPreset(CAMP_START);
   if (crtOn !== !!CRT.enabled) setCrt(!!CRT.enabled);
 }
 function setBright(b) { brightness = Math.max(0.5, Math.min(1.5, Math.round(b * 20) / 20)); postMat.uniforms.uBright.value = brightness; try { localStorage.setItem('MightyMolly.bright', String(brightness)); } catch (_) {} }
-const camFocus = (out) => out.copy(tank.pos).add(camLead);
+const camFocus = (out) => { out.copy(tank.pos).add(camLead); out.y += CAMV.height; return out; };   // 화면 가운데 (카메라 모드 height만큼 위로)
 function updateCamLead(dt, snap = false) {
   const ty = camTurret() ? tank.tyaw || 0 : 0;
   _cl2.set(Math.sin(ty), 0, Math.cos(ty)).applyQuaternion(tank.q); _cl2.y = 0;
   if (_cl2.lengthSq() < 1e-4) return;
-  _cl2.normalize().multiplyScalar(CAM_LEAD);
+  _cl2.normalize().multiplyScalar(CAMV.lead);
   if (snap) camLead.copy(_cl2); else camLead.lerp(_cl2, Math.min(1, dt * 2.5));
 }
 const lastFollow = tank.pos.clone();
@@ -888,11 +1058,11 @@ const tankYaw = () => { _fwd.set(0, 0, 1).applyQuaternion(tank.q); return Math.a
 let camYaw = 0;
 // 기본 위치: 화면 가운데에서 42.6m, 내려다보는 각 33.6도, 탱크 뒤에서 오른쪽으로 20도 돌아가 탱크 오른쪽 옆면이 살짝 보인다 (설정. 카메라 초기화 버튼도 이것)
 function resetCamera() {
-  camYaw = tankYaw() + CAM_YAW;
+  camYaw = tankYaw() + CAMV.yaw * DEG;
   updateCamLead(0, true);
   camFocus(controls.target);
-  const hd = CC.distance * Math.cos(CC.pitch * DEG);
-  camera.position.copy(controls.target).add(_tmp.set(-Math.sin(camYaw) * hd, CC.distance * Math.sin(CC.pitch * DEG), -Math.cos(camYaw) * hd));
+  const hd = CAMV.distance * Math.cos(CAMV.pitch * DEG);
+  camera.position.copy(controls.target).add(_tmp.set(-Math.sin(camYaw) * hd, CAMV.distance * Math.sin(CAMV.pitch * DEG), -Math.cos(camYaw) * hd));
   lastFollow.copy(controls.target);
   controls.update();
 }
@@ -915,9 +1085,9 @@ function playRestCam() {
   tank.tyaw = ty;
 }
 function followYaw(dt) {
-  let d = tankYaw() + CAM_YAW - camYaw;
+  let d = tankYaw() + CAMV.yaw * DEG - camYaw;
   d = Math.atan2(Math.sin(d), Math.cos(d));
-  const step = d * Math.min(1, dt * CC.follow);
+  const step = d * Math.min(1, dt * CAMV.follow);
   camYaw += step;
   _tmp.copy(camera.position).sub(controls.target).applyAxisAngle(UP, step);
   camera.position.copy(controls.target).add(_tmp);
@@ -928,28 +1098,28 @@ function followYaw(dt) {
 const camScr = () => clearSeq ? 'clear' : titleK < 1 ? 'title' : 'play';
 const CAM_SCR_KO = { title: '타이틀', play: '플레이', clear: '임무 완료' };
 const titleCamCfg = () => TT.camera || (TT.camera = {});
-const camCfg = (m) => m === 'title' ? titleCamCfg() : m === 'clear' ? CLR_CAM : CC;
+const camCfg = (m) => m === 'title' ? titleCamCfg() : m === 'clear' ? CLR_CAM : camPreCfg();   // (플레이 = 지금 카메라 모드)
 const CAM_DEF = { title: { fov: 30, distance: 16, pitch: 8, yaw: 65 } };   // 타이틀 카메라에서 config에 없을 때 (50_title.js와 같은 값)
 const camGet = (k) => (m) => { const c = camCfg(m); return c[k] ?? CAM_DEF[m]?.[k]; };
-const camReCam = () => { if (camScr() === 'play') resetCamera(); };   // 플레이: 거리·각도는 기본 자리로 바로 옮겨 보여 준다
+const camReCam = () => { if (camScr() === 'play') { camValues(); resetCamera(); } };   // 플레이: 거리·각도는 기본 자리로 바로 옮겨 보여 준다
+const playOnly = (get) => (m) => m === 'play' ? get() : undefined;
 const CAM_ROWS = [
-  ['시야각', 10, 90, 1, (v) => `${v}°`, camGet('fov'), (m, v) => {
-    camCfg(m).fov = v;
-    if (m === 'play' && titleK >= 1 && !clearSeq) { camera.fov = v; camera.updateProjectionMatrix(); U.uPointScale.value = lowH / (2 * Math.tan(v * DEG / 2)); }
-  }],
-  ['거리', 5, 100, 0.5, (v) => `${v.toFixed(1)}m`, camGet('distance'), (m, v) => { camCfg(m).distance = v; if (m === 'play') camReCam(); }],
+  ['시야각', 10, 90, 1, (v) => `${v}°`, camGet('fov'), (m, v) => { camCfg(m).fov = v; }],
+  ['거리', 5, 400, 0.5, (v) => `${v.toFixed(1)}m`, camGet('distance'), (m, v) => { camCfg(m).distance = v; if (m === 'play') { camLimits(); camReCam(); } }],
   ['내려다봄', -10, 85, 0.5, (v) => `${v.toFixed(1)}°`, camGet('pitch'), (m, v) => { camCfg(m).pitch = v; if (m === 'play') camReCam(); }],
-  ['방향', -180, 180, 1, (v) => `${v}°`, camGet('yaw'), (m, v) => { camCfg(m).yaw = v; if (m === 'play') { CAM_YAW = v * DEG; camReCam(); } }],
-  ['높이', 0, 6, 0.1, (v) => `${v.toFixed(1)}m`, (m) => m === 'play' ? undefined : camCfg(m).height ?? (m === 'title' ? 2 : 1.4), (m, v) => { camCfg(m).height = v; }],   // 화면 가운데를 탱크보다 이만큼 위로 (타이틀·임무 완료)
-  ['앞으로', 0, 30, 0.5, (v) => `${v.toFixed(1)}m`, (m) => m === 'play' ? CAM_LEAD : undefined, (m, v) => { CAM_LEAD = CC.lead = v; }],
-  ['따라 돎', 0, 10, 0.1, (v) => v.toFixed(1), (m) => m === 'play' ? CC.follow : undefined, (m, v) => { CC.follow = v; }],
-  ['DOF 세기', 0, 1, 0.05, (v) => v.toFixed(2), (m) => DOF[m], (m, v) => { DOF[m] = v; }],   // 화면마다 따로 (config screen.dof의 title·play·clear)
-  ['DOF range', 0, 40, 0.5, (v) => `${v.toFixed(1)}m`, () => DOF.range, (m, v) => { DOF.range = postMat.uniforms.uFocusR.value = v; }],
-  ['DOF fall', 1, 100, 1, (v) => `${v}m`, () => DOF.fall, (m, v) => { DOF.fall = postMat.uniforms.uFocusF.value = v; }],
-  ['DOF px', 0, 8, 0.1, (v) => v.toFixed(1), () => DOF.px, (m, v) => { DOF.px = postMat.uniforms.uDofPx.value = v; }],
+  ['방향', -180, 180, 1, (v) => `${v}°`, camGet('yaw'), (m, v) => { camCfg(m).yaw = v; if (m === 'play') camReCam(); }],
+  ['높이', -5, 10, 0.1, (v) => `${v.toFixed(1)}m`, (m) => camCfg(m).height ?? (m === 'title' ? 2 : 1.4), (m, v) => { camCfg(m).height = v; }],   // 화면 가운데를 탱크보다 이만큼 위로
+  ['앞으로', 0, 30, 0.5, (v) => `${v.toFixed(1)}m`, playOnly(() => camPreCfg().lead), (m, v) => { camPreCfg().lead = v; }],
+  ['따라 돎', 0, 10, 0.1, (v) => v.toFixed(1), playOnly(() => camPreCfg().follow), (m, v) => { camPreCfg().follow = v; }],
+  ['안개 배율', 0.05, 2, 0.05, (v) => v.toFixed(2), playOnly(() => camPreCfg().fog), (m, v) => { camPreCfg().fog = v; }],
+  ['주광 배율', 0, 3, 0.05, (v) => v.toFixed(2), playOnly(() => camPreCfg().moon), (m, v) => { camPreCfg().moon = v; }],
+  ['DOF 세기', 0, 1, 0.05, (v) => v.toFixed(2), (m) => camCfg(m).dof.strength, (m, v) => { camCfg(m).dof.strength = v; }],   // 화면마다의 카메라 dof
+  ['DOF range', 0, 40, 0.5, (v) => `${v.toFixed(1)}m`, (m) => camCfg(m).dof.range, (m, v) => { camCfg(m).dof.range = v; }],
+  ['DOF fall', 1, 100, 1, (v) => `${v}m`, (m) => camCfg(m).dof.fall, (m, v) => { camCfg(m).dof.fall = v; }],
+  ['DOF px', 0, 8, 0.1, (v) => v.toFixed(1), (m) => camCfg(m).dof.px, (m, v) => { camCfg(m).dof.px = v; }],
 ];
 const camSl = [];   // { it, el, val, row }
-let camSlScr = null, camSlInit = null;   // 게이지가 지금 보여 주는 화면, 처음 값 (화면마다. 처음 맞출 때 한 번 읽는다: CLR_CAM은 뒤 파일)
+let camSlScr = null, camSlKey = '', camSlInit = null;   // 게이지가 지금 보여 주는 화면, 처음 값 (화면마다. 처음 맞출 때 한 번 읽는다: CLR_CAM은 뒤 파일)
 for (const row of CAM_ROWS) {
   const [name, min, max, step, fmt, , set] = row;
   const it = document.createElement('span'), lab = document.createElement('span'), el = document.createElement('input'), val = document.createElement('b'), vs = document.createElement('span');
@@ -962,10 +1132,10 @@ for (const row of CAM_ROWS) {
 // 게이지를 지금 화면 값으로 (메뉴가 열려 있을 때 0.25초마다 보고, 화면이 바뀌었으면). 그 화면에 없는 값은 끈다
 function camSlSync(force) {
   if (!camSlInit) { camSlInit = {}; for (const m of ['title', 'play', 'clear']) camSlInit[m] = CAM_ROWS.map((r) => r[5](m)); }
-  const m = camScr();
-  if (m === camSlScr && !force) return;
-  camSlScr = m;
-  document.getElementById('camScr').textContent = `(${CAM_SCR_KO[m]})`;
+  const m = camScr(), key = m + '/' + camPre;
+  if (key === camSlKey && !force) return;
+  camSlScr = m; camSlKey = key;
+  document.getElementById('camScr').textContent = `(${CAM_SCR_KO[m]} · ${camPreCfg().name})`;
   for (const { it, el, val, row } of camSl) {
     const v = row[5](m), off = v === undefined;
     el.disabled = off; it.classList.toggle('off', off);
@@ -973,10 +1143,12 @@ function camSlSync(force) {
     val.textContent = off ? '-' : row[4](+el.value);
   }
 }
-// 초기화: 세 화면 모두 처음 값으로 되돌린다
+// 초기화: 타이틀·임무 완료 카메라와 모든 카메라 모드를 처음 값으로 되돌린다
 document.getElementById('camSlReset').onclick = (e) => {
   camSlSync();
-  for (const m of ['title', 'play', 'clear']) CAM_ROWS.forEach((r, i) => { if (camSlInit[m][i] !== undefined) r[6](m, camSlInit[m][i]); });
+  for (const m of ['title', 'clear']) CAM_ROWS.forEach((r, i) => { if (camSlInit[m][i] !== undefined) r[6](m, camSlInit[m][i]); });
+  JSON.parse(CAMP_CFG0).forEach((o, i) => Object.assign(CFG.camera[CAMP_KEYS[i]], o));
+  camLimits(); camReCam();
   camSlSync(true);
   e.target.blur();
 };

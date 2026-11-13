@@ -8,7 +8,13 @@ const HC = Object.assign({ color: '#ffb43a', blend: 'screen', shadow: 0.55, glit
 phud.style.mixBlendMode = HC.blend;
 const hudC = document.createElement('canvas'), hc = cv2d(hudC);   // 색
 const hudK = document.createElement('canvas'), kc = cv2d(hudK);   // 그림자
-hudC.width = hudK.width = 240; hudC.height = hudK.height = 140;
+const HUD_H = 140;   // 평소 HUD 캔버스 높이 (칸). 카메라 모드 알림이 떠 있는 동안만 화면 높이만큼
+hudC.width = hudK.width = 240; hudC.height = hudK.height = HUD_H;
+// 카메라 모드 알림 (C키, 40_input_post.js nextCamPreset): HUD의 일부라 색·블렌딩·그림자·피격 치지직·꺼질 때 디더링 모두 HUD 설정(config hud)대로.
+// 좌하단(가장자리에서 TOAST_M칸)에 한글 한 줄. 화면 왼쪽 밖에서 TOAST_IN초 만에 날아 들어오고(EaseOutExpo, 성장 선택지처럼), TOAST_HOLD초 뒤 TOAST_FADE초 동안 4x4 디더링으로 사라진다
+const TOAST_IN = 0.3, TOAST_HOLD = 2, TOAST_FADE = 0.4, TOAST_M = 8;
+let hudToast = null;
+function showCamToast(text) { hudToast = { text, t0: performance.now(), x: 0, th: 0 }; }
 let hudKey = '', hk = 1, glitchUntil = 0, glitchPow = 0, hudGlitched = false, hudRight = 0;   // hudRight: HUD가 그린 가장 오른쪽 칸 (성장 선택지가 닿지 않게)
 const px = (x, y, w = 1, h = 1) => { hc.fillRect(x, y, w, h); kc.fillRect(x, y, w, h); if (x + w > hudRight) hudRight = x + w; };
 function htext(s, x, y) { return fontDraw(s, x, y, 1, (a, b) => px(a, b)); }
@@ -240,7 +246,18 @@ function drawHud() {
   if (phud.width !== DW || phud.height !== DH) { phud.width = phudS.width = DW; phud.height = phudS.height = DH; hudKey = ''; }   // 화면에 보이는 크기 그대로 (늘리지 않음)
   hk = Math.max(1, Math.floor(H / 360));
   const CWn = Math.ceil(W / hk) + 2;   // 화면 폭만큼 (상단 가운데 나침반)
-  if (hudC.width !== CWn) { hudC.width = hudK.width = CWn; hudKey = ''; }
+  let toastKey = '';
+  if (hudToast) {   // 알림: 날아 들어오는 자리·사라지는 디더링 단계
+    const t = (now - hudToast.t0) / 1000;
+    if (t >= TOAST_IN + TOAST_HOLD + TOAST_FADE || clearSeq) hudToast = null;
+    else {
+      hudToast.x = TOAST_M - Math.round((1 - easeOutExpo(Math.min(1, t / TOAST_IN))) * (gfWidth(hudToast.text) + TOAST_M + 2));
+      hudToast.th = Math.max(0, Math.min(16, Math.floor((t - TOAST_IN - TOAST_HOLD) / TOAST_FADE * 16)));
+      toastKey = `${hudToast.text}|${hudToast.x}|${hudToast.th}`;
+    }
+  }
+  const CHn = hudToast ? Math.ceil(H / hk) + 2 : HUD_H;   // (알림이 있을 때만 화면 높이만큼)
+  if (hudC.width !== CWn || hudC.height !== CHn) { hudC.width = hudK.width = CWn; hudC.height = hudK.height = CHn; hudKey = ''; }
   const alive = tank.solid || tank.falling;
   const hp = alive ? Math.max(0, Math.round(tank.hp)) : 0;
   const elev = Math.round(THREE.MathUtils.radToDeg(tank.elev));
@@ -251,14 +268,14 @@ function drawHud() {
   const hpBlink = alive && hp > 0 && hp <= 10 ? Math.floor(now / 250) % 2 : 0;   // HP 10 이하: 숫자 깜빡임 (RELOAD와 같은 빠르기)
   const bkAll = BUNKERS.length, bkLeft = BUNKERS.reduce((n, B) => n + (B.ruin ? 0 : 1), 0);
   const cmp = compassState(Math.ceil(W / hk));
-  const key = [hp, tank.maxHp, alive, gold, offerCost(), tank.goldMul, rl, blink, hpBlink, spd, Math.round(spdMax), elev, ta, growLevel, enemyLeft(), bkLeft, bkAll, cmp.key].join('|');
+  const key = [hp, tank.maxHp, alive, gold, offerCost(), tank.goldMul, rl, blink, hpBlink, spd, Math.round(spdMax), elev, ta, growLevel, enemyLeft(), bkLeft, bkAll, cmp.key, toastKey].join('|');
   const glitch = now < glitchUntil;
   if (key !== hudKey) {
     hudKey = key;
     hc.clearRect(0, 0, hudC.width, hudC.height); kc.clearRect(0, 0, hudK.width, hudK.height); hudRight = 0;
     hc.fillStyle = HC.color; kc.fillStyle = '#000';
-    const x0 = 6, L = 11, vx = 34, bw = 48, tx = vx + bw + 4;   // 이름 칸(화면 가장자리에서 6칸), 줄 간격(7 + 4), 값·게이지 칸 (가장 긴 이름 4글자 + 5칸)
-    let y = 6;
+    const x0 = 8, L = 11, vx = 36, bw = 48, tx = vx + bw + 4;   // 이름 칸(화면 가장자리에서 8칸), 줄 간격(7 + 4), 값·게이지 칸 (가장 긴 이름 4글자 + 5칸)
+    let y = 8;
     htext('HP', x0, y); hbar(vx, y, bw, hp / tank.maxHp); htext(alive ? (hpBlink ? '' : hp) : 'KO', tx, y); y += L;
     htext('GOLD', x0, y); hbar(vx, y, bw, gold / offerCost()); htext(`${gold}/${offerCost()}${tank.goldMul > 1 ? ' X' + tank.goldMul : ''}`, tx, y); y += L;
     htext('AMMO', x0, y); hbar(vx, y, bw, rl / 40, rl < 40); htext(rl < 40 ? (blink ? '' : 'RELOAD') : 'READY', tx, y); y += L;
@@ -284,6 +301,10 @@ function drawHud() {
     htext('LV', x0, y); htext(growLevel, vx, y); y += L;
     htext('TGT', x0, y); htext(enemyLeft(), vx, y); y += L;
     drawCompass(cmp);
+    if (hudToast) {   // 카메라 모드 알림 (좌하단)
+      const c = hudToast, y = Math.floor(H / hk) - TOAST_M - 11;
+      gfDraw(c.text, c.x, y, (a, b) => { if (a >= 0 && !(c.th && BAYER4[(b & 3) * 4 + (a & 3)] < c.th)) pxC(a, b); });
+    }
   } else if (!glitch && !hudGlitched && !hudOffAt) return;
   hudGlitched = glitch;
   // 꺼지는 중이면 (syncHud의 hudOffAt) 4x4 디더링으로 점점 비운다

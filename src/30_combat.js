@@ -1488,6 +1488,27 @@ function mgTargetPos(g, out, from) {
   }
   return out.copy(g.t.mesh.position);
 }
+// 맞은 자리: 총구 → 표적 가운데 선이 표적 모델에 처음 닿는 곳 (보이는 메시마다 자기 좌표의 바운딩 박스와만 견준다: 삼각형까지 보면 탱크 한 대에 1ms쯤 걸려서.
+// 판·상자로 지은 모델이라 표면과 거의 같은 자리). 못 찾으면 가운데. 예광탄 끝·불똥·불빛을 여기에
+const _mgRayW = new THREE.Ray(), _mgRayL = new THREE.Ray(), _mgInv = new THREE.Matrix4(), _mgD = new THREE.Vector3(), _mgBP = new THREE.Vector3();
+let _mgBest = 0;
+function mgSurface(g, from, to, out) {
+  out.copy(to);
+  const obj = g.E ? g.E.group : g.B ? g.B.group : g.t ? g.t.mesh : null;
+  _mgD.copy(to).sub(from); const L = _mgD.length();
+  if (!obj || L < 1e-3) return out;
+  _mgRayW.set(from, _mgD.divideScalar(L)); _mgBest = L + 2;
+  obj.traverseVisible((o) => {
+    if (!o.isMesh) return;
+    const geo = o.geometry; if (!geo.boundingBox) geo.computeBoundingBox();
+    _mgRayL.copy(_mgRayW).applyMatrix4(_mgInv.copy(o.matrixWorld).invert());
+    if (!_mgRayL.intersectBox(geo.boundingBox, _mgBP)) return;
+    _mgBP.applyMatrix4(o.matrixWorld);
+    const d = _mgBP.distanceTo(from);
+    if (d < _mgBest) { _mgBest = d; out.copy(_mgBP); }
+  });
+  return out;
+}
 const mgAlive = (g) => g && (g.E ? g.E.solid : g.B ? !g.B.ruin : g.t.alive && !g.t.falling);
 // 총구에서 표적까지 0.6m 간격으로 짚어 가며 땅·건물(충돌 상자)에 막히는지. skip = 표적 자신의 충돌 상자
 function mgClear(a, b, skip) {
@@ -1521,23 +1542,26 @@ function mgPick(from, range, avoid) {
 // 적 기관총의 표적: 사거리 안에 가리지 않은 내 탱크
 const enemyMgPick = (from, range) => tank.solid && tank.pos.distanceTo(from) < range && mgClear(from, mgTargetPos({ E: tank }, _mgP), null) ? { E: tank } : null;
 // 예광탄: 총구에서 표적으로 빠르게 날아가는 짧고 밝은 선 (점보다 잘 보이게)
-const TRACER_T = 0.12, TRACER_LEN = 0.22, mgTracers = [];
-const tracerLines = new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(48 * 6), 3).setUsage(THREE.DynamicDrawUsage)),
-  new THREE.LineBasicMaterial({ color: 0xffe48a, fog: false }));
+const TRACER_T = 0.12, TRACER_LEN = 0.33, mgTracers = [];   // TRACER_LEN: 꼬리 길이 (날아가는 거리의 비율)
+const TRACER_C = [new THREE.Color(0xffc070), new THREE.Color(0x7aff5a)];   // 예광탄 색: 내 것 (노란빛에 조금 붉게) · 적 (녹색). mgTracers의 en
+const tracerLines = new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(48 * 6), 3).setUsage(THREE.DynamicDrawUsage))
+  .setAttribute('color', new THREE.BufferAttribute(new Float32Array(48 * 6), 3).setUsage(THREE.DynamicDrawUsage)),
+  new THREE.LineBasicMaterial({ vertexColors: true, fog: false }));
 tracerLines.frustumCulled = false; scene.add(tracerLines);
 function updateTracers(dt) {
-  const a = tracerLines.geometry.attributes.position;
+  const a = tracerLines.geometry.attributes.position, col = tracerLines.geometry.attributes.color;
   let n = 0;
   for (let i = mgTracers.length - 1; i >= 0; i--) if ((mgTracers[i].t += dt) > TRACER_T * (1 + TRACER_LEN)) mgTracers.splice(i, 1);
   for (const t of mgTracers) {
     if (n >= 48) break;
-    const k = t.t / TRACER_T, f1 = Math.min(1, k), f0 = Math.max(0, Math.min(1, k - TRACER_LEN));   // 머리는 표적까지, 꼬리는 거리의 22% 뒤에서 따라간다
+    const k = t.t / TRACER_T, f1 = Math.min(1, k), f0 = Math.max(0, Math.min(1, k - TRACER_LEN));   // 머리는 표적까지, 꼬리는 거리의 33% 뒤에서 따라간다
+    const c = TRACER_C[t.en ? 1 : 0]; col.setXYZ(n * 2, c.r, c.g, c.b); col.setXYZ(n * 2 + 1, c.r, c.g, c.b);
     _tmp.lerpVectors(t.a, t.b, f0); a.setXYZ(n * 2, _tmp.x, _tmp.y, _tmp.z);
     _tmp.lerpVectors(t.a, t.b, f1); a.setXYZ(n * 2 + 1, _tmp.x, _tmp.y, _tmp.z);
     n++;
   }
   tracerLines.geometry.setDrawRange(0, n * 2);
-  a.needsUpdate = true;
+  a.needsUpdate = true; col.needsUpdate = true;
 }
 // 한 탱크의 기관총들: 표적 고르기(pick) → 총 돌리기 → 쏘기. st = { rate, damage, range }
 function runGuns(T, guns, count, st, pick, dt) {
@@ -1564,8 +1588,11 @@ function runGuns(T, guns, count, st, pick, dt) {
     G.t = 1 / st.rate;
     G.tip.getWorldPosition(_mgW);
     // 예광탄 선 + 맞은 자리 불똥 + 총구 섬광
-    mgTracers.push({ a: _mgW.clone(), b: _mgT.clone(), t: 0 });
-    sparks(_mgT, _mgN.copy(_mgW).sub(_mgT).normalize(), 0.35);   // 맞은 자리: 쇠끼리 부딪힐 때와 같은 불똥·소리 (연사라 작게)
+    mgSurface(G.tgt, _mgW, _mgT, _mgT);   // 맞은 자리 = 표적 표면
+    mgTracers.push({ a: _mgW.clone(), b: _mgT.clone(), t: 0, en: T !== tank });
+    _mgN.copy(_mgW).sub(_mgT).normalize();
+    sparks(_mgT, _mgN, 0.35);   // 맞은 자리: 쇠끼리 부딪힐 때와 같은 불똥·소리 (연사라 작게)
+    flashes.push({ p: _mgT.clone().addScaledVector(_mgN, 0.25), t: 0, dur: 0.06, I: 45, range: 6, color: 0xffc890 });   // 맞은 자리 불빛 (총구 섬광보다 작게, 표면에서 총구 쪽으로 조금 떨어져 표면을 비춘다)
     flashes.push({ p: _mgW.clone(), t: 0, dur: 0.07, I: 90, range: 10, color: 0xffd08a });   // 총구 섬광 (광원)
     glowP.spawn(_mgW.x, _mgW.y, _mgW.z, 0, 0, 0, 0.05, [1, 0.95, 0.7, 1], [1, 0.6, 0.2, 0], 0.5, 0.2, 0, 0);
     sfx.mg(_mgW);

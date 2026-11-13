@@ -74,6 +74,7 @@ function makeStreaks(o) {
 }
 // 비: 거의 곧게 빨리 떨어지고, 바람만큼 기운다 (줄 길이 = 빠르기 × len)
 const rainFx = makeStreaks({ max: 6000, per: CFG.map.rainCount ?? 1600, fall: 36, wind: 10, len: 0.06, jit: 0.6, sway: 0.5, swayY: 0, alpha: CFG.map.rainAlpha ?? 0.2, far: 70, size: [64, 34, 64] });   // 양·진하기는 config map
+const WX_REF_D = 38;   // 빗줄기 성기게 하는 거리의 기준 카메라 거리 (m, 기본 카메라쯤)
 const WEATHER = { rain: 0, sand: 0, lightning: 0, flash: 0, flashT: 0, nextBolt: 6, splashAcc: 0, sndT: 0, sandAcc: 0, sandCol: new THREE.Color() };
 // 조명 밝기 (달빛·하늘빛 세기 × 빛깔 밝기). 처음 맵 셋팅일 때를 1로 두고 비 색에 곱한다
 const lightLum = (mi, mc, si, sc) => mi * (0.3 * mc.r + 0.59 * mc.g + 0.11 * mc.b) + si * (0.3 * sc.r + 0.59 * sc.g + 0.11 * sc.b);
@@ -97,6 +98,8 @@ function updateStreaks(S, amount, dt, show) {
   u.uWindOfs.value.x += wd.x * ws * dt; u.uWindOfs.value.y += wd.y * ws * dt;
   u.uLight.value = Math.min(5, Math.max(0.3, lightLum(moon.intensity, moon.color, hemi.intensity, hemi.color) / WX_LREF));   // 조명 (번개 때 밝게)
   u.uFogC.value.copy(scene.fog.color); u.uFogN.value = scene.fog.near; u.uFogF.value = scene.fog.far;
+  // 멀수록 성기게 하는 거리(o.far)는 카메라 → 화면 가운데 거리가 WX_REF_D m일 때 기준: 카메라가 멀면(미니어처) 그만큼 늘린다 (안 그러면 상자가 통째로 지워져 비가 안 보인다)
+  u.uFar.value = S.o.far * Math.max(1, camera.position.distanceTo(controls.target) / WX_REF_D);
   // 상자 가운데: 화면 가운데와 카메라 사이 (카메라에 가까운 쪽이 크게 보이니 그쪽으로 조금 당긴다), 높이는 땅 위 조금
   _wxC.lerpVectors(controls.target, camera.position, 0.3);
   _wxC.y = controls.target.y + S.o.size[1] * 0.3;

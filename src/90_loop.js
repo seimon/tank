@@ -280,6 +280,7 @@ function frame() {
   updateFadeIns(dt); updateChutes(dt);
 
   // 카메라 추적 + 흔들림 (타이틀·전환 중에는 타이틀 카메라와 섞는다)
+  camPreTick(dt);   // 카메라 모드 값 (바꾸는 중이면 섞는다)
   if (!decalMode) titleCamBegin();
   if (decalMode) decalUpdate(uiDt);   // 데칼 편집: 카메라는 마우스로 (타이틀 카메라를 섞지 않는다)
   else if (editMode) editUpdate(uiDt);   // 맵 편집: 카메라는 탱크를 따라가지 않는다
@@ -292,6 +293,7 @@ function frame() {
     camera.position.add(_tmp); controls.target.add(_tmp); lastFollow.copy(_cf);
     followYaw(dt);
     camBack(dt);   // 마우스로 돌린 카메라: 1초 뒤 기본 각도로
+    camElastic(uiDt);   // 고무줄 시점 (카메라 모드 drag가 숫자일 때)
   }
   controls.update();
   camAboveGround();

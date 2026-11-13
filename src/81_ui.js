@@ -235,7 +235,7 @@ function uiUpdate() {
 // ---- 성장 선택지 (우상단, 세로 3칸 + 안내 한 줄). 게임은 계속되고, 화면을 덮지 않는다 (항목을 누를 때만 가로챔)
 // 항목: 테두리 상자 안에 [레어도 색 키 칸 + 검은 키 글자] 이름(레어도 색) / 설명(밝은 회색, 줄바꿈).
 // 키 글자는 키보드면 1·2·3, 게임패드를 쓰고 있으면 ←·↑·→. 키 칸은 세 글자를 모두 담는 같은 크기 (위아래 1칸, 좌우 2칸 여유)이고 글자마다 정가운데.
-// 화면 가장자리에서 6칸 안쪽, 폭은 HUD 오른쪽 끝에 닿지 않을 만큼 (최대 200칸).
+// 화면 가장자리에서 8칸 안쪽, 폭은 HUD 오른쪽 끝에 닿지 않을 만큼 (최대 200칸).
 // 나타날 때: 위에서부터 0.1초 간격으로 화면 오른쪽 밖에서 제자리로 0.3초 (EaseOutExpo). 안내 줄은 네 번째로.
 // 고르면 나머지(안내 줄 포함)는 곧바로 어두운 회색, OFFER_HOLD초 뒤 OFFER_FADE초에 걸쳐 디더링으로 사라진다
 const OFFER_TXT = '#9c9c9c', OFFER_OFF = '#464646', OFFER_HOLD = 1.0, OFFER_FADE = 0.4, OFFER_IN = 0.3, OFFER_STEP = 0.1, OFFER_W = 200;
@@ -309,7 +309,7 @@ const offerUI = {
   draw(ui) {
     const c = curOffer;
     if (!c) return;
-    const m = 6, gap = 8, w = Math.max(110, Math.min(OFFER_W, ui.w - m - (hudRight || 170) - gap)), x = ui.w - m - w;
+    const m = 8, gap = 8, w = Math.max(110, Math.min(OFFER_W, ui.w - m - (hudRight || 170) - gap)), x = ui.w - m - w;
     // 키 칸 크기: 세 글자의 칠한 폭·높이를 모두 담고, 글자마다 정가운데에 오도록 (폭 차이가 홀수면 1칸 더)
     const keys = (inputPad ? ['←', '↑', '→', '↓'] : ['1', '2', '3', '4']).slice(0, Math.max(3, c.choices.length)).map(gfGlyph);   // 4번째('폭넓은 선택')는 4 / 방향키 ↓
     const kw = Math.max(...keys.map((g) => g.w)), kh = Math.max(...keys.map((g) => g.h));
@@ -448,10 +448,10 @@ const clearUI = {
 };
 // 조종법 탭에 보이는 키와 설명 (일시정지 중에는 동작하지 않는 키라 회색 칸으로)
 const PAUSE_HELP = [[['W', 'S'], '전진 · 후진'], [['A', 'D'], '차체 회전'], [['Q', 'E', '·', '←', '→'], '포탑 회전'], [['R', 'F', '·', '↑', '↓'], '포신 올리기 · 내리기'],   // '·' = 어느 쪽 키든 된다
-  [['SPACE'], '발사'], [['G'], '뒤집힌 전차 세우기'], [['1', '2', '3'], '성장 고르기'], [['ESC'], '일시정지'],
+  [['SPACE'], '발사'], [['G'], '뒤집힌 전차 세우기'], [['C'], '카메라 모드 바꾸기'], [['1', '2', '3'], '성장 고르기'], [['ESC'], '일시정지'],
   [['마우스 끌기'], '카메라 돌리기'], [['휠'], '카메라 당기기 · 밀기']];
 const PAUSE_HELP_PAD = [[['L 스틱'], '전진 · 후진 · 차체 회전'], [['R 스틱'], '포탑 회전 · 포신 올리기·내리기'], [['LB', 'RB'], '포탑 회전'],
-  [['RT', 'A'], '발사'], [['Y'], '뒤집힌 전차 세우기'], [['←', '↑', '→'], '성장 고르기'], [['START'], '일시정지']];
+  [['RT', 'A'], '발사'], [['Y'], '뒤집힌 전차 세우기'], [['X'], '카메라 모드 바꾸기'], [['←', '↑', '→'], '성장 고르기'], [['START'], '일시정지']];
 // 일시정지 창 = 게임 정보 창: 탭 세 개 (탱크 성능 · 강화 기록 · 조종법). 넘치면 W/S로 위아래로 넘겨 보고, 강화 기록은 맨 아래(최근)부터.
 // 넘기기는 픽셀 단위: 한 번 누르면 한 줄만큼 부드럽게, 누르고 있으면 계속 미끄러진다 (위아래 끝의 줄은 칸에 잘려 보인다)
 const LOG_PL = 11, LOG_SB = 7, LOG_PR = 15;   // 스크롤 영역: 왼쪽 글자 시작, 스크롤 막대(창 오른쪽에서), 오른쪽 글자 끝 (막대와 8칸 띄움)
@@ -542,7 +542,8 @@ const pauseUI = {
         desc: () => autoCam ? '마우스로 바꾼 카메라가 2초 뒤 제자리로 돌아갑니다.' : '마우스로 바꾼 카메라 방향·거리를 그대로 둡니다.' },
       { label: '패드 진동', opts: ONOFF, names: OX, get: () => rumbleOn, set: setRumbleOn, desc: () => '게임패드로 조작할 때 폭발·피격 등에 진동합니다.' },
       { label: 'CRT 표현', opts: ONOFF, names: OX, get: () => crtOn, set: setCrt, desc: () => '오락실 브라운관 모니터처럼 보이게 합니다.' },
-      { label: '아웃포커싱', opts: ONOFF, names: OX, get: () => dofOn, set: setDofOn, desc: () => '탱크는 또렷하게, 앞뒤 멀리는 흐리게 (미니어처 사진처럼). 무거우면 끄세요.' },
+      { label: '카메라 모드', opts: CAMP_KEYS, names: Object.fromEntries(CAMP_KEYS.map((k) => [k, CFG.camera[k].name])), get: () => camPre, set: setCamPreset,
+        desc: () => `탱크를 바라보는 방식을 설정합니다.\n플레이 중에 ${PK('C', 'X')}키를 눌러서 바꿀 수도 있습니다.` },
       { label: '화면 밝기', gauge: () => brightness - 0.5, set: (v) => setBright(0.5 + v), val: () => `${Math.round(brightness * 100)}%`, desc: () => '어두운 곳이 잘 안 보이면 올립니다.' },
     ];
   },
@@ -774,6 +775,7 @@ function padPoll() {
     if (scr === offerUI) [14, 12, 15, 13].forEach((b, i) => { if (E[b]) pickOffer(i); });   // ←·↑·→·↓ (↓ = 4번째, '폭넓은 선택')
     if (E[9]) padKey('Escape');
     if (E[3]) padKey('KeyG');
+    if (E[2]) padKey('KeyC');   // X = 카메라 모드 바꾸기
   }
   padHold('KeyW', up && UI.screen === pauseUI); padHold('KeyS', dn && UI.screen === pauseUI);
 }

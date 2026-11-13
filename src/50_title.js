@@ -210,7 +210,7 @@ let camSaved = false;
 function titleCamBegin() { if (camSaved) { camera.position.copy(playCamPos); controls.target.copy(playCamTgt); } }
 function titleCamEnd() {
   if (titleK >= 1) {
-    if (camSaved) { camSaved = false; camera.fov = CC.fov; camera.updateProjectionMatrix(); resize(); }
+    if (camSaved) { camSaved = false; camera.fov = CAMV.fov; camera.updateProjectionMatrix(); resize(); }
     return;
   }
   playCamPos.copy(camera.position); playCamTgt.copy(controls.target); camSaved = true;
@@ -233,7 +233,7 @@ function titleCamEnd() {
   camera.position.copy(controls.target).add(_tmp.set(-Math.sin(yaw) * Math.cos(pitch) * dist, Math.sin(pitch) * dist, -Math.cos(yaw) * Math.cos(pitch) * dist));
   camera.lookAt(controls.target);
   if (swRoll) camera.rotateZ(swRoll);   // 손에 든 카메라처럼 아주 살짝 좌우로 기운다
-  const fov = lerp(tc.fov ?? 30, CC.fov, k);
+  const fov = lerp(tc.fov ?? 30, CAMV.fov, k);
   if (camera.fov !== fov) { camera.fov = fov; camera.updateProjectionMatrix(); U.uPointScale.value = lowH / (2 * Math.tan(fov * DEG / 2)); }
 }
 

@@ -42,8 +42,10 @@ function updateBunkers(dt) {
 function bunkerFire(B) {
   B.tip.getWorldPosition(_bkA);
   _bkT.set(tank.pos.x + rr(-0.7, 0.7), tank.pos.y + rr(0.5, 1.7), tank.pos.z + rr(-0.7, 0.7));
-  mgTracers.push({ a: _bkA.clone(), b: _bkT.clone(), t: 0 });
+  mgSurface({ E: tank }, _bkA, _bkT, _bkT);   // 맞은 자리 = 내 탱크 표면 (빗나간 자리면 그대로)
+  mgTracers.push({ a: _bkA.clone(), b: _bkT.clone(), t: 0, en: true });
   sparks(_bkT, _bkN.copy(_bkA).sub(_bkT).normalize(), 0.35);   // (연사라 작게)
+  flashes.push({ p: _bkT.clone().addScaledVector(_bkN, 0.25), t: 0, dur: 0.06, I: 45, range: 6, color: 0xffc890 });   // 맞은 자리 불빛
   flashes.push({ p: _bkA.clone(), t: 0, dur: 0.07, I: 90, range: 10, color: 0xffd08a });
   sfx.mg(_bkA);
   dmgFromP = _bkA;   // 대미지 숫자: 벙커 총구 반대쪽으로

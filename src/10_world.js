@@ -278,10 +278,11 @@ const SKY = new THREE.Color(MAP0.fogColor);   // 하늘(배경) 색: 플레이�
 scene.background = SKY;
 scene.fog = new THREE.Fog(FOG, 0, 2 / MAP0.fog);
 const FOGN = { value: 0 }, FOGF = { value: scene.fog.far };
-const camera = new THREE.PerspectiveCamera(CFG.camera.fov, 1, 0.5, 600);
+const camera = new THREE.PerspectiveCamera(45, 1, 0.5, 600);   // (시야각은 카메라 모드가 정한다: 40_input_post.js)
 // 원경: 보드 바깥 먼 거리를 두른 산 실루엣 한 겹 (config map.backdrop). 빛·안개를 받지 않고 지금 안개색(FOG, 맵 셋팅·타이틀·폭풍우를 따라 바뀐다) 그대로:
 // 안개에 묻힌 먼 땅과 이어지고, 하늘(SKY)과의 차이로만 실루엣이 보인다. 아래 끝은 팔각형 바닥으로 막아 그릇 모양. 임무 완료 화면(레이어 3만 그림)에서는 보이지 않는다
 const BACKDROP = Object.assign({ enabled: true, distance: 320, height: 34, relief: 1, jag: 1 }, CFG.map?.backdrop);
+const SECT_BOTTOM = -200, BACK_LOW = -230;   // 보드 옆 단면(땅 속)의 아래 끝, 원경 그릇 바닥 (단면을 가리지 않게 그보다 아래)
 if (BACKDROP.enabled) {
   const N = 240, R = BACKDROP.distance, Hh = BACKDROP.height, RL = BACKDROP.relief, JG = BACKDROP.jag, p = [], idx = [];
   for (let i = 0; i <= N; i++) {
@@ -289,13 +290,13 @@ if (BACKDROP.enabled) {
     // 능선: 큰 봉우리 몇 개 + 중간 굴곡(× relief) + 잔 들쭉날쭉(× jag). 각도 함수라 한 바퀴가 이어진다. 둘 다 0이면 높이 0.55 × height로 평평
     const h = Hh * Math.max(0.15, 0.55 + RL * (0.25 * Math.sin(3 * a + 1.3) + 0.15 * Math.sin(7 * a + 0.4)) + JG * (0.08 * Math.sin(17 * a + 2.1) + 0.04 * Math.sin(41 * a + 0.7)));
     const r = R * (1 + 0.06 * Math.sin(5 * a + 0.9));
-    p.push(Math.cos(a) * r, -80, Math.sin(a) * r, Math.cos(a) * r, h, Math.sin(a) * r);
+    p.push(Math.cos(a) * r, BACK_LOW, Math.sin(a) * r, Math.cos(a) * r, h, Math.sin(a) * r);
     if (i < N) { const b = i * 2; idx.push(b, b + 1, b + 2, b + 1, b + 3, b + 2); }
   }
-  // 바닥: 링 아래 끝(y -80)을 팔각형 하나로 막는다 (지형 끝 너머를 내려다볼 때 링 아래로 하늘이 뚫려 보이지 않게). 링 반지름(최대 1.06배)을 다 덮게
+  // 바닥: 링 아래 끝(BACK_LOW)을 팔각형 하나로 막는다 (지형 끝 너머를 내려다볼 때 링 아래로 하늘이 뚫려 보이지 않게). 링 반지름(최대 1.06배)을 다 덮게
   const b0 = p.length / 3, RO = R * 1.07 / Math.cos(Math.PI / 8);
-  p.push(0, -80, 0);
-  for (let k = 0; k < 8; k++) { const a = (k + 0.5) / 8 * Math.PI * 2; p.push(Math.cos(a) * RO, -80, Math.sin(a) * RO); }
+  p.push(0, BACK_LOW, 0);
+  for (let k = 0; k < 8; k++) { const a = (k + 0.5) / 8 * Math.PI * 2; p.push(Math.cos(a) * RO, BACK_LOW, Math.sin(a) * RO); }
   for (let k = 0; k < 8; k++) idx.push(b0, b0 + 1 + (k + 1) % 8, b0 + 1 + k);
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(p, 3)); g.setIndex(idx);
   const m = new THREE.Mesh(g, new THREE.ShaderMaterial({
@@ -310,7 +311,7 @@ camera.position.set(100, TOWN_H + 100, 130);
 const controls = new OrbitControls(camera, canvas);
 controls.target.set(0, TOWN_H, 0);
 controls.enableDamping = true;
-controls.minDistance = 8; controls.maxDistance = CFG.camera.maxDistance ?? 70; controls.maxPolarAngle = 1.52;
+controls.minDistance = 8; controls.maxDistance = 70; controls.maxPolarAngle = 1.52;   // (거리 범위는 카메라 모드가 정한다: camLimits)
 window.dbg = { camera, controls };
 
 // 궤도 자국: 위에서 내려다본 2048² 마스크에 궤도판 무늬를 GPU로 찍고, 조금씩 빼서 30초에 걸쳐 지운다
@@ -555,7 +556,7 @@ let terrainCol;
     for (let k = 0; k < N; k++) {
       const s = -HALF + k * STEP, [x, z] = e.pt(s), h = heightAt(x, z);
       const w = (a, b) => 0.5 * Math.sin(s * 0.21 + a) + 0.3 * Math.sin(s * 0.67 + b);
-      const ys = [h, h - 0.45, Math.min(h - 1.4, 0.8 + w(3, 4) * 1.6), BOTTOM];
+      const ys = [h, h - 0.45, Math.min(h - 1.4, 0.8 + w(3, 4) * 1.6), SECT_BOTTOM];   // 암반은 아주 깊이까지
       for (let j = 1; j < 3; j++) ys[j] = Math.max(BOTTOM + 0.5, Math.min(ys[j], ys[j - 1] - 0.15));
       cols.push({ x, z, s, ys, n: rand(), w: waterAt(x, z) });
     }

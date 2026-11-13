@@ -6,6 +6,7 @@
 // 바닥: 배경색과 같은 색의 넓은 평면 (빛을 받지 않아 배경과 경계가 안 보인다). 탱크 그림자·뒷등 빛만 비친다 (지면과 같은 식, 탱크 둘레만)
 const CLR = Object.assign({ transition: 2.2, pose: {}, background: '#24272b', wipeDelay: 0.4, wipeTime: 1.4, textDelay: 1 }, CFG.clear);
 const CLR_CAM = Object.assign({ distance: 26, pitch: 8, yaw: 150, fov: 22, height: 1.4, shift: 0.22, spin: 2 }, CLR.camera);
+CLR_CAM.dof = dofOf(CLR_CAM.dof, 0);   // 임무 완료 아웃포커싱 (40_input_post.js가 섞는다)
 const CLR_BG = new THREE.Color(CLR.background);
 const clrFloor = new THREE.Mesh(new THREE.PlaneGeometry(600, 600).rotateX(-Math.PI / 2), new THREE.ShaderMaterial({
   uniforms: { uSh0: U.uSh0, uSh1: U.uSh1, uLamp0: U.uLamp0, uLamp1: U.uLamp1, uC: { value: CLR_BG }, uTP: { value: new THREE.Vector2() }, uFl: { value: new THREE.Vector4() }, uFlC: { value: new THREE.Color() }, uTk: { value: new THREE.Vector4() }, uTkS: { value: new THREE.Vector4() } },

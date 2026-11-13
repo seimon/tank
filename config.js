@@ -70,7 +70,7 @@ window.CONFIG = {
     wallSlip: 0.3,              // 벽·물체·다른 탱크에 닿은 채 느릴 때(4m/s 아래일수록 많이, 평지) 궤도 마찰의 배율 (1 = 예전. 작을수록 벽에 붙어서도 잘 돈다. 달리는 중·비탈에선 영향 없음)
     brake: 4,                   // 달리던 방향과 반대 키를 눌렀을 때 궤도가 줄어드는 속도 (가속도의 몇 배. 1 = 예전). 벽에 막혀 멈췄을 때는 이 값과 상관없이 바로 반대로 간다
     crashVolume: 1.8,           // 충돌 소리(집·전봇대·보급품·잔해·다른 탱크에 부딪힘) 크기 배율. 1 = 예전보다 약간 큼, 부딪히는 속도가 빠를수록 더 크다
-    brakeTurn: 3,               // 궤도가 땅을 미끄러지는 동안(가속·감속·급제동·멈추는 순간) 조향을 돕는 힘의 최대 배율 (미끄러지는 만큼 1에서 이 값까지. 회전이 약해지는 것을 막는다. 1 = 돕지 않음)
+    brakeTurn: 5,               // 궤도가 땅을 미끄러지는 동안(가속·감속·급제동·멈추는 순간) 조향을 돕는 힘의 최대 배율 (미끄러지는 만큼 1에서 이 값까지. 회전이 약해지는 것을 막는다. 1 = 돕지 않음)
     turnAtSpeed: 1.4,           // 최고 속도로 달릴 때 차체 회전 속도 배율 (속도에 비례해 1에서 이 값까지. 같은 회전 속도면 빠를수록 큰 원을 그려 덜 꺾이는 느낌이라. 1 = 예전)
     tankHitPen: 0.12,           // 탱크끼리 겹쳤을 때 밀어내는 힘을 키우는 최대 깊이 (m). 더 깊이 겹친 만큼은 힘 대신 위치를 천천히 떼어 낸다 (작을수록 세게 박아도 튕겨 날아가지 않고 묵직하게 밀린다)
     boxPush: 0.9,               // 보급품을 들이받으면 탱크가 파고드는 속도의 몇 배로 밀려나는가 (0 = 안 밀림. 1보다 작으면 탱크가 보급품에 막혀 많이 느려진다)
@@ -264,6 +264,7 @@ window.CONFIG = {
       arcTime: 4,              // 한쪽 끝에서 반대쪽 끝까지 걸리는 시간 (초, EaseInOutSine)
       sway: 0,                // 손에 든 카메라처럼 살짝 흔들리는 크기 (°. 0이면 없음)
       swayRate: 0,            // 흔들림 빠르기
+      dof: { strength: 0, range: 0, fall: 0, px: 0 },   // 타이틀 아웃포커싱 (camera 모드의 dof와 같은 뜻)
     },
     fogColor: '#ffffff',      // 타이틀 안개·배경·위쪽 그라데이션 색
     fogNear: 30,                // 안개가 시작되는 거리 (m)
@@ -309,6 +310,7 @@ window.CONFIG = {
       height: 1.4,              // 화면 가운데를 탱크 중심보다 이만큼 위로 (m. 클수록 탱크가 화면 아래쪽)
       shift: 0.06,              // 탱크를 화면 오른쪽으로 미는 정도 (화면 폭 비율. 0 = 가운데, 0.25 = 폭의 1/4만큼 오른쪽)
       spin: 1,                  // 넘어간 뒤 탱크 둘레를 천천히 도는 빠르기 (°/초. 0 = 멈춤, -면 반대로)
+      dof: { strength: 0, range: 0, fall: 0, px: 0 },   // 임무 완료 아웃포커싱 (camera 모드의 dof와 같은 뜻)
     },
     pose: { turret: -35, elev: 24 },   // 포즈: 포탑을 카메라 쪽으로 돌리는 각 (°. 0 = 차체 정면), 포신을 올리는 각 (°)
     background: '#24272b',      // 배경을 지운 뒤 남는 단색
@@ -328,7 +330,7 @@ window.CONFIG = {
     aspectMax: 1.6,             // 가로:세로 비율 최대 (2 = 2:1). 이보다 가로로 길면 좌우를 잘라 검은 레터박스
     dropFade: 1.4,              // 하늘에서 떨어지는 탱크·보급품이 땅에 닿기까지 걸리는 시간 (초). 떨어지는 빠르기(가속도)는 그대로라 길수록 높은 곳에서 떨어진다 (2.0 ≈ 45m)
     dropFadeIn: 0.3,            // 하늘에 나타난 직후 4x4 디더링으로 스르륵 나타나는 시간 (초. 0 = 바로 보임)
-    dof: { enabled: true, mobile: true, title: 0, play: 1, clear: 0, range: 4, fall: 30, px: 2.6 },   // 아웃포커싱: 처음 켜짐 (설정 탭에서 바꾸면 기억), mobile = 터치 기기에서도 처음부터 켤지, 화면별 세기 (타이틀·플레이·임무 완료, 0~1), range = 초점(내 탱크)에서 또렷한 범위(m), fall = 그 밖으로 최대로 흐려지기까지(m), px = 최대로 흐릴 때 섞는 거리(게임 픽셀)
+    // (아웃포커싱 dof는 camera의 카메라 모드마다로 옮겼다)
   },
 
   // --------------------------------------------------------------------------
@@ -346,10 +348,10 @@ window.CONFIG = {
       max: 50,                  //   한 번에 화면에 있는 최대 방울 수
       refract: 1.5,             //   굴절 세기 (0 = 어긋나지 않음)
       life: 3,                  //   방울이 마르기까지 (초, 대략)
-      size: [3.0, 6.0],         //   방울 반지름 [최소, 최대] (게임 화면 픽셀, 세로 300줄 기준. 가끔 1.6배 큰 방울). 큰 쪽 절반쯤부터 흘러내린다
+      size: [3.0, 7.0],         //   방울 반지름 [최소, 최대] (게임 화면 픽셀, 세로 300줄 기준. 가끔 1.6배 큰 방울). 큰 쪽 절반쯤부터 흘러내린다
       rim: [0.0, 0.8],          //   테두리(물방울 두께) 굵기 [가장 가는 곳, 가장 굵은 곳] (게임 화면 픽셀). 각도마다 이 사이에서 바뀐다
       rimDark: 0.4,            //   테두리 옆쪽 어둡기 (0 = 안 어둡게 ~ 1 = 검게)
-      highlight: 0.8,           //   주광 쪽 테두리 하이라이트 밝기 (뒤 화면보다 이만큼 더 밝게, 0.5 = 1.5배). 가는 곳은 15% 더
+      highlight: 1.0,           //   주광 쪽 테두리 하이라이트 밝기 (뒤 화면보다 이만큼 더 밝게, 0.5 = 1.5배). 가는 곳은 15% 더
       crescent: 0.5,            //   주광 반대쪽 테두리 초승달 밝기 (같은 식)
       morph: 0.5,               //   흘러내릴 때 테두리 모양이 바뀌는 빠르기 (0 = 안 바뀜)
     },
@@ -358,7 +360,7 @@ window.CONFIG = {
     stormPreset: '폭풍우 밤',   // 그때 바꿀 맵 셋팅 이름 (아래 presets의 name)
     stormTime: 6,               // 바뀌는 데 걸리는 시간 (초)
     terrainStep: 2,             // 땅을 그리는 격자 간격 (0.5m 격자의 몇 칸마다 하나. 1 = 예전 0.5m, 2 = 1m로 삼각형 1/4). 물리·풀 높이는 그대로 0.5m
-    backdrop: { enabled: true, distance: 120, height: 30, strength: 0.2, relief: 0.6, jag: 0.5 },   // 원경 산 실루엣 한 겹: 보드 가운데에서 거리(m), 봉우리 높이(m). 색은 안개색 그대로 (하늘색은 아래 bgDark·맵 셋팅 bgColor). strength는 이제 쓰지 않는다.
+    backdrop: { enabled: true, distance: 200, height: 40, strength: 5.2, relief: 0.8, jag: 0.8 },   // 원경 산 실루엣 한 겹: 보드 가운데에서 거리(m), 봉우리 높이(m). 색은 안개색 그대로 (하늘색은 아래 bgDark·맵 셋팅 bgColor). strength는 이제 쓰지 않는다.
                                 // relief = 큰 봉우리·골짜기 고저차 배율, jag = 잔 들쭉날쭉 배율 (1 = 처음 모양, 0 = 평평. 둘 다 0이면 높이는 height의 0.55배로 고르다)
     poleWind: { from: 2, strength: 0.5, gust: 0.5, wires: 1, sway: 1 },   // 바람이 from 이상이면 전봇대가 바람 쪽으로 흔들린다: strength = 세기 (바람이 셀수록 더), gust = 돌풍처럼 오르내리는 정도 (0~1), wires = 전깃줄 출렁임 배율 (0이면 전봇대만), sway = 바람 부는 동안 계속 앞뒤로 흔들리는 크기 배율 (0이면 기울기만)
     preset: 0,                  // 처음 쓸 맵 셋팅 (아래 presets의 순번, 0부터). 설정 메뉴 '맵 셋팅' 버튼을 누를 때마다 다음 것으로 바뀐다
@@ -373,13 +375,13 @@ window.CONFIG = {
     //   lightning: 번개 (0 = 없음, 1 = 10초에 한 번쯤)
     presets: [
       { name: '달밤',
-        wind: 1.2, windDir: 215, debris: 0.3, fog: 0.010, fogColor: '#414a5e', moon: 1.8, moonColor: '#9aaad0',
+        wind: 1.2, windDir: 215, debris: 0.3, fog: 0.010, fogColor: '#414a5e', moon: 3.0, moonColor: '#9aaad0',
         sky: 1.5, skyColor: '#7d8aac', groundColor: '#4a3a2a', rain: 0, rainColor: '#a8b8d0', sand: 0, sandColor: '#c8a070', lightning: 0 },
       { name: '폭풍우 밤',
-        wind: 3.5, windDir: 60, debris: 0.0, fog: 0.017, fogColor: '#2c3440', moon: 2.0, moonColor: '#8a9ac0',
+        wind: 3.5, windDir: 60, debris: 0.0, fog: 0.017, fogColor: '#2c3440', moon: 3.0, moonColor: '#8a9ac0',
         sky: 1.2, skyColor: '#5c6884', groundColor: '#2e2a26', rain: 2, rainColor: '#9aacc8', lightning: 1 },
       { name: '비 오는 날',
-        wind: 1.2, windDir: 200, debris: 0.05, fog: 0.016, fogColor: '#6c7680', moon: 2.2, moonColor: '#c4ccd4',
+        wind: 1.2, windDir: 200, debris: 0.05, fog: 0.016, fogColor: '#6c7680', moon: 3.0, moonColor: '#c4ccd4',
         sky: 2.4, skyColor: '#a4b0bc', groundColor: '#3e3a34', rain: 1, rainColor: '#c8d4e0', lightning: 0 },
       { name: '모래폭풍',
         wind: 2, windDir: 180, debris: 1, fog: 0.022, fogColor: '#b08a5c', moon: 6, moonColor: '#ffd8a0',
@@ -391,17 +393,59 @@ window.CONFIG = {
   // 카메라 처음 설정 (설정 메뉴의 '카메라 초기화'도 이 값으로)
   // --------------------------------------------------------------------------
   camera: {
-    fov: 45,                    // 화면 세로 시야각 (°). 작을수록 망원
-    distance: 42.6,             // 화면 가운데에서 카메라까지 거리 (m)
-    // pitch: 33.6,                // 내려다보는 각 (°)
-    pitch: 28,                // 내려다보는 각 (°)
-    yaw: 20,                    // 탱크 뒤에서 오른쪽으로 돌아간 각 (°). +면 탱크 오른쪽 옆면이 보인다
-    lead: 9,                    // 화면 가운데를 탱크가 바라보는 쪽으로 이만큼 앞에 둔다 (m)
-    follow: 1.8,                // 탱크가 돌 때 카메라가 따라 도는 빠르기 (클수록 바로 따라옴)
+    // 카메라 모드: 아래에서 name이 있는 묶음마다 하나 (설정 탭 '카메라 모드'에 name이 나열된다. 플레이 중 C키 / 게임패드 X로 돌아가며 바꾼다).
+    // 묶음을 더 만들어도 된다. 묶음에 빠진 값은 기본값을 쓴다
+    start: 'default',           // 게임을 시작할 때 카메라 모드 (묶음 이름. 시작할 때마다 늘 이 모드)
+    switchTime: 1.0,            // 모드를 바꿀 때 넘어가는 시간 (초, EaseInOutCubic)
     byTurret: true,             // true = 포탑 방향 기준, false = 차체 방향 기준
-    maxDistance: 70,            // 마우스 휠로 멀어질 수 있는 최대 거리 (m)
     seeThrough: 0,              // 내 탱크를 가리는 건물·물체를 탱크 둘레 이 반지름(m)만큼 디더링으로 비춰 본다 (0 = 끔)
     minHeight: 2,               // 카메라가 땅보다 이만큼은 위에 있다 (m). 마우스로 낮게 돌려도 땅 속으로 들어가지 않게
+    default: {
+      name: '기본',
+      fov: 48,                  // 화면 세로 시야각 (°). 작을수록 망원
+      distance: 38,             // 화면 가운데에서 카메라까지 거리 (m)
+      minDistance: 28,          // 마우스 휠로 당길 수 있는 가장 가까운 거리 (m)
+      maxDistance: 50,          // 마우스 휠로 멀어질 수 있는 최대 거리 (m)
+      pitch: 28,                // 내려다보는 각 (°)
+      yaw: 20,                  // 탱크 뒤에서 오른쪽으로 돌아간 각 (°). +면 탱크 오른쪽 옆면이 보인다
+      lead: 8,                  // 화면 가운데를 탱크가 바라보는 쪽으로 이만큼 앞에 둔다 (m)
+      follow: 2,                // 탱크가 돌 때 카메라가 따라 도는 빠르기 (클수록 바로 따라옴)
+      height: 0,                // 화면 가운데를 탱크보다 이만큼 위로 (m. 클수록 탱크가 화면 아래쪽)
+      fog: 1,                   // 맵 안개 짙기 배율 (맵 셋팅 fog × 이 값)
+      moon: 1,                  // 맵 주광 세기 배율 (맵 셋팅 moon × 이 값)
+      // 마우스로 끌어 시점 돌리기. x = 가로(좌우), y = 세로(위아래). 방향마다: true = 자유롭게 (손을 떼면 자동 카메라 설정대로 되돌아감),
+      // 숫자 = 그 각도(°)까지 러버밴딩 (끌수록 그 각도에 끝없이 가까워지고, 놓으면 스프링으로 바로 튕겨 제자리), false = 안 돎. drag: true / false / 숫자 하나도 된다 (가로·세로 같게)
+      drag: { x: true, y: 20 },
+      dragHalf: 0.35,           // 러버밴딩 무게: 화면 높이의 이만큼 끌면 한계 각도의 절반 (클수~록 무겁다)
+      zoom: 'auto',             // 휠로 바꾼 거리: 'auto' = 자동 카메라 설정대로 (손 뗀 뒤 2초 뒤 distance로, minDistance~maxDistance까지), 'spring' = 러버밴딩 + 휠을 멈추면 스프링으로 바로 distance로
+      zoomHalf: 0.35,           // 휠 러버밴딩 무게 ('spring'): 휠 한 칸 = 0.1, 이만큼 굴리면 distance → min·maxDistance 폭의 절반
+      // 아웃포커싱: strength = 세기 (0~1, 0이면 끔), range = 초점(내 탱크)에서 또렷한 범위(m), fall = 그 밖으로 최대로 흐려지기까지(m), px = 최대로 흐릴 때 섞는 거리(게임 픽셀)
+      dof: { strength: 0, range: 4, fall: 30, px: 2 },
+    },
+    miniature: {
+      name: '미니어처',           // 멀리서 망원으로 내려다보는 모형 사진 느낌
+      fov: 10, distance: 180, minDistance: 160, maxDistance: 200,
+      pitch: 34, yaw: 40, lead: 5, follow: 2, height: 1,
+      fog: 0.0,                 // 멀리서 보니 안개를 옅게
+      moon: 1.6,                // 주광 1.6배
+      drag: { x: 20, y: 10 },   // 가로 20°·세로 10°까지 러버밴딩
+      dragHalf: 0.35,
+      zoom: 'spring',           // 휠: 100~120m 사이 러버밴딩, 멈추면 바로 distance로
+      zoomHalf: 0.35,
+      dof: { strength: 1, range: 4, fall: 28, px: 5 },
+    },
+    tps: {
+      name: 'TPS',           // 어깨 너머로 보는 느낌
+      fov: 65, distance: 14, minDistance: 10, maxDistance: 18,
+      pitch: 20, yaw: 10, lead: 6, follow: 2, height: 2.4,
+      fog: 1,
+      moon: 1,
+      drag: { x: 80, y: 20 },
+      dragHalf: 0.35,
+      zoom: 'spring',
+      zoomHalf: 0.35,
+      dof: { strength: 1, range: 10, fall: 48, px: 2 },
+    },
   },
 
   // --------------------------------------------------------------------------
