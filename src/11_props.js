@@ -1024,6 +1024,10 @@ scene.remove(poleGroup);
     mat.customProgramCacheKey = () => 'pole' + src.uuid;
     m.material = mat;
     if (src !== poleMat) m.userData.noOutline = true;   // 외곽선은 굵은 기둥에만 (가로대·애자·가로등 팔·갓은 전깃줄 쪽이 지저분해진다)
+    else m.userData.olMat = ps1(new THREE.MeshBasicMaterial({ colorWrite: false }), (sh) => {   // 외곽선·림 깊이도 흔들림대로 (00_core.js OL_OWN)
+      sh.uniforms.uPB = uPB; sh.uniforms.uPT = uPT;
+      sh.vertexShader = SWAY + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvec3 pB = uPB[int(aPole + 0.5)].xyz; transformed = pB + poleRot(transformed - pB, uPT[int(aPole + 0.5)]);');
+    }, 'poleOutline');
   });
   pg.traverse((o) => { if (o.userData.pole !== undefined) lampObjs.push({ obj: o, pole: o.userData.pole, p0: o.position.clone() }); });
   scene.add(pg);

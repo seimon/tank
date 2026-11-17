@@ -115,7 +115,7 @@ const touch = { thr: 0, steer: 0, up: false, down: false, fire: false, tl: false
 // 게임패드 (81_ui.js padPoll이 매 프레임 채운다): 주행·선회·포탑·포각은 아날로그, fire = 발사 버튼을 누르고 있음
 const pad = { thr: 0, steer: 0, tq: 0, de: 0, fire: false };
 {
-  const stick = document.getElementById('stick'), knob = document.getElementById('knob'), R = 50;
+  const stick = $el('stick'), knob = $el('knob'), R = 50;
   let id = null;
   const move = (e) => {
     const r = stick.getBoundingClientRect();
@@ -131,14 +131,14 @@ const pad = { thr: 0, steer: 0, tq: 0, de: 0, fire: false };
   stick.addEventListener('pointermove', (e) => { if (e.pointerId === id) move(e); });
   stick.addEventListener('pointerup', end); stick.addEventListener('pointercancel', end);
   const hold = (btnId, key) => {
-    const b = document.getElementById(btnId);
+    const b = $el(btnId);
     const on = (v) => (e) => { touch[key] = v; b.classList.toggle('on', v); if (v) capture(b, e); e.preventDefault(); };
     b.addEventListener('pointerdown', on(true)); b.addEventListener('pointerup', on(false)); b.addEventListener('pointercancel', on(false));
   };
   hold('tUp', 'up'); hold('tDown', 'down'); hold('tFire', 'fire'); hold('tTL', 'tl'); hold('tTR', 'tr');
-  document.getElementById('tFix').addEventListener('pointerdown', (e) => { uprightTank(); e.preventDefault(); });
+  $el('tFix').addEventListener('pointerdown', (e) => { uprightTank(); e.preventDefault(); });
   // 메뉴 토글. 처음엔 숨기고, 화면을 손가락으로 만지면 나타나고 키보드·게임패드를 쓰면 다시 숨긴다 (아이패드에 키보드를 연결해 할 때 계속 보이지 않게)
-  const ui = document.getElementById('touchUI'), btn = document.getElementById('touchBtn');
+  const ui = $el('touchUI'), btn = $el('touchBtn');
   const show = (v) => { if ((ui.style.display !== 'none') === v) return; ui.style.display = v ? '' : 'none'; btn.textContent = v ? '터치 버튼 켜짐' : '터치 버튼 꺼짐'; };
   btn.onclick = (e) => { show(ui.style.display === 'none'); e.target.blur(); };
   show(false);
@@ -159,7 +159,13 @@ const olRT = new THREE.WebGLRenderTarget(2, 2, { magFilter: THREE.NearestFilter,
 const cutRT = new THREE.WebGLRenderTarget(2, 2, { type: THREE.HalfFloatType, magFilter: THREE.NearestFilter, minFilter: THREE.NearestFilter });
 cutRT.depthTexture = new THREE.DepthTexture(2, 2);
 const olMat = ps1(new THREE.MeshBasicMaterial({ colorWrite: false }), null, 'outlineDepth');
-let outlineOn = false;
+// 외곽선 (config outline): 'off' / 'dof' = 아웃포커싱에 함께 흐려진다 (후처리를 두 번: 색·외곽선·림 → preRT → 아웃포커싱부터) / 'dither' = 흐린 곳에서 4x4 디더링으로 성긴다
+const OLC = CFG.outline || {}, OL_MODES = ['off', 'dof', 'dither'], OL_NAME = { off: '외곽선 꺼짐', dof: '외곽선 켬 (아웃포커싱)', dither: '외곽선 켬 (흐린 곳 디더링)' };
+let olMode = OL_MODES.includes(OLC.mode) ? OLC.mode : 'off', outlineOn = olMode !== 'off';
+// 림 라이트 (config rimLight): 화면에서 정한 방향(시계)의 물체 가장자리를 주광 색으로 밝힌다. 외곽선과 같은 깊이(olRT)로
+const RIM = Object.assign({ enabled: true, clock: 1.5, follow: 'moon', minFacing: 0.4, minUp: 0, width: 1, strength: 0.35, add: 0.04, fx: 1.2, fxRef: 300, fxAdd: 0.15, groundFade: [0.3, 1.2], groundDither: false }, CFG.rimLight);
+let rimOn = !!RIM.enabled;
+const preRT = new THREE.WebGLRenderTarget(2, 2, { type: THREE.HalfFloatType, magFilter: THREE.NearestFilter, minFilter: THREE.NearestFilter, depthBuffer: false });
 const postScene = new THREE.Scene(), postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 // 가운데 창(전투 불능·적군 섬멸·일시정지·확인) 설정: 배경 회색조 두 색과 전환 시간, 창이 사라지는 시간, 창 색
 const POPC = CFG.popup || {};
@@ -179,12 +185,17 @@ let vfOn = !!VF.enabled;
 const VF_N = HALF * 2 + 1;   // 지형 격자 정사각을 1m 간격으로
 // 땅 높이 텍스처·유체 격자는 처음 켤 때 만든다 (꺼져 있으면 아무것도 만들지 않고, 매 프레임 일도 하지 않는다)
 let VF_TEX = null, vfFluid = null;
-function vfInit() {
-  if (vfFluid) return;
+function hgtTex() {   // 땅 높이 1m 텍스처 (복셀 안개·림 라이트 바닥 쪽 옅게). 처음 쓸 때 한 번
+  if (VF_TEX) return VF_TEX;
   const d = new Uint16Array(VF_N * VF_N);
   for (let z = 0; z < VF_N; z++) for (let x = 0; x < VF_N; x++) d[z * VF_N + x] = THREE.DataUtils.toHalfFloat(heightAt(x - HALF, z - HALF));
   VF_TEX = new THREE.DataTexture(d, VF_N, VF_N, THREE.RedFormat, THREE.HalfFloatType);
   VF_TEX.magFilter = VF_TEX.minFilter = THREE.LinearFilter; VF_TEX.needsUpdate = true;
+  return VF_TEX;
+}
+function vfInit() {
+  if (vfFluid) return;
+  hgtTex();
   vfFluid = [0, 1].map(() => new THREE.WebGLRenderTarget(VF_FN, VF_FN, { type: THREE.HalfFloatType, magFilter: THREE.LinearFilter, minFilter: THREE.LinearFilter, depthBuffer: false }));
   postMat.uniforms.tHgt.value = VF_TEX; postMat.uniforms.tClr.value = vfFluid[0].texture;
 }
@@ -320,14 +331,21 @@ function camPreTick(dt) {   // 매 프레임 (카메라 맞추기 전)
 }
 const postMat = new THREE.ShaderMaterial({
   uniforms: { tDrop: { value: LDROP_TEX }, uDrop: { value: 0 }, uDropR: { value: 0.035 * (LD.refract ?? 1) }, tDiffuse: { value: rt.texture }, tCut: { value: cutRT.texture }, tCutD: { value: cutRT.depthTexture }, uCut: { value: 0 }, uFlash: { value: 0 }, tDepth: { value: rt.depthTexture }, tOL: { value: olRT.depthTexture },
-    uOL: { value: 0 }, uNear: { value: camera.near }, uFar: { value: camera.far }, uTexel: { value: new THREE.Vector2(1, 1) },
+    uOL: { value: 0 }, uOLDith: { value: 0 }, uOLCol: { value: OLC.color ?? 1 }, uOLDark: { value: OLC.dark ?? 0.3 }, uOLSat: { value: OLC.saturate ?? 1.5 }, tPre: { value: preRT.texture },
+    uRim: { value: 0 }, uRimW: { value: 1 }, uRimDir: { value: new THREE.Vector2(1, 1) }, uRimC: { value: new THREE.Vector3() }, uRimA: { value: new THREE.Vector3() },
+    uView: { value: new THREE.Matrix4() }, uFxP: { value: [0, 1, 2, 3].map(() => new THREE.Vector3()) }, uFxC: { value: [0, 1, 2, 3].map(() => new THREE.Vector3()) }, uFxR: { value: [0, 0, 0, 0] },
+    uRimFxA: { value: RIM.fxAdd ?? 0.15 }, uRimMin: { value: RIM.minFacing ?? 0.4 }, uRimG0: { value: RIM.groundFade?.[0] ?? 0.3 }, uRimG1: { value: RIM.groundFade?.[1] ?? 1.2 }, uRimGD: { value: RIM.groundDither ? 1 : 0 },
+    uNear: { value: camera.near }, uFar: { value: camera.far }, uTexel: { value: new THREE.Vector2(1, 1) },
     uFogN: FOGN, uFogF: FOGF, uFogC: { value: FOG }, uDof: { value: 0 }, uFocus: { value: 20 }, uFocusR: { value: CAMV.dof.range }, uFocusF: { value: CAMV.dof.fall }, uDofPx: { value: CAMV.dof.px },
     uGrad: { value: 0 }, uGradA: { value: 0.6 }, uGradB: { value: 0.9 }, uGradC: { value: new THREE.Color(1, 1, 1) },
     uGray: { value: 0 }, uGrayA: { value: hexV3(POP.dark) }, uGrayB: { value: hexV3(POP.light) }, uBright: { value: 1 },
     tHgt: { value: null }, tClr: { value: null }, uVFWarp: { value: VF.flowWarp }, uCamP: { value: new THREE.Vector3() }, uVFMarch: { value: VF.march }, uInvPV: { value: new THREE.Matrix4() }, uVF: { value: 0 }, uVFTop: { value: VF.height }, uVFCell: { value: VF.cell }, uVFDen: { value: VF.density },
     uVFScale: { value: VF.scale }, uVFT: { value: 0 }, uVFSteps: { value: VF.steps }, uVFC: { value: new THREE.Color(VF.color) } },
+  defines: { STAGE: 0 },   // 0 = 한 번에 다, 1 = 색·빗방울·외곽선·림까지 (preRT), 2 = preRT에서 아웃포커싱부터 (외곽선 'dof' 모드)
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
   fragmentShader: `
+    uniform sampler2D tPre; uniform float uOLDith, uOLCol, uOLDark, uOLSat, uRim, uRimW; uniform vec2 uRimDir; uniform vec3 uRimC, uRimA;
+    uniform mat4 uView; uniform vec3 uFxP[4], uFxC[4]; uniform float uFxR[4], uRimFxA, uRimMin, uRimG0, uRimG1, uRimGD;
     uniform sampler2D tHgt, tClr; uniform vec3 uCamP; uniform float uVFMarch, uVFWarp; uniform mat4 uInvPV; uniform float uVF, uVFTop, uVFCell, uVFDen, uVFScale, uVFT, uVFSteps; uniform vec3 uVFC;
     uniform float uDof, uFocus, uFocusR, uFocusF, uDofPx;
     uniform sampler2D tDiffuse, tDepth, tOL, tCut, tCutD, tDrop; uniform float uCut, uDrop, uDropR, uFlash, uOL, uNear, uFar, uFogN, uFogF, uGrad, uGradA, uGradB, uGray, uBright; uniform vec2 uTexel; uniform vec3 uFogC, uGradC, uGrayA, uGrayB; varying vec2 vUv;
@@ -344,37 +362,92 @@ const postMat = new THREE.ShaderMaterial({
     float olD(vec2 uv, bool cut) { return cut ? texture2D(tCutD, uv).r : texture2D(tOL, uv).r; }
     float scD(vec2 uv, bool cut) { return cut ? texture2D(tCutD, uv).r : texture2D(tDepth, uv).r; }
     vec3 toSRGB(vec3 c) { c = max(c, 0.0); return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); }
+    vec3 colAt(vec2 uv, bool cut) {
+    #if STAGE == 2
+      return texture2D(tPre, uv).rgb;   // 색·외곽선·림까지 그린 것 (1단계)
+    #else
+      return cut ? texture2D(tCut, uv).rgb : texture2D(tDiffuse, uv).rgb;
+    #endif
+    }
+    // 외곽선·림 라이트 (keep: 0~1 = 그리는 정도, 'dither' 모드면 흐린 곳에서 디더링으로 0). oc = 그 픽셀의 원래 물체 색
+    // 림: dir 쪽으로 uRimW칸 안에 훨씬 먼 곳(물체만 그린 깊이)이 있으면 켠다. 단 화면 깊이로 그 자리가 이 물체보다 앞이면(풀·땅이 앞을 가림) 빼고
+    // 가로·세로를 따로 보고 dir 성분 비율로 섞는다 (한 방향을 픽셀로 반올림하면 빛이 눕는 순간 수평 가장자리 림이 탁 꺼졌다)
+    bool rimHit(vec2 q, float d, float gap, bool cut) { return lin(olD(q, cut)) - d > gap && lin(scD(q, cut)) - d > 0.3; }
+    float rimAt(vec2 dir, float d, float gap, bool cut) {
+      vec2 sx = vec2(dir.x >= 0.0 ? uTexel.x : -uTexel.x, 0.0), sy = vec2(0.0, dir.y >= 0.0 ? uTexel.y : -uTexel.y);
+      float rx = 0.0, ry = 0.0;
+      for (int k = 1; k <= 6; k++) {
+        if (float(k) > uRimW) break;
+        if (rx < 0.5 && rimHit(vUv + sx * float(k), d, gap, cut)) rx = 1.0;
+        if (ry < 0.5 && rimHit(vUv + sy * float(k), d, gap, cut)) ry = 1.0;
+      }
+      return min(1.0, rx * abs(dir.x) + ry * abs(dir.y));
+    }
+    vec2 rimDir(vec2 v) { return v / max(max(abs(v.x), abs(v.y)), 1e-4); }
+    void edges(inout vec3 lc, vec3 oc, bool cut, float keep) {
+      float d0 = olD(vUv, cut);
+      if (d0 >= 1.0 || keep <= 0.0) return;
+      float d = lin(d0);
+      if (lin(scD(vUv, cut)) < d - 0.3 - d * 0.02) return;   // 풀·땅에 가려진 곳은 빼고
+      float fk = max(d - uFogN, 0.0) * 2.0 / max(uFogF - uFogN, 0.001), fogK = 1.0 - exp(-fk * fk);   // 지형과 같은 안개: 멀수록 묻힌다
+      float gap = 0.6 + d * 0.06;
+      if (uRim > 0.5) {   // 림: 빛 쪽 가장자리를 밝힌다 (외곽선이 켜져 있으면 uRimW가 한 칸 더 = 선 바로 안쪽). 주광 + 주변 광원 4개
+        vec4 wp = uInvPV * vec4(vUv * 2.0 - 1.0, d0 * 2.0 - 1.0, 1.0); vec3 P = wp.xyz / wp.w;   // 이 픽셀의 월드 자리
+        float gk = smoothstep(uRimG0, uRimG1, P.y - texture2D(tHgt, (P.xz + ${HALF.toFixed(1)}) / ${VF_N.toFixed(1)} + 0.5 / ${VF_N.toFixed(1)}).r);   // 땅에 가까울수록 옅게
+        if (uRimGD > 0.5) gk = step(bayer4(gl_FragCoord.xy), gk - 0.01);   // (디더링으로)
+        gk *= (1.0 - fogK) * keep;
+        if (gk > 0.0) {
+          vec3 add = (oc * uRimC + uRimA) * rimAt(uRimDir, d, gap, cut);
+          for (int i = 0; i < 4; i++) {   // 폭발·섬광·불빛: 이 자리에서 광원 쪽을 화면에 비춘 방향
+            if (uFxR[i] <= 0.0) continue;
+            vec3 L = uFxP[i] - P; float ld = length(L);
+            if (ld >= uFxR[i]) continue;
+            vec3 v = mat3(uView) * L; float a = 1.0 - ld / uFxR[i];
+            add += (oc + uRimFxA) * uFxC[i] * (a * a * max(length(v.xy) / max(ld, 1e-3), uRimMin)) * rimAt(rimDir(v.xy), d, gap, cut);
+          }
+          lc += add * gk;
+        }
+      }
+      if (uOL > 0.5) {   // 외곽선: 물체 픽셀인데 이웃 중 훨씬 먼 곳(배경·뒤의 물체)이 있으면 1픽셀 선. 색은 물체 색을 어둡게 (uOLCol 0 = 예전 검정)
+        float m = max(max(lin(olD(vUv + vec2(uTexel.x, 0.0), cut)), lin(olD(vUv - vec2(uTexel.x, 0.0), cut))),
+                      max(lin(olD(vUv + vec2(0.0, uTexel.y), cut)), lin(olD(vUv - vec2(0.0, uTexel.y), cut))));
+        if (m - d > gap) {
+          vec3 lum = vec3(dot(oc, vec3(0.2126, 0.7152, 0.0722)));
+          vec3 lineC = mix(vec3(0.012, 0.01, 0.008), max(mix(lum, oc, uOLSat), 0.0) * uOLDark, uOLCol);
+          lc = mix(lc, mix(lineC, uFogC, fogK), 0.9 * keep);
+        }
+      }
+    }
     void main() {
       bool cut = uCut > 0.0 && bayer4(gl_FragCoord.xy) < clamp(uCut * 2.0 - vUv.y, 0.0, 1.0);   // 화면 아래에서 위로 쓸어 올리며
       vec2 uvR = vUv; float dA = 0.0;
+    #if STAGE != 2
       if (uDrop > 0.0) { vec4 dr = texture2D(tDrop, vUv); dA = dr.a; uvR = clamp(vUv + (dr.rg - 0.5) * 2.0 * uDropR * dA, 0.0, 1.0); }   // 화면에 맺힌 빗방울: 그만큼 어긋나게 읽는다 (22_weather.js)
-      vec3 lc = cut ? texture2D(tCut, uvR).rgb : texture2D(tDiffuse, uvR).rgb;
+    #endif
+      vec3 lc = colAt(uvR, cut), oc = lc;
+    #if STAGE == 1
+      if (dA > 0.0) { float b = texture2D(tDrop, vUv).b, db = (b - 0.5) * 2.0; lc = b > 0.99 ? mix(lc, vec3(0.75), dA) : lc * (1.0 + db * 0.6 * dA) + max(db - 0.2, 0.0) * 0.1 * dA; }
+      edges(lc, oc, cut, 1.0);
+      gl_FragColor = vec4(lc, 1.0);
+    #else
+      float coc = 0.0;
       if (uDof > 0.0) {   // 아웃포커싱: 초점에서 먼 만큼(coc) 둘레 8곳을 섞는다. 흐린 이웃일수록 많이 (또렷한 물체가 흐린 배경으로 번지지 않게)
-        float coc = clamp((abs(lin(scD(uvR, cut)) - uFocus) - uFocusR) / uFocusF, 0.0, 1.0) * uDof;
+        coc = clamp((abs(lin(scD(uvR, cut)) - uFocus) - uFocusR) / uFocusF, 0.0, 1.0) * uDof;
         if (coc > 0.02) {
           vec3 acc = lc; float ws = 1.0;
           for (int i = 0; i < 8; i++) {
             float a = float(i) * 0.785398 + 0.39;
             vec2 q = clamp(uvR + vec2(cos(a), sin(a)) * uTexel * uDofPx * coc * (i % 2 == 0 ? 1.0 : 0.55), 0.0, 1.0);
             float w = 0.2 + clamp((abs(lin(scD(q, cut)) - uFocus) - uFocusR) / uFocusF, 0.0, 1.0);
-            acc += (cut ? texture2D(tCut, q).rgb : texture2D(tDiffuse, q).rgb) * w; ws += w;
+            acc += colAt(q, cut) * w; ws += w;
           }
           lc = acc / ws;
         }
       }
+    #if STAGE == 0
       if (dA > 0.0) { float b = texture2D(tDrop, vUv).b, db = (b - 0.5) * 2.0; lc = b > 0.99 ? mix(lc, vec3(0.75), dA) : lc * (1.0 + db * 0.6 * dA) + max(db - 0.2, 0.0) * 0.1 * dA; }   // 방울 밝기 (b): 둘레 어둡게, 초승달 밝게, 1 = 반짝 점(단색)
-      if (uOL > 0.5) {
-        // 외곽선: 물체 픽셀인데 이웃 중 훨씬 먼 곳(배경·뒤의 물체)이 있으면 1픽셀 선. 풀·땅에 가려진 곳은 빼고
-        float d0 = olD(vUv, cut);
-        if (d0 < 1.0) {
-          float d = lin(d0);
-          float m = max(max(lin(olD(vUv + vec2(uTexel.x, 0.0), cut)), lin(olD(vUv - vec2(uTexel.x, 0.0), cut))),
-                        max(lin(olD(vUv + vec2(0.0, uTexel.y), cut)), lin(olD(vUv - vec2(0.0, uTexel.y), cut))));
-          float seen = step(d - 0.3 - d * 0.02, lin(scD(vUv, cut)));
-          float fk = max(d - uFogN, 0.0) * 2.0 / max(uFogF - uFogN, 0.001), fogK = 1.0 - exp(-fk * fk);   // 지형과 같은 안개: 멀수록 선 색이 안개 색으로 묻힌다
-          if (m - d > 0.6 + d * 0.06) lc = mix(lc, mix(vec3(0.012, 0.01, 0.008), uFogC, fogK), 0.9 * seen);
-        }
-      }
+      edges(lc, oc, cut, uOLDith > 0.5 && coc > 0.02 ? step(coc, bayer4(gl_FragCoord.xy) + 0.03) : 1.0);   // 'dither': 흐린 만큼 성기게
+    #endif
       if (uVF > 0.0) {   // 복셀 안개: 보이는 자리에서 카메라 쪽으로 거슬러 올라가며 지나는 칸마다 짙기를 쌓는다
         float d = texture2D(tDepth, vUv).r;
         vec4 w = uInvPV * vec4(vUv * 2.0 - 1.0, (d < 1.0 ? d : 0.9999) * 2.0 - 1.0, 1.0);
@@ -403,26 +476,88 @@ const postMat = new THREE.ShaderMaterial({
       if (uGray > 0.0) c = mix(c, mix(uGrayA, uGrayB, dot(c, vec3(0.299, 0.587, 0.114))), uGray);   // 끝 창·일시정지: 밝기를 두 색 사이로 (그라디언트 맵)
       c = floor(c * 31.0 + 0.5 + (bayer4(gl_FragCoord.xy) - 0.5)) / 31.0;
       gl_FragColor = vec4(c, 1.0);
+    #endif
     }`,
 });
-postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), postMat));
+// 외곽선 'dof' 모드의 두 단계 (uniform은 postMat과 같은 묶음을 함께 쓴다)
+const postMatOf = (stage) => new THREE.ShaderMaterial({ uniforms: postMat.uniforms, defines: { STAGE: stage }, vertexShader: postMat.vertexShader, fragmentShader: postMat.fragmentShader });
+const preMat = postMatOf(1), post2Mat = postMatOf(2);
+const postMesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), postMat);
+postScene.add(postMesh);
 postMat.uniforms.uVFC.value.convertSRGBToLinear();   // 장면 색(선형)에 섞는다
-postMat.onBeforeRender = () => {   // 복셀 안개: 화면 → 월드 행렬, 흐르는 시간(게임 시간: 멈추면 같이 멈춘다)
+// 후처리 그리기 (rt → postRT). 외곽선 'dof' 모드이고 아웃포커싱이 걸려 있으면 두 번: 색·외곽선·림 → preRT, 그다음 아웃포커싱부터
+function renderPost() {
+  postUniforms();
+  const u = postMat.uniforms, two = olMode === 'dof' && (u.uOL.value > 0 || u.uRim.value > 0) && u.uDof.value > 0;
+  if (two) { postMesh.material = preMat; renderer.setRenderTarget(preRT); renderer.render(postScene, postCam); }
+  postMesh.material = two ? post2Mat : postMat;
+  renderer.setRenderTarget(postRT); renderer.render(postScene, postCam);
+}
+function setOutlineMode(m, init) {
+  olMode = OL_MODES.includes(m) ? m : 'off'; outlineOn = olMode !== 'off';
+  const u = postMat.uniforms; u.uOL.value = outlineOn ? 1 : 0; u.uOLDith.value = olMode === 'dither' ? 1 : 0;
+  const b = $el('olBtn'); if (b) b.textContent = OL_NAME[olMode];
+  if (!init) { pausedDrawn = false; pauseScene = false; }   // (처음 부를 때는 90_loop.js의 이름이 아직 없다)
+}
+// 카툰 명암 (config toon): 셰이더는 그대로, uniform 값만 (00_core.js ps1)
+const TOON = Object.assign({ enabled: false, strength: 1, ground: 0, steps: 2, soft: 0.02, dark: 0 }, CFG.toon);
+let toonOn = !!TOON.enabled;
+function setToon(v) {
+  toonOn = !!v;
+  U.uToon.value = toonOn ? TOON.strength : 0; U.uToonG.value = toonOn ? TOON.ground : 0;
+  U.uToonN.value = Math.min(6, Math.max(1, Math.round(TOON.steps))); U.uToonS.value = Math.max(1e-4, TOON.soft); U.uToonD.value = TOON.dark;
+  const b = $el('toonBtn'); if (b) b.textContent = toonOn ? '카툰 명암 켜짐' : '카툰 명암 꺼짐';
+}
+function setRim(v, init) {
+  rimOn = !!v;
+  const b = $el('rimBtn'); if (b) b.textContent = rimOn ? '림 라이트 켜짐' : '림 라이트 꺼짐';
+  if (!init) { pausedDrawn = false; pauseScene = false; }
+}
+const _rimC = new THREE.Color(), _rimL = new THREE.Vector3();
+function postUniforms() {   // 아웃포커싱·림·복셀 안개: 화면 → 월드 행렬, 흐르는 시간(게임 시간: 멈추면 같이 멈춘다)
   const u = postMat.uniforms;
+  camera.updateMatrixWorld();
+  if (rimOn) { // 림 라이트: 방향(주광을 화면에 비춘 쪽 또는 시계, 큰 축이 1픽셀이 되게)·두께(외곽선이 있으면 한 칸 안쪽까지)·색(주광 색 × 세기)·주변 광원
+    if (!u.tHgt.value) u.tHgt.value = hgtTex();
+    u.uInvPV.value.copy(camera.matrixWorld).multiply(_vfM.copy(camera.projectionMatrix).invert());
+    u.uView.value.copy(camera.matrixWorldInverse);
+    let x, y, face = 1;
+    if (RIM.follow === 'clock') { const a = (RIM.clock ?? 1.5) * Math.PI / 6; x = Math.sin(a); y = Math.cos(a); }
+    else {   // 주광 쪽(월드)을 카메라 기준으로: 화면 오른쪽·위 성분. 화면에서 짧으면(빛이 카메라 앞·뒤) 그만큼 약하게
+      _rimL.copy(moon.position).sub(moon.target.position).normalize().transformDirection(camera.matrixWorldInverse);
+      x = _rimL.x; y = Math.max(_rimL.y, RIM.minUp ?? 0);   // 위쪽 성분 최소값: 빛을 등져도 위 가장자리 림이 남게
+      face =Math.max(RIM.minFacing ?? 0.4, Math.hypot(x, y));
+    }
+    const k = 1 / Math.max(Math.abs(x), Math.abs(y), 1e-3);
+    u.uRimDir.value.set(x * k, y * k);
+    u.uRimW.value = Math.max(1, Math.round(RIM.width ?? 1)) + (outlineOn ? 1 : 0);
+    _rimC.copy(moon.color).multiplyScalar(moon.intensity * face);
+    u.uRimC.value.set(_rimC.r, _rimC.g, _rimC.b).multiplyScalar(RIM.strength ?? 0.35);
+    u.uRimA.value.set(_rimC.r, _rimC.g, _rimC.b).multiplyScalar(RIM.add ?? 0.04);
+    const fx = RIM.fx ?? 1.2, ref = Math.max(1, RIM.fxRef ?? 300);
+    fxLights.forEach((l, i) => {   // 폭발·섬광·불빛 (21_grass_fx.js의 광원 4개, 30_combat.js가 매 프레임 채운다)
+      const on = fx > 0 && l.intensity > 0 && l.distance > 0;
+      u.uFxR.value[i] = on ? l.distance : 0;
+      if (!on) return;
+      u.uFxP.value[i].copy(l.position);
+      const s = fx * (1 - Math.exp(-l.intensity / ref));
+      u.uFxC.value[i].set(l.color.r * s, l.color.g * s, l.color.b * s);
+    });
+  }
+  u.uRim.value = rimOn ? 1 : 0;
   // 아웃포커싱 세기: 타이틀 → 플레이(titleK) → 임무 완료(clearSeq.k)로 섞는다. 초점은 내 탱크까지 거리
   const dA = TITLE_DOF, dB = CAMV.dof, dC = CLR_CAM.dof, ck = clearSeq ? clearSeq.k : 0, dm = (a) => lerp(lerp(dA[a], dB[a], titleK), dC[a], ck);   // 타이틀 → 플레이(카메라 모드) → 임무 완료
   u.uDof.value = dm('strength'); u.uFocusR.value = dm('range'); u.uFocusF.value = Math.max(0.1, dm('fall')); u.uDofPx.value = dm('px');
   if (u.uDof.value > 0) u.uFocus.value = camera.position.distanceTo(_dofT.copy(tank.pos).setY(tank.pos.y + 0.6));
   u.uVF.value = vfOn ? titleK : 0;   // 타이틀에서는 안 보이고 플레이로 넘어가며 나타난다
   if (!vfOn) return;
-  camera.updateMatrixWorld();
   u.uInvPV.value.copy(camera.matrixWorld).multiply(_vfM.copy(camera.projectionMatrix).invert());
   u.uCamP.value.setFromMatrixPosition(camera.matrixWorld);
   u.uVFT.value = playTime * VF.speed * VF.scale * 4;
 };
-function setVoxelFog(v) { vfOn = v; if (v) vfInit(); else vfReset(); document.getElementById('vfBtn').textContent = v ? '복셀 안개 켜짐' : '복셀 안개 꺼짐'; pausedDrawn = false; pauseScene = false; }
+function setVoxelFog(v) { vfOn = v; if (v) vfInit(); else vfReset(); $el('vfBtn').textContent = v ? '복셀 안개 켜짐' : '복셀 안개 꺼짐'; pausedDrawn = false; pauseScene = false; }
 if (vfOn) vfInit();   // config에서 켜 두었으면 처음부터
-document.getElementById('vfBtn').onclick = (e) => { setVoxelFog(!vfOn); e.target.blur(); };
+$el('vfBtn').onclick = (e) => { setVoxelFog(!vfOn); e.target.blur(); };
 // 화면으로 늘리기: 후처리(디더링·32단계 색)까지는 게임 해상도 버퍼(postRT)에서 끝내고, 마지막에 기기 픽셀 크기 캔버스로 옮긴다.
 // 샤프 바이리니어: 정수 배까지는 니어리스트처럼 또렷하게, 남는 소수 배만 경계에서 부드럽게 (픽셀마다 텍스처 한 번, 하드웨어 선형 필터)
 const postRT = new THREE.WebGLRenderTarget(2, 2, { magFilter: THREE.LinearFilter, minFilter: THREE.LinearFilter, depthBuffer: false });
@@ -489,14 +624,14 @@ function viewRect() {
     VR.w = rw * k / dpr; VR.h = h;
     VR.x = Math.round((W * dpr - rw * k) / 2) / dpr; VR.y = Math.round((H * dpr - lowH * k) / 2) / dpr;
   }
-  for (const el of [renderer.domElement, document.getElementById('phud'), document.getElementById('phudS'), document.getElementById('pui'), document.getElementById('puiS'), document.getElementById('title')])
+  for (const el of [renderer.domElement, $el('phud'), $el('phudS'), $el('pui'), $el('puiS'), $el('title')])
     if (el) Object.assign(el.style, { left: `${VR.x}px`, top: `${VR.y}px`, width: `${VR.w}px`, height: `${VR.h}px` });
   layoutTitle();
 }
 // 타이틀 네 귀퉁이: 좌상 로고, 우상 브랜드, 좌하 배지(옆에 버전·빌드), 우하 안내. 모두 게임 픽셀 단위 도트 그림(_src)이고
 // HUD와 같은 배율(해상도 360줄마다 1배씩)로 늘린다. 버전·빌드는 배지 옆에 자리가 없으면 배지 위로
 function layoutTitle() {
-  const el = (id) => document.getElementById(id);
+  const el = (id) => $el(id);
   if (!el('tLogo') || !el('tLogo')._src || !el('tPress')._src) return;
   const u = Math.max(1, Math.floor(lowH / 360)) * VR.h / lowH, m = 10 * u;   // u = 게임 픽셀 한 칸의 CSS 크기
   const put = (id, side, v, dx = 0, dy = 0) => {
@@ -523,7 +658,7 @@ function resize() {
   layerScale = crtOn ? lowH / VR.h : 0;   // CRT 표현: HUD·UI를 게임 픽셀 크기로 (00_core.js)
   const w = Math.max(2, Math.round(lowH * VR.w / VR.h)), dpr = crtOn ? crtDpr() : devicePixelRatio || 1, dw = Math.max(2, Math.round(VR.w * dpr)), dh = Math.max(2, Math.round(VR.h * dpr));   // CRT는 crt.maxScale 배율까지만
   renderer.setSize(dw, dh, false);   // 캔버스는 기기 픽셀 크기 (게임은 rt에 저해상도로 그리고 마지막에 늘린다)
-  rt.setSize(w, lowH); cutRT.setSize(w, lowH); olRT.setSize(w, lowH); postRT.setSize(w, lowH);
+  rt.setSize(w, lowH); cutRT.setSize(w, lowH); olRT.setSize(w, lowH); preRT.setSize(w, lowH); postRT.setSize(w, lowH);
   upMat.uniforms.uSrc.value.set(w, lowH); upMat.uniforms.uK.value = Math.max(1, Math.floor(dh / lowH + 1e-6));
   postMat.uniforms.uTexel.value.set(1 / w, 1 / lowH);
   U.uSnap.value.set(w / 2, lowH / 2);
@@ -533,42 +668,42 @@ function resize() {
   pausedDrawn = false; pauseScene = false;   // 멈춰 있어도 바뀐 크기로 한 번 다시 그린다 (장면까지)
 }
 addEventListener('resize', resize);
-document.getElementById('res').onchange = (e) => { resMax = e.target.value === 'max'; if (!resMax) lowH = +e.target.value; resize(); e.target.blur(); };
-document.getElementById('olBtn').onclick = (e) => {   // 외곽선 (풀 제외)
-  outlineOn = !outlineOn; postMat.uniforms.uOL.value = outlineOn ? 1 : 0;
-  e.target.textContent = outlineOn ? '외곽선 켜짐' : '외곽선 꺼짐'; e.target.blur();
-};
+$el('res').onchange = (e) => { resMax = e.target.value === 'max'; if (!resMax) lowH = +e.target.value; resize(); e.target.blur(); };
+$el('olBtn').onclick = (e) => { setOutlineMode(OL_MODES[(OL_MODES.indexOf(olMode) + 1) % OL_MODES.length]); e.target.blur(); };   // 외곽선 (풀 제외): 끔 → 켬(아웃포커싱) → 켬(흐린 곳 디더링)
+$el('rimBtn').onclick = (e) => { setRim(!rimOn); e.target.blur(); };
+$el('toonBtn').onclick = (e) => { setToon(!toonOn); if (typeof pausedDrawn !== 'undefined') { pausedDrawn = false; pauseScene = false; } e.target.blur(); };
+setOutlineMode(olMode, true); setRim(rimOn, true); setToon(toonOn);
 let grassMode = 0;   // 텍스처 종류 (0부터). grassCardMats.length = 풀 끔 (성능 비교용: 메시만 숨긴다)
 function setGrass(m) {
   grassMode = m;
   const off = m >= grassCardMats.length;
   for (const cm of grassCard) { cm.visible = !off; if (!off) cm.material = grassCardMats[m]; }
-  document.getElementById('grassBtn').textContent = off ? '풀: 끔' : `풀: 텍스처${grassCardNames[m]}`;
+  $el('grassBtn').textContent = off ? '풀: 끔' : `풀: 텍스처${grassCardNames[m]}`;
 }
-document.getElementById('grassBtn').onclick = (e) => { setGrass((grassMode + 1) % (grassCardMats.length + 1)); e.target.blur(); };   // 텍스처1 → 2 → 3 → 끔 → 1
+$el('grassBtn').onclick = (e) => { setGrass((grassMode + 1) % (grassCardMats.length + 1)); e.target.blur(); };   // 텍스처1 → 2 → 3 → 끔 → 1
 setGrass(1);   // 처음엔 텍스처2 (이삭 풀)
-document.getElementById('ppBtn').onclick = (e) => {
+$el('ppBtn').onclick = (e) => {
   pixelPerfect = !pixelPerfect; e.target.textContent = pixelPerfect ? 'Pixel Perfect 켜짐' : 'Pixel Perfect 꺼짐';
   resize(); e.target.blur();
 };
-document.getElementById('aaBtn').onclick = (e) => {   // 안티에일리어싱: 저해상도 화면 버퍼를 4배 다중 샘플로
+$el('aaBtn').onclick = (e) => {   // 안티에일리어싱: 저해상도 화면 버퍼를 4배 다중 샘플로
   rt.samples = rt.samples ? 0 : 4; rt.dispose();
   e.target.textContent = rt.samples ? 'AA 켜짐' : 'AA 꺼짐'; e.target.blur();
 };
-document.getElementById('camModeBtn').onclick = (e) => {   // 보는 방향 기준: 자동 → 차체 → 포탑 → 자동
+$el('camModeBtn').onclick = (e) => {   // 보는 방향 기준: 자동 → 차체 → 포탑 → 자동
   setCamMode(CAM_MODES[(CAM_MODES.indexOf(camMode) + 1) % CAM_MODES.length]); e.target.blur();
 };
-document.getElementById('fogC').oninput = (e) => { ENV_PLAY.fog.set(e.target.value); applyEnv(); };
-document.getElementById('fogC').onchange = (e) => e.target.blur();
-document.getElementById('vol').oninput = (e) => setVolume(+e.target.value);
-document.getElementById('debris').oninput = (e) => { windDebris = +e.target.value; document.getElementById('debrisV').textContent = windDebris.toFixed(2); };
-for (const id of ['vol', 'debris']) document.getElementById(id).onchange = (e) => e.target.blur();
+$el('fogC').oninput = (e) => { ENV_PLAY.fog.set(e.target.value); applyEnv(); };
+$el('fogC').onchange = (e) => e.target.blur();
+$el('vol').oninput = (e) => setVolume(+e.target.value);
+$el('debris').oninput = (e) => { windDebris = +e.target.value; $el('debrisV').textContent = windDebris.toFixed(2); };
+for (const id of ['vol', 'debris']) $el(id).onchange = (e) => e.target.blur();
 // 성장 테스트: 상자·적 떨구기 (내 탱크 둘레 12~32m), 내 탱크 성능 슬라이더 (오른쪽일수록 강하게)
-document.getElementById('tDropGold').onclick = (e) => { dropSafe('gold', tank.pos); e.target.blur(); };
-document.getElementById('tDropRepair').onclick = (e) => { dropSafe('repair', tank.pos); e.target.blur(); };
-for (const lv of [1, 2, 3]) document.getElementById('tDropEnemy' + lv).onclick = (e) => { startDrop(newEnemy(false, Math.min(EC.clearKills, enemyDrops + 2), lv), tank.pos); e.target.blur(); };   // 적 탱크 레벨 1~3   // 다음 순번 레벨로
-document.getElementById('tDropSpg').onclick = (e) => { spawnSpg(); e.target.blur(); };
-document.getElementById('tDropJeep').onclick = (e) => { startDrop(newJeep()); e.target.blur(); };
+$el('tDropGold').onclick = (e) => { dropSafe('gold', tank.pos); e.target.blur(); };
+$el('tDropRepair').onclick = (e) => { dropSafe('repair', tank.pos); e.target.blur(); };
+for (const lv of [1, 2, 3]) $el('tDropEnemy' + lv).onclick = (e) => { startDrop(newEnemy(false, Math.min(EC.clearKills, enemyDrops + 2), lv), tank.pos); e.target.blur(); };   // 적 탱크 레벨 1~3   // 다음 순번 레벨로
+$el('tDropSpg').onclick = (e) => { spawnSpg(); e.target.blur(); };
+$el('tDropJeep').onclick = (e) => { startDrop(newJeep()); e.target.blur(); };
 // 슬라이더: [id, 최소, 최대(config의 최대값), 처음 값(config), 적용]. 재장전은 짧을수록 오른쪽이 되게 음수로
 const GROW = [
   ['gReload', -8, -PM.reloadMin, -PC.reload, (v) => { tank.reload = -v; return `${(-v).toFixed(1)}초`; }],
@@ -582,7 +717,7 @@ const GROW = [
   ['gTurret', 15, PM.turretRate, PC.turretRate, (v) => { tank.turretRate = v * DEG; return `${Math.round(v)}°/s`; }],
 ];
 for (const [id, min, max, init, apply] of GROW) {
-  const el = document.getElementById(id), lab = document.getElementById(id + 'V');
+  const el = $el(id), lab = $el(id + 'V');
   el.min = min; el.max = max; el.value = el.defaultValue = init;
   el.oninput = () => { lab.textContent = apply(+el.value); };
   el.onchange = () => el.blur();
@@ -590,27 +725,27 @@ for (const [id, min, max, init, apply] of GROW) {
 }
 // 기관총 (내 탱크에 기관총이 있을 때만): 초당 발사 수 · 대미지. 성장으로 바뀌면 dbgSync가 따라 맞춘다
 const mgSl = [['gMgRate', 1, Math.max(PM.mgRate, 30), (v) => { if (tank.mg) tank.mg.rate = v; return `${v}발/초`; }], ['gMgDmg', 1, Math.max(PM.mgDamage, 40), (v) => { if (tank.mg) tank.mg.damage = v; return `${v}`; }]];
-for (const [id, min, max, apply] of mgSl) { const el = document.getElementById(id); el.min = min; el.max = max; el.oninput = () => { document.getElementById(id + 'V').textContent = apply(+el.value); }; el.onchange = () => el.blur(); }
-document.getElementById('gMgAdd').onclick = (e) => { UP_FX.mg.apply(); dbgSync(); e.target.blur(); };   // 기관총 하나 더 (최대 2정)
-document.getElementById('gRegen').oninput = (e) => { tank.regen = +e.target.value; document.getElementById('gRegenV').textContent = `${tank.regen}`; };
-document.getElementById('gRegen').onchange = (e) => e.target.blur();
+for (const [id, min, max, apply] of mgSl) { const el = $el(id); el.min = min; el.max = max; el.oninput = () => { $el(id + 'V').textContent = apply(+el.value); }; el.onchange = () => el.blur(); }
+$el('gMgAdd').onclick = (e) => { UP_FX.mg.apply(); dbgSync(); e.target.blur(); };   // 기관총 하나 더 (최대 2정)
+$el('gRegen').oninput = (e) => { tank.regen = +e.target.value; $el('gRegenV').textContent = `${tank.regen}`; };
+$el('gRegen').onchange = (e) => e.target.blur();
 // 무적: 내 탱크가 맞아도 체력이 줄지 않는다 (damageTank)
 let godMode = false;
-document.getElementById('gGod').onclick = (e) => { godMode = !godMode; e.target.textContent = godMode ? '무적 켜짐' : '무적 꺼짐'; e.target.blur(); };
+$el('gGod').onclick = (e) => { godMode = !godMode; e.target.textContent = godMode ? '무적 켜짐' : '무적 꺼짐'; e.target.blur(); };
 // 설정 메뉴 버튼·게이지 상태 맞추기 (메뉴가 열려 있을 때 0.2초마다): 할 수 없는 것은 흐리게
 function dbgSync() {
   const mg = tank.mg, n = mg ? mg.count : 0;
-  const add = document.getElementById('gMgAdd'); add.disabled = n >= 2; add.textContent = n >= 2 ? '기관총 추가 (최대 2정)' : `기관총 추가 (${n}정)`;
+  const add = $el('gMgAdd'); add.disabled = n >= 2; add.textContent = n >= 2 ? '기관총 추가 (최대 2정)' : `기관총 추가 (${n}정)`;
   for (const [id, , , apply] of mgSl) {
-    const el = document.getElementById(id); el.disabled = !mg;
-    if (mg && document.activeElement !== el) { el.value = id === 'gMgRate' ? mg.rate : mg.damage; document.getElementById(id + 'V').textContent = apply(+el.value); }
-    if (!mg) document.getElementById(id + 'V').textContent = '없음';
+    const el = $el(id); el.disabled = !mg;
+    if (mg && document.activeElement !== el) { el.value = id === 'gMgRate' ? mg.rate : mg.damage; $el(id + 'V').textContent = apply(+el.value); }
+    if (!mg) $el(id + 'V').textContent = '없음';
   }
 }
-const sliderAt = (id) => { const el = document.getElementById(id); return +el.value >= +el.max - 1e-6; };   // 최대값에 닿았는가
+const sliderAt = (id) => { const el = $el(id); return +el.value >= +el.max - 1e-6; };   // 최대값에 닿았는가
 // 성장으로 바뀌는 내 탱크 값을 모두 처음으로 (슬라이더 + 고른 성장 항목)
 function resetGrowth() {
-  for (const [id] of GROW) { const el = document.getElementById(id); el.value = el.defaultValue; el.oninput(); }
+  for (const [id] of GROW) { const el = $el(id); el.value = el.defaultValue; el.oninput(); }
   Object.assign(tank, { maxHp: PC.hp, hp: Math.min(tank.hp, PC.hp), magnetR: MAGNET_R, armorM: 1, goldMul: 1, pierce: 0, ram: false, waterSpeed: undefined, goldKeep: false, autoRepair: false, repairAcc: 0, mg: null, picks: {}, pickLog: [],
     berserk: 0, coinMul: 1, combos: [], apMg: false, dozer: 0, fieldRepair: false, scrap: 0, sniper: 0,
     bunkerMul: 1, kitMul: 1, supplyBlast: null, twin: 0, twinT: 0, crit: 0, critMul: 2, offerN: 3 });
@@ -619,14 +754,14 @@ function resetGrowth() {
   showGuns(0);
   growLevel = 0;
 }
-document.getElementById('gReset').onclick = (e) => { resetGrowth(); e.target.blur(); };
+$el('gReset').onclick = (e) => { resetGrowth(); e.target.blur(); };
 // 성장 선택지: 골드가 100(설정)개 모이면 3개 중 하나 (게임은 멈추지 않는다). 우상단에 픽셀 UI로 세로로 뜨고 (offerUI),
 // 숫자키 1·2·3, 게임패드 방향키 ←·↑·→, 또는 항목을 눌러 고른다.
 // 고르면 골드 100을 내고, 나머지는 곧바로 어두운 회색이 됐다가 잠시 뒤 모두 4x4 디더링으로 사라진다. 그래도 100개 이상 남았으면 이어서 다음 선택지.
 // 선택지는 레어도 가중치(일반 100 / 고급 70 / 희귀 30 / 전설 10, 설정)로 겹치지 않게 뽑는다
 // 성장 한 번에 드는 골드: 0~9단계는 100, 10~19단계는 200, … (설정)
 const GC = CFG.growth, offerCost = () => GC.goldPerOffer + Math.floor(growLevel / GC.goldStepEvery) * GC.goldStepAdd;
-const bumpSlider = (id, f) => { const el = document.getElementById(id); el.value = Math.max(+el.min, Math.min(+el.max, f(+el.value))); el.oninput(); };
+const bumpSlider = (id, f) => { const el = $el(id); el.value = Math.max(+el.min, Math.min(+el.max, f(+el.value))); el.oninput(); };
 // 항목별 효과 (v = config의 value)와 지금 고를 수 있는지
 const UP_FX = {
   speed:      { apply: (v) => bumpSlider('gSpd', x => x * (1 + v / 100)), ok: () => !sliderAt('gSpd') },
@@ -669,7 +804,7 @@ const UP_FX = {
 };
 const upText = (s, u) => s.replaceAll('{v}', u.value ?? '').replaceAll('{w}', u.value2 ?? '').replaceAll('{n}', tank.goldMul + 1);
 // 이번에 고르면 마지막 단계인가: 고를 수 있는 횟수(max)를 다 채우거나, 성능이 최대값에 닿는다
-const willMax = (id, f) => { const el = document.getElementById(id); return f(+el.value) >= +el.max - 1e-6; };
+const willMax = (id, f) => { const el = $el(id); return f(+el.value) >= +el.max - 1e-6; };
 const UP_LAST = {
   speed: (v) => willMax('gSpd', x => x * (1 + v / 100)), accel: (v) => willMax('gAcc', x => x * (1 + v / 100)), turn: (v) => willMax('gTurn', x => x * (1 + v / 100)),
   turret: (v) => willMax('gTurret', x => x * (1 + v / 100)), reload: (v) => willMax('gReload', x => x * (1 - v / 100)), muzzle: (v) => willMax('gMuzzle', x => x * (1 + v / 100)),
@@ -779,9 +914,9 @@ function landOffer() {
   else nextOffer();
 }
 addEventListener('keydown', (e) => { const m = /^(Digit|Numpad)([1-4])$/.exec(e.code); if (m && UI.screen === offerUI) pickOffer(+m[2] - 1); });   // 숫자 1~4 (위쪽 숫자 줄 또는 숫자 키패드. 4는 '폭넓은 선택'). 선택지가 보일 때만 (일시정지 창 아래에 있으면 안 됨)
-document.getElementById('gOffer').onclick = (e) => { testOffers++; nextOffer(); e.target.blur(); };   // 테스트: 골드 없이 바로 선택지
+$el('gOffer').onclick = (e) => { testOffers++; nextOffer(); e.target.blur(); };   // 테스트: 골드 없이 바로 선택지
 // 테스트: 성장 10단계를 한 번에. 단계마다 평소처럼 선택지 3개를 뽑아 그중 하나를 무작위로 고른다 (골드는 쓰지 않음. 떠 있는 선택지는 그대로)
-document.getElementById('gRand10').onclick = (e) => {
+$el('gRand10').onclick = (e) => {
   for (let k = 0; k < 10; k++) {
     const ch = rollChoices();
     if (!ch.length) break;   // 더 고를 것이 없다
@@ -793,27 +928,27 @@ document.getElementById('gRand10').onclick = (e) => {
   }
   drawPickLog(); sfx.coin(); e.target.blur();
 };
-document.getElementById('gReroll').onclick = (e) => {   // 테스트: 떠 있는 선택지 3개를 확률대로 다시 뽑는다
+$el('gReroll').onclick = (e) => {   // 테스트: 떠 있는 선택지 3개를 확률대로 다시 뽑는다
   if (curOffer && curOffer.picked < 0) { curOffer.choices = rollChoices(); drawOffer(); }
   e.target.blur();
 };
 // 맵 설정의 처음 값 (config.js)
-const setInput = (id, v) => { const el = document.getElementById(id); el.value = v; if (el.oninput) el.oninput({ target: el }); };
+const setInput = (id, v) => { const el = $el(id); el.value = v; if (el.oninput) el.oninput({ target: el }); };
 let windDir = MAP0.windDir;   // 바람이 불어 가는 쪽 (°): 0 = +x, 90 = +z(북쪽)
-document.getElementById('windDir').value = windDir; document.getElementById('windDirV').textContent = `${windDir}°`;
-document.getElementById('windDir').oninput = (e) => { windDir = +e.target.value; document.getElementById('windDirV').textContent = `${windDir}°`; };
-document.getElementById('wind').oninput = (e) => { U.uWind.value = +e.target.value; document.getElementById('windV').textContent = (+e.target.value).toFixed(2); };
-document.getElementById('wind').onchange = (e) => e.target.blur();
-document.getElementById('fog').oninput = (e) => { ENV_PLAY.far = 2 / Math.max(1e-4, +e.target.value); applyEnv(); document.getElementById('fogV').textContent = (+e.target.value).toFixed(4); };
-document.getElementById('fog').onchange = (e) => e.target.blur();
-document.getElementById('cbox').onclick = (e) => { toggleCollisionView(); e.target.blur(); };
+$el('windDir').value = windDir; $el('windDirV').textContent = `${windDir}°`;
+$el('windDir').oninput = (e) => { windDir = +e.target.value; $el('windDirV').textContent = `${windDir}°`; };
+$el('wind').oninput = (e) => { U.uWind.value = +e.target.value; $el('windV').textContent = (+e.target.value).toFixed(2); };
+$el('wind').onchange = (e) => e.target.blur();
+$el('fog').oninput = (e) => { ENV_PLAY.far = 2 / Math.max(1e-4, +e.target.value); applyEnv(); $el('fogV').textContent = (+e.target.value).toFixed(4); };
+$el('fog').onchange = (e) => e.target.blur();
+$el('cbox').onclick = (e) => { toggleCollisionView(); e.target.blur(); };
 // 설정 메뉴: ` 키로 열고 닫는다 (늘 펼쳐진 상태)
-const hudEl = document.getElementById('hud');
-addEventListener('keydown', (e) => { if (e.code === 'Backquote' && e.shiftKey) { hudEl.style.display = hudEl.style.display === 'block' ? 'none' : 'block'; e.preventDefault(); } });   // 설정 메뉴: ~ (Shift + `. 숫자 1 옆이라 잘못 눌러 열리지 않게)
-document.getElementById('camreset').onclick = (e) => { resetCamera(); e.target.blur(); };
+const hudEl = $el('hud');
+if (DEV) addEventListener('keydown', (e) => { if (e.code === 'Backquote' && e.shiftKey) { hudEl.style.display = hudEl.style.display === 'block' ? 'none' : 'block'; e.preventDefault(); } });   // 설정 메뉴: ~ (Shift + `. 숫자 1 옆이라 잘못 눌러 열리지 않게)
+$el('camreset').onclick = (e) => { resetCamera(); e.target.blur(); };
 // 마우스 오른쪽 끌기로 카메라 옮기기: 평소엔 끔 (설정 메뉴에서 켠다)
 controls.enablePan = false;
-document.getElementById('camPanBtn').onclick = (e) => { controls.enablePan = !controls.enablePan; e.target.textContent = controls.enablePan ? '우클릭 카메라 이동 켜짐' : '우클릭 카메라 이동 꺼짐'; e.target.blur(); };
+$el('camPanBtn').onclick = (e) => { controls.enablePan = !controls.enablePan; e.target.textContent = controls.enablePan ? '우클릭 카메라 이동 켜짐' : '우클릭 카메라 이동 꺼짐'; e.target.blur(); };
 // 자동 카메라 (설정, 기본 켜기): 마우스로 돌리거나 당긴 카메라가 손을 뗀 뒤 2초가 지나면 기본 방향·거리로 EaseInOutCubic(1.5초)으로 돌아온다.
 // 끄면 바꾼 방향·거리를 그대로 둔다. camBack()을 frame이 부른다
 const CAM_BACK_WAIT = 2000, CAM_BACK_T = 1.5;
@@ -945,14 +1080,14 @@ function camElastic(dt) {
 }
 // AO 한 줄: 켜기/끄기, 세기, 흰색 보기
 let aoOn = true;
-const aoK = document.getElementById('aoK'), aoKv = document.getElementById('aoKv');
+const aoK = $el('aoK'), aoKv = $el('aoKv');
 const applyAO = () => { U.uAO.value = aoOn ? +aoK.value : 0; aoKv.textContent = (+aoK.value).toFixed(1); };
-document.getElementById('aoBtn').onclick = (e) => { aoOn = !aoOn; e.target.textContent = aoOn ? '켜짐' : '꺼짐'; applyAO(); e.target.blur(); };
+$el('aoBtn').onclick = (e) => { aoOn = !aoOn; e.target.textContent = aoOn ? '켜짐' : '꺼짐'; applyAO(); e.target.blur(); };
 aoK.oninput = applyAO; aoK.onchange = (e) => e.target.blur();
-document.getElementById('aoWhite').onclick = (e) => { U.uWhite.value = 1 - U.uWhite.value; e.target.textContent = U.uWhite.value ? '색 보기' : '흰색 보기'; e.target.blur(); };
-document.getElementById('moonI').oninput = (e) => { ENV_PLAY.moon = +e.target.value; applyEnv(); document.getElementById('moonIV').textContent = (+e.target.value).toFixed(2); };
-document.getElementById('moonC').oninput = (e) => { ENV_PLAY.moonC.set(e.target.value); applyEnv(); };
-for (const id of ['moonI', 'moonC']) document.getElementById(id).onchange = (e) => e.target.blur();
+$el('aoWhite').onclick = (e) => { U.uWhite.value = 1 - U.uWhite.value; e.target.textContent = U.uWhite.value ? '색 보기' : '흰색 보기'; e.target.blur(); };
+$el('moonI').oninput = (e) => { ENV_PLAY.moon = +e.target.value; applyEnv(); $el('moonIV').textContent = (+e.target.value).toFixed(2); };
+$el('moonC').oninput = (e) => { ENV_PLAY.moonC.set(e.target.value); applyEnv(); };
+for (const id of ['moonI', 'moonC']) $el(id).onchange = (e) => e.target.blur();
 setInput('aoK', CFG.map.ao);
 // 맵 셋팅 바꾸기: 설정 메뉴 슬라이더·하늘빛·날씨를 그 셋팅 값으로 (슬라이더는 그 뒤에 따로 만져 볼 수 있다)
 function applyMapPreset(i) {
@@ -962,8 +1097,8 @@ function applyMapPreset(i) {
   ENV_PLAY.sky = p.sky; ENV_PLAY.skyC.set(p.skyColor); ENV_PLAY.gndC.set(p.groundColor); ENV_PLAY.bgAuto = !p.bgColor; bgOf(p, ENV_PLAY.bg); applyEnv();
   setWeather(p);
   for (const [id, v] of [['rainA', p.rain], ['sandA', p.sand], ['boltA', p.lightning]]) setInput(id, v);
-  document.getElementById('sandC').value = p.sandColor ?? '#c8a070';
-  document.getElementById('mapBtn').textContent = `맵 셋팅: ${p.name} (${mapIdx + 1}/${MAP_PRESETS.length})`;
+  $el('sandC').value = p.sandColor ?? '#c8a070';
+  $el('mapBtn').textContent = `맵 셋팅: ${p.name} (${mapIdx + 1}/${MAP_PRESETS.length})`;
 }
 // 남은 적이 map.stormAt대 이하가 되면 map.stormPreset 셋팅으로 stormTime초에 걸쳐 바뀐다 (클리어가 가깝다는 신호, 분위기 전환). 한 판에 한 번
 let storm = null, stormDone = false;
@@ -992,16 +1127,16 @@ function stormTick(dt) {
 }
 // 날씨 양 슬라이더 (비 · 모래바람 · 번개)
 for (const [id, key] of [['rainA', 'rain'], ['sandA', 'sand'], ['boltA', 'lightning']]) {
-  const el = document.getElementById(id);
-  el.oninput = (e) => { WEATHER[key] = +e.target.value; document.getElementById(id + 'V').textContent = (+e.target.value).toFixed(2); };
+  const el = $el(id);
+  el.oninput = (e) => { WEATHER[key] = +e.target.value; $el(id + 'V').textContent = (+e.target.value).toFixed(2); };
   el.onchange = (e) => e.target.blur();
 }
-document.getElementById('sandC').oninput = (e) => WEATHER.sandCol.set(e.target.value);   // 모래 색 (설정 메뉴에서 바로)
-document.getElementById('sandC').onchange = (e) => e.target.blur();
-document.getElementById('mapBtn').onclick = (e) => { applyMapPreset(mapIdx + 1); e.target.blur(); };   // 처음 셋팅은 90_loop.js에서 (뒤 파일의 값이 다 준비된 뒤)
+$el('sandC').oninput = (e) => WEATHER.sandCol.set(e.target.value);   // 모래 색 (설정 메뉴에서 바로)
+$el('sandC').onchange = (e) => e.target.blur();
+$el('mapBtn').onclick = (e) => { applyMapPreset(mapIdx + 1); e.target.blur(); };   // 처음 셋팅은 90_loop.js에서 (뒤 파일의 값이 다 준비된 뒤)
 resetGrowth();
 resize();
-Object.assign(window.dbg, { U, ballHit, cliffG, mainRoadX, addScorchDecal, resetCamera, renderer, scene, rt, tank, keys, fireCannon, physStep, updateBalls, fieldTick, burning, fFire, fChar, fGrow, footprints, spawnTank, resetTank, heightAt, PHYS_H, driveEffects, syncTankVisual, smokeP, glowP, targets, destroyTarget, BRIDGE, waterAt, creekPoly, explode, trackRT, balls, ballGeo, ballMat, crates, wireSpans, allPoles, WRECKS, PUDDLES, poleTilt, kickPole, toggleCollisionView, CREEK_UP: () => CREEK_UP, creekPoly, aoMs: () => aoMs, aoHits: () => aoHits, gapData });
+Object.assign(DBG, { U, ballHit, cliffG, mainRoadX, addScorchDecal, resetCamera, renderer, scene, rt, tank, keys, fireCannon, physStep, updateBalls, fieldTick, burning, fFire, fChar, fGrow, footprints, spawnTank, resetTank, heightAt, PHYS_H, driveEffects, syncTankVisual, smokeP, glowP, targets, destroyTarget, BRIDGE, waterAt, creekPoly, explode, trackRT, balls, ballGeo, ballMat, crates, wireSpans, allPoles, WRECKS, PUDDLES, poleTilt, kickPole, toggleCollisionView, CREEK_UP: () => CREEK_UP, creekPoly, aoMs: () => aoMs, aoHits: () => aoHits, gapData });
 
 // 카메라는 탱크 뒤에서 시작해 탱크를 따라 이동. 마우스로 자유롭게 돌릴 수 있다.
 // 화면 가운데에는 탱크가 아니라 탱크가 바라보는 쪽 9m 앞을 둔다: 기본 시점에서 탱크는 화면 세로 2/3쯤 아래에 보이고
@@ -1015,7 +1150,7 @@ try { const m = localStorage.getItem('MightyMolly.camMode'); if (CAM_MODES.inclu
 const camTurret = () => { if (camMode !== 'auto') return camMode === 'turret'; try { return !inputPad; } catch (_) { return true; } };
 function setCamMode(m) {
   camMode = m; try { localStorage.setItem('MightyMolly.camMode', m); } catch (_) {}
-  document.getElementById('camModeBtn').textContent = `시점: ${CAM_MODE_KO[m]}`;
+  $el('camModeBtn').textContent = `시점: ${CAM_MODE_KO[m]}`;
 }
 setCamMode(camMode);
 // 소리 크기 (0~1): 일시정지 창 '설정' 탭과 설정 메뉴 게이지가 같이 쓴다. 기억해 둔다
@@ -1025,7 +1160,7 @@ function setVolume(v) {
   volNow = Math.max(0, Math.min(1, Math.round(v * 100) / 100));
   try { sfx.setVolume(volNow); } catch (_) {}   // (로딩 중엔 소리가 아직 없다: 60_audio.js 뒤에서 다시 맞춘다)
   try { localStorage.setItem('MightyMolly.volume', String(volNow)); } catch (_) {}
-  const el = document.getElementById('vol'); el.value = volNow; document.getElementById('volV').textContent = volNow.toFixed(2);
+  const el = $el('vol'); el.value = volNow; $el('volV').textContent = volNow.toFixed(2);
 }
 setVolume(volNow);
 // 켜기/끄기 설정 (일시정지 창 '설정' 탭): 기억해 두었다가 다시 쓴다
@@ -1067,7 +1202,7 @@ function resetCamera() {
   controls.update();
 }
 resetCamera();
-window.dbg.lastFollow = lastFollow;
+DBG.lastFollow = lastFollow;
 // 카메라가 땅 속으로 들어가지 않게: 카메라 자리와 화면 가운데 쪽으로 조금 나아간 두 곳의 땅 높이 + minHeight 아래로는 못 내려간다
 // (가까운 면이 화면 앞을 가로막지 않게 앞쪽도 본다). 마우스로 낮게 돌려도 여기서 막힌다
 const CAM_MIN_H = CC.minHeight ?? 2;
@@ -1126,7 +1261,7 @@ for (const row of CAM_ROWS) {
   lab.textContent = name; el.type = 'range'; el.min = min; el.max = max; el.step = step;
   el.oninput = () => { if (camSlScr) { set(camSlScr, +el.value); val.textContent = fmt(+el.value); } };
   el.onchange = () => el.blur();
-  vs.append(val); it.append(lab, el, vs); document.getElementById('camSl').append(it);
+  vs.append(val); it.append(lab, el, vs); $el('camSl').append(it);
   camSl.push({ it, el, val, row });
 }
 // 게이지를 지금 화면 값으로 (메뉴가 열려 있을 때 0.25초마다 보고, 화면이 바뀌었으면). 그 화면에 없는 값은 끈다
@@ -1135,7 +1270,7 @@ function camSlSync(force) {
   const m = camScr(), key = m + '/' + camPre;
   if (key === camSlKey && !force) return;
   camSlScr = m; camSlKey = key;
-  document.getElementById('camScr').textContent = `(${CAM_SCR_KO[m]} · ${camPreCfg().name})`;
+  $el('camScr').textContent = `(${CAM_SCR_KO[m]} · ${camPreCfg().name})`;
   for (const { it, el, val, row } of camSl) {
     const v = row[5](m), off = v === undefined;
     el.disabled = off; it.classList.toggle('off', off);
@@ -1144,7 +1279,7 @@ function camSlSync(force) {
   }
 }
 // 초기화: 타이틀·임무 완료 카메라와 모든 카메라 모드를 처음 값으로 되돌린다
-document.getElementById('camSlReset').onclick = (e) => {
+$el('camSlReset').onclick = (e) => {
   camSlSync();
   for (const m of ['title', 'clear']) CAM_ROWS.forEach((r, i) => { if (camSlInit[m][i] !== undefined) r[6](m, camSlInit[m][i]); });
   JSON.parse(CAMP_CFG0).forEach((o, i) => Object.assign(CFG.camera[CAMP_KEYS[i]], o));
@@ -1155,7 +1290,7 @@ document.getElementById('camSlReset').onclick = (e) => {
 setInterval(() => { if (hudEl.style.display === 'block') camSlSync(); }, 250);
 // 설정 메뉴 크기: 우하단 핸들(#hudGrip)을 끌어 바꾼다 (기억해 둔다). 게이지 묶음은 메뉴 폭이 좁으면 1단
 {
-  const hud = document.getElementById('hud'), grip = document.getElementById('hudGrip'), groups = hud.querySelectorAll('.wg');
+  const hud = $el('hud'), grip = $el('hudGrip'), groups = hud.querySelectorAll('.wg');
   try { const z = JSON.parse(localStorage.getItem('MightyMolly.dbgSize')); if (z && z.w > 100 && z.h > 100) { hud.style.width = z.w + 'px'; hud.style.height = z.h + 'px'; hud.style.boxSizing = 'border-box'; } } catch (_) {}
   const place = () => {
     const r = hud.getBoundingClientRect(), on = r.width > 0;

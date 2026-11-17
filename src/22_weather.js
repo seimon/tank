@@ -79,7 +79,7 @@ const WEATHER = { rain: 0, sand: 0, lightning: 0, flash: 0, flashT: 0, nextBolt:
 // 조명 밝기 (달빛·하늘빛 세기 × 빛깔 밝기). 처음 맵 셋팅일 때를 1로 두고 비 색에 곱한다
 const lightLum = (mi, mc, si, sc) => mi * (0.3 * mc.r + 0.59 * mc.g + 0.11 * mc.b) + si * (0.3 * sc.r + 0.59 * sc.g + 0.11 * sc.b);
 const WX_LREF = Math.max(0.01, lightLum(MAP0.moon, new THREE.Color(MAP0.moonColor), MAP0.sky, new THREE.Color(MAP0.skyColor)));
-window.dbg.WEATHER = WEATHER;
+DBG.WEATHER = WEATHER;
 function setWeather(p) {
   WEATHER.rain = p.rain ?? 0; WEATHER.sand = p.sand ?? 0; WEATHER.lightning = p.lightning ?? 0;
   rainFx.u.uColor.value.set(p.rainColor ?? '#a8b8d0').multiplyScalar(CFG.map.rainBright ?? 0.7);   // 색은 config 밝기 배율만큼 어둡게

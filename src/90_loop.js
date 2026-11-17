@@ -96,11 +96,11 @@ function tick(dt) {
   perfMark('조명·조준');
   updateCollisionView();
 }
-window.dbg.tick = tick;
-Object.assign(window.dbg, { ENEMIES, newEnemy, TANKS, startDrop, destroyTankBody, hitTank, spawnCoins, coins, battle: () => ({ enemyDrops, enemyKills, dropTimers, missionClear, gold, playTime, growLevel }), targets });
-Object.assign(window.dbg, { spawnSpg, spgWarns, damageTank, blastDamage, rollChoices, pickOffer, goldGain, crates, setAi: (v) => { aiShow = v; }, drawHud, gold: () => gold });
+DBG.tick = tick;
+Object.assign(DBG, { ENEMIES, newEnemy, TANKS, startDrop, destroyTankBody, hitTank, spawnCoins, coins, battle: () => ({ enemyDrops, enemyKills, dropTimers, missionClear, gold, playTime, growLevel }), targets });
+Object.assign(DBG, { spawnSpg, spgWarns, damageTank, blastDamage, rollChoices, pickOffer, goldGain, crates, setAi: (v) => { aiShow = v; }, drawHud, gold: () => gold });
 // 디버그: 원하는 항목으로 성장 선택지 띄우기 (id 3개), HUD + 픽셀 UI를 게임 해상도 그림 한 장으로 (배경은 단색)
-Object.assign(window.dbg, {
+Object.assign(DBG, {
   setOffer(ids) {
     const ch = ids.map((id) => GC.upgrades.find((u) => u.id === id)).filter(Boolean).map((u) => ({ u, label: upText(u.name, u), desc: upText(u.desc, u) + (upLast(u) ? ' (최대)' : ''), bad: u.bad ? upText(u.bad, u) : '' }));
     curOffer = { choices: ch, picked: -1, showT: 9 }; drawOffer();
@@ -127,9 +127,9 @@ Object.assign(window.dbg, {
     return c.toDataURL('image/png');
   },
 });
-Object.defineProperty(window.dbg, 'enemy', { get: () => ENEMIES[0] });
-window.dbg.perfLog = perfLog; window.dbg.perfT = perfT;
-Object.assign(window.dbg, { addTarget, dropSafe, removeWreck, sparks });
+Object.defineProperty(DBG, 'enemy', { get: () => ENEMIES[0] });
+DBG.perfLog = perfLog; DBG.perfT = perfT;
+Object.assign(DBG, { addTarget, dropSafe, removeWreck, sparks });
 aoSave();   // 이번에 새로 구운 AO가 있으면 저장 (다음 로딩부터 바로 씀)
 await loadStep(1, 'WARMING UP SHADERS...');
 applyMapPreset(mapIdx);   // 처음 맵 셋팅 (config map.preset)
@@ -157,6 +157,11 @@ function warmCompile() {
   fadeKeep.push(...fadeIns.splice(0));
 }
 setBright(brightness);   // 기억해 둔 화면 밝기
+{ // 후처리 세 가지(한 번에·외곽선 dof 모드의 1·2단계)도 미리 컴파일: 그릴 곳(preRT·postRT)에 맞춰서
+  for (const [m, t] of [[postMat, postRT], [preMat, preRT], [post2Mat, postRT]]) { postMesh.material = m; renderer.setRenderTarget(t); renderer.compile(postScene, postCam); }
+  postMesh.material = postMat;
+  renderer.setRenderTarget(olRT); olOwnPass(); camera.layers.set(0); renderer.setRenderTarget(null);   // 전봇대 외곽선 깊이 재질도 (그리는 상태 그대로 한 번)
+}
 warmCompile();   // 처음 보는 재질 때문에 게임 중에 멈칫하지 않게 미리 컴파일
 { // 궤도 자국 마스크(trackRT)를 찍고 지우는 두 장면(stampScene·fadeScene)은 scene 밖이라 위 warmCompile에 안 들어 있다: 게임을 시작하는 순간(타이틀이 끝나 지우기가 처음 돌 때)
   // 처음 쓰이며 컴파일·링크가 끝나길 기다리느라 1.5초나 멈췄다. 그려질 렌더 타깃을 맞춰 미리 컴파일하고, 끝날 때까지 로딩 화면에서 기다린다
@@ -174,7 +179,7 @@ fadeLoading();
 // 로딩 화면은 바로 끄지 않고 1초 동안 4x4 디더링 무늬로 점점 비워 가며 사라진다 (게임 해상도 픽셀 단위)
 function fadeLoading() {
   const LOAD_FADE = 1333;   // 사라지는 시간 (ms). 아래에서 위로 쓸어 올리며
-  const el = document.getElementById('loading'), cv = document.getElementById('loadCv');
+  const el = $el('loading'), cv = $el('loadCv');
   removeEventListener('resize', drawLoading);
   if (!cv || !cv._src) { el.remove(); return; }
   el.style.background = 'transparent'; el.style.pointerEvents = 'none';
@@ -255,6 +260,15 @@ function overlayFrame() {
   leaveUpdate(uiDt);   // 화면 나가기 덮개 (52_clear.js)
   if (worldFrozen()) pausedDrawn = !leaving && !(UI.closing || UI.glitchT > 0 || UI.dirty || grayK !== gT || hudOffAt || performance.now() < glitchUntil || (UI.screen && UI.screen.busy && UI.screen.busy()));   // busy: 화면이 움직이는 중 (강화 기록 넘기기)
 }
+function olOwnPass() {   // 외곽선 깊이: 정점 셰이더로 움직이는 물체(전봇대)는 자기 깊이 재질로 (지우지 않고 덧그린다)
+  if (!OL_OWN.length) return;
+  camera.layers.set(OUTLINE_OWN);
+  for (const o of OL_OWN) { o.userData.olSrc = o.material; o.material = o.userData.olMat; }
+  const bg = scene.background; scene.background = null;   // 배경이 색이면 three.js가 autoClear와 상관없이 지운다 (앞서 그린 깊이가 사라져 다른 물체의 외곽선·림이 없어졌다)
+  renderer.autoClear = false; renderer.render(scene, camera); renderer.autoClear = true;
+  scene.background = bg;
+  for (const o of OL_OWN) o.material = o.userData.olSrc;
+}
 function frame() {
   const fj0 = performance.now();   // 이 프레임 JS 전체 시간 (끊김 기록용)
   if (perfHudOn) renderer.info.reset();   // 성능 표시: 한 프레임 전체를 센다
@@ -268,7 +282,7 @@ function frame() {
   if (frozen && pausedDrawn) { crtPresent(); return; }   // CRT 표현은 멈춰 있어도 돈다 (게임 화면은 그대로)
   if (frozen && pauseScene) {   // 멈춘 뒤에는 장면을 다시 그리지 않는다 (카메라·흔들림이 다시 계산돼 배경이 움찔이지 않게): HUD·창·회색조만
     drawHud(); overlayFrame();
-    renderer.setRenderTarget(postRT); renderer.render(postScene, postCam);   // 회색조는 후처리라 마지막 장면(rt)에서 다시
+    renderPost();   // 회색조는 후처리라 마지막 장면(rt)에서 다시
     renderer.setRenderTarget(null); finalPass();
     return;
   }
@@ -322,10 +336,12 @@ function frame() {
   if (!clearHold()) {   // (임무 완료로 배경을 다 지웠으면 장면은 그리지 않고 탱크만)
     renderer.setRenderTarget(rt);
     renderer.render(scene, camera);
-    if (outlineOn) {   // 외곽선: 레이어 1 물체만 깊이로 한 번 더
+    if (outlineOn || rimOn) {   // 외곽선·림 라이트: 레이어 1 물체만 깊이로 한 번 더
       camera.layers.set(OUTLINE_LAYER); scene.overrideMaterial = olMat;
       renderer.setRenderTarget(olRT); renderer.render(scene, camera);
-      scene.overrideMaterial = null; camera.layers.set(0);
+      scene.overrideMaterial = null;
+      olOwnPass();
+      camera.layers.set(0);
     }
   }
   perfMark('장면 그리기');
@@ -333,8 +349,7 @@ function frame() {
   postMat.uniforms.uCut.value = clearSeq ? clearSeq.cut : 0;
   const calls = renderer.info.render.calls, tris = renderer.info.render.triangles;
   vfStep(dt);   // 복셀 안개 흉내 유체 (멈추면 dt = 0)
-  renderer.setRenderTarget(postRT);
-  renderer.render(postScene, postCam);
+  renderPost();
   renderer.setRenderTarget(null);
   perfMark('후처리');
   finalPass();   // 게임 해상도 → 화면 (샤프 바이리니어, CRT 표현이면 HUD·UI와 합쳐 CRT로)

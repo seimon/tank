@@ -11,13 +11,14 @@
 - **config.js는 사용자가 직접 고친다.** 사용자가 바꾼 값은 그대로 두고, 새 설정만 주석과 함께 추가한다.
 - 탱크 물리 메모: 탱크 중력은 `GT = G × physics.gravity`(포탄·부스러기는 `G` 그대로). 벽·물체에 붙어 거의 멈춘 평지에서는 궤도 마찰을 `physics.wallSlip`배로 줄인다(`physStep`의 `_ws`, 벽에 붙어 제자리 회전이 느린 문제). 경사면 아래로 끌리는 힘은 `physics.slopePull`배(법선 성분은 그대로, `physStep`). 마찰 한계는 땅을 누르는 힘에 비례해서 중력 배율을 올리면 마찰도 같이 세진다. 궤도 속도는 '공통 속도(W/S)'와 '좌우 차이(A/D)'로 나눠 따로 따라간다(달리다 W를 떼고 돌아도 회전이 바로 시작되도록). 달리던 반대 방향 키를 누르면 헛돌던 궤도를 실제 속도로 맞춘 뒤 `physics.brake`배로 줄인다(`physStep`). G키(`uprightTank` → `openHopSpot`): 주변 16방향 중 6m 넘게 열린 방향이 8개 미만이면 가장 트인 쪽으로 고른 자리까지의 절반만큼 45도 포물선으로 쏘아 올려(`hopUpright(.., move)`, 수평은 일정 속도·높이는 식 그대로, `updateFall`) 차체 방향 그대로 내려앉고, 이미 트여 있으면 제자리에서 위로. 떠오르는 순간에도 착지 연출(`landFx`), 세우면 남은 HP가 1이 된다. 후진할 때 A/D 반대는 S를 누르고 실제로도 뒤로 가거나 거의 멈췄을 때만(tick의 `tAlong`). 회전 방향이 뒤집히면 좌우 차이도 `physics.brake`배로 빨리 바꾸고, 궤도가 땅을 미끄러지는 만큼(궤도 공통 속도와 차체 앞뒤 속도의 차이, `TURN_SLIP` m/s면 최대) 조향 돕는 힘의 상한과 세기를 `physics.brakeTurn`배까지 올린다(`B.ya`, 줄 때는 `TURN_ASSIST_FALL`초에 걸쳐 서서히). 가속·감속·멈추는 순간 두 궤도가 땅을 잡는 힘을 앞뒤로 써 버려 회전이 약해지던 문제. 빠를수록 회전 목표를 올린다(최고 속도에서 `physics.turnAtSpeed`배, 최고 속도 1.3배 넘으면 다시 줄임). 탱크끼리 충돌은 파고든 깊이를 `physics.tankHitPen`까지만 힘으로 쓰고 넘친 만큼은 위치를 떼어 내며, 힘은 무게중심 높이에 건다 (가볍게 튕겨 날아가던 문제). 보급품은 들이받으면 `pushTarget`/`slideTarget`(30_combat.js)으로 미끄러지며 기운다 (`physics.boxPush`·`boxFriction`·`boxTilt`, 기울기는 그림만). 차체 기울기(보이는 것만): 탱크 모델은 궤도·바퀴(`userData.track`)를 뺀 나머지를 몸통 그룹 `P.body`(축 높이 `LEAN_Y`)로 묶고, `leanStep`(앞뒤 가속도 → 앞뒤, 달리며 돌 때 옆 가속도 → 좌우 `roll`)·`leanKick`(대포 반동: 포 방향의 앞뒤 성분 → 앞뒤, 좌우 성분 → 좌우)이 스프링처럼 기울인다(config `physics.lean`). 임무 완료 화면에서도 `clearTick`이 돌린다. 조준(`muzzle`)에도 기울기가 들어간다(출렁이는 동안 쏘면 위아래로 빗나간다. 조준선·적 예측 사격도 같은 muzzle). 물리는 초당 480번(`PHYS_H`, 마찰·접촉 스프링이 안정적이려면 필요해서 낮추지 않기로 함). 스텝마다 차체 근처(`BODY_R`)의 물체(`_nearFp`)·8m 안 탱크(`_nearT`, 역회전 `O._qinv`는 스텝마다 한 번)만 골라 접촉점과 비교하고, 그 차체를 감싸는 구(`TANK_R2`) 밖의 접촉점은 바로 건너뛴다 (모든 물체와 비교하던 것, 탱크가 몰렸을 때 접촉점마다 역회전하던 것이 비쌌다).
 - **file://로 열어도 동작해야 한다.** 그래서 로컬 ES 모듈(import)로 나누지 않는다 (아래 '구조').
-- **index.html은 직접 고치지 않는다.** `src/`를 고치고 `python tools/build.py`로 합친다.
+- **index.html·dev.html은 직접 고치지 않는다.** `src/`를 고치고 `python tools/build.py`로 합친다 (두 벌을 같이 만든다. 아래 '개발판·배포판').
 - 사용자에게 시안을 보여 줄 때는 `_mockups/`에 `YYYYMMDD_` 접두어로 저장한다.
 - 디자인 수치(여백 몇 칸 등)는 사용자가 아주 구체적으로 정한다. 임의로 바꾸지 말고, 정한 것이 있으면 따로 알린다.
 
 ## 구조
 ```
-index.html          ← 자동 생성 (src/를 합친 결과). 직접 고치지 말 것
+index.html          ← 자동 생성: 배포판 (GitHub에 올리는 것. 설정 메뉴·편집 모드 없음). 직접 고치지 말 것
+dev.html            ← 자동 생성: 개발판 (설정 메뉴 ~·성능 표시 !·맵·데칼·지형 편집·window.dbg). 직접 고치지 말 것
 config.js           ← 사용자가 고치는 설정 (window.CONFIG)
 CHANGELOG.md        ← 버전별 변경 기록 (버전을 올릴 때마다 한 줄)
 decals.js           ← 데칼 셋 (window.DECAL_SETS): 포탑 좌우 그림 묶음. 데칼 편집 모드에서 C로 복사해 덮어쓴다
@@ -25,6 +26,7 @@ title_images.js     ← 자동 생성 (images/*.png를 build.py가 data URL로 �
 decal_images.js     ← 자동 생성 (images/decals/*.png를 build.py가 data URL로 담음). 직접 고치지 말 것
 supply_images.js    ← 자동 생성 (images/supply/*.png = 보급품 면 그림, 흰색 + 알파). 직접 고치지 말 것
 map.js              ← 지도 데이터 (window.MAP_DATA): 나무 상자·탱크 잔해·벙커 자리. 맵 편집 모드에서 R로 복사해 덮어쓴다
+terrain.js          ← 지형 고친 값 (window.TERRAIN_DATA): 높이·풀·도로·절벽 칠·시냇물 줄기. 지형 편집 모드에서 R로 복사해 덮어쓴다
 src/template.html   ← head·CSS·HTML·설정 메뉴. VERSION/BUILD 여기. @GAME 자리에 게임 코드가 들어간다
 src/00_core.js      ← 도트 글꼴(5x7 HUD 글꼴), 2D 늘리기(sharpDraw/sharpBlit), 디더 지우기, 로딩 화면, 기본 설정
 src/10_world.js     ← 지형(64각형 보드·옆 단면), 필드 상태(풀·불), 씬, 안개
@@ -46,8 +48,9 @@ src/81_ui.js        ← 픽셀 UI(한글): 부품, 성장 선택지, 끝 창, �
 src/82_dmgtext.js   ← 대미지 숫자 (config damageText, 설정 메뉴 버튼): dmgTextHit/Heal/Gold. 공격 자리가 쏜 탱크가 아니면 부르는 쪽이 dmgFromP를 넣는다
 src/85_editor.js    ← 맵 편집 모드 (설정 메뉴 버튼)
 src/86_decal_editor.js ← 데칼 편집 모드 (설정 메뉴 버튼, 타이틀에서만)
+src/87_terrain_editor.js ← 지형 편집 모드 (설정 메뉴 버튼, 맵 편집 모드 위에서)
 src/90_loop.js      ← tick, 로딩 퇴장, 일시정지·정지, 메인 루프(frame), 디버그 dbg
-tools/build.py      ← src/*.js를 이름 순서대로 이어 붙여 index.html 생성 (--watch 지원). images/decals/*.png → decal_images.js도
+tools/build.py      ← src/*.js를 이름 순서대로 이어 붙여 index.html(배포판)·dev.html(개발판) 생성 (--watch 지원). images/decals/*.png → decal_images.js도
 fonts/galmuri11c.js ← 갈무리11 장체 비트맵 데이터 (OFL, fonts/LICENSE.txt). fonts/bdf2js.py로 BDF에서 변환
 images/             ← 타이틀 도트 PNG (사용자가 직접 그림). images/decals/ = 데칼 그림 (32x32, 투명 배경). images/supply/ = 보급품 면 그림 (흰색 + 알파, 면 하나 = 한 장, 색은 코드)
 _mockups/           ← 사용자에게 보여 준 시안 그림 (배포 파일과 구분하려고 _ 접두어)
@@ -55,10 +58,17 @@ _promo/             ← 소개용 스크린샷·문구 (배포 안 함)
 ```
 - 모든 src/*.js는 **하나의 모듈 범위**를 나눠 쓴다. import/export 없이 앞 파일의 이름을 그대로 쓰고, **파일 이름 순서가 곧 실행 순서**다 (let/const는 선언 전에 쓰면 TDZ 오류).
 - config.js·map.js·decals.js 등 앞에서 읽는 데이터 파일은 template.html이 `?v=시각`을 붙여 `document.write`로 읽는다 (브라우저 캐시 때문에 고친 config가 반영되지 않던 문제. 새 파일을 더하면 그 목록에).
-- 브라우저 오류 줄 번호는 index.html 기준. 파일 경계에 `// ===== src/xx.js =====` 표시가 있다.
+- 브라우저 오류 줄 번호는 index.html(개발판이면 dev.html) 기준. 파일 경계에 `// ===== src/xx.js =====` 표시가 있다.
+
+## 개발판·배포판 (tools/build.py)
+- `dev.html` = 개발판, `index.html` = 배포판(유저용). 배포판은 00_core.js의 `DEV`(`/*@DEV*/true`)를 false로 바꾸고, 첫 줄에 `@dev-file`이 있는 파일(85·86·87 편집 모드)을 빼며 그 파일의 `//@release ` 줄만 넣는다 (다른 파일이 쓰는 이름을 빈 값으로 남기려고, 예 `let editMode = false`).
+- 배포판에서는 설정 메뉴 `#hud`·`#hudGrip`을 문서에서 떼어 둔다(`DEV_OFF`). 그래서 **DOM 요소는 `$el(id)`로 찾는다** (`document.getElementById`로 찾으면 배포판에서 메뉴 요소가 null). `~`·`!` 키는 `if (DEV)`로만 등록, 디버그 묶음은 `DBG`(개발판에서만 `window.dbg`).
+- 개발용 기능을 새로 만들면: 편집 모드처럼 따로 떼어지는 것은 `@dev-file` 파일로, 다른 파일 안의 것은 `DEV`로 막는다.
 
 ## 화면 구성
 - 3D는 저해상도 렌더 타깃(rt, 세로 300줄 기본) → 후처리(외곽선·15비트 색·디더·회색조) → 샤프 바이리니어로 화면에 늘림.
+- 외곽선·림 라이트(40_input_post.js, config `outline`·`rimLight`): 레이어 1 물체만 깊이로 한 번 더 그린 `olRT`로 후처리가 가장자리를 찾는다(`edges()`). 외곽선 색은 그 픽셀의 물체 색을 어둡게, 림은 빛 쪽 가장자리에 빛 색 × 물체 색을 더한다 (외곽선이 켜져 있으면 선 한 칸 안쪽): 주광(`moon`, 방향은 config `map.moonDir`)을 카메라 기준으로 비춘 방향(`rimLight.follow`, 'clock'이면 고정 방향) + 폭발·섬광 광원 `fxLights` 4개(픽셀 월드 자리 → 광원 쪽, 거리만큼 약하게). 땅 높이 텍스처(`hgtTex()`, 복셀 안개와 같이 씀)로 땅에 가까울수록 옅게, 화면 깊이로 이웃이 물체보다 앞(풀·땅이 가림)이면 빼고. 외곽선 모드 'dof'는 후처리를 두 단계로 나눠(`renderPost`: `preMat` → `preRT`, `post2Mat`, 셰이더는 같고 `STAGE` define만 다르다) 외곽선·림도 아웃포커싱에 흐려지고, 'dither'는 한 번에 그리며 흐린 곳에서 디더링으로 성기게. 후처리를 그릴 때는 늘 `renderPost()`.
+- 카툰 명암 (config `toon`, 설정 메뉴 버튼 `setToon`): `ps1()`(00_core.js)이 빛 받는 재질의 three.js 빛 계산 조각(`lights_lambert/phong_pars_fragment`)의 dotNL을 `toonNL`로 단계로 끊는다 (주광·폭발 빛만, 반구광·발광·구운 그늘은 그대로). 세기는 uniform `U.uToon`(물체)·`U.uToonG`(땅, `noOcc` 재질)이라 켜고 끌 때 다시 컴파일하지 않는다.
 - HUD(`80_hud.js`)와 픽셀 UI(`81_ui.js`)는 별도 2D 캔버스. 1칸 = 게임 화면 1픽셀 × hk(해상도 360줄마다 1배). 색 캔버스는 `hud.blend`(더하기)로 얹고, 그림자 캔버스를 밑에 깐다.
 - **글꼴:** 영문 HUD는 5x7 글꼴(`fontDraw`), 한글 UI는 갈무리11 장체(`gfDraw`/`gfWidth`/`gfWrap`, 한글 7x11 글자·8칸 간격, 줄 높이 15). 한 화면 안에서 둘을 섞지 않는다 (예외: 타이틀 우하단 키 안내는 한글 `titleKeyRows`, 80_hud.js. 첫 그리기는 한글 글꼴이 있는 81_ui.js 맨 끝).
 
@@ -134,6 +144,12 @@ _promo/             ← 소개용 스크린샷·문구 (배포 안 함)
 - 드럼통은 나무 상자 목록(`crates`)에 `drum: true`로 함께 든다 (충돌·쌓기·부서짐 공유, 그리기만 `drumMesh`). 지도 물체 모델은 전역 `rand()`를 쓰지 않는다 (뒤 배치가 바뀌지 않게).
 - 편집 모드(`85_editor.js`): 적 제거·AI 정지·탱크 조작 막힘·카메라 따라가기 끔. 키는 캡처 단계에서 모두 가로챈다. 선택 표시는 흰색 뒤집힌 껍데기(BackSide)를 한 번 더 그린다.
 
+## 지형 편집 (87_terrain_editor.js, 고친 값은 10_world.js 맨 앞 `TD`)
+- 코드가 만드는 지형 위에 고친 만큼만 겹친다 (지형 격자 N×N 0.5m): `TD.h` 높이 차이(m, `preHE` = `preH` + `tdH`라 길·시냇물 높이도 고친 땅을 따른다), `TD.grass`(0 자동·1 없음·2 있음), `TD.cliff`(0 자동·1 절벽으로·2 아님), `TD.road`(0~255), `TD.dz`·`TD.w`(시냇물 줄기: x -90~90, 10m마다 손잡이, `tdCurve` Catmull-Rom. `creekZ` = `creekZ0` + 어긋남, `creekW` × 폭 배율). terrain.js 배열은 `tdPack`/`tdUnpack`(0 줄임 + 가변 길이 정수 + base64).
+- **자동 배치 순서를 지키려고**: 도로 칠은 보이는 거리 `roadDV`(땅 색·풀·절벽·불)에만 쓰고 배치 판정은 원래 `roadD`. 풀 '없음'은 난수를 다 쓴 뒤 심지 않고, '있음'인데 원래 못 심는 자리는 모아 두었다가 따로 시드한 난수로 (21_grass_fx.js `forced`). 시냇물 줄기를 옮기면 그 근처 자동 배치는 바뀔 수 있다.
+- 절벽 칠 1 = 경사 값 그대로(`cliffRawAt`, 덩어리 크기 거르기 없이), 2 = 0. `cliffKeep` = 처음 읽을 때 자동 판정에서 남은 곳 (편집 미리보기용).
+- 편집 모드는 맵 편집 모드(`editMode`) 위에서 돈다: 키는 85_editor.js가 `terrKey`로 넘기고 매 프레임 `editUpdate` → `terrUpdate`. 왼쪽 = 붓(OrbitControls LEFT 끔), 오른쪽 끌기 = 카메라. 땅 메시는 바로 고친다(`terrRefresh`: `TERR.vid` 격자 → 꼭짓점, `TERR.color`, 칠 표시 `aPaint` + `TERR.edit` 빗금). 풀·시냇물·다리·물체 높이·옆 단면·절벽 덩어리 판정은 로딩 때 만드는 것이라 Enter(적용) = 초안을 localStorage(`MightyMolly.terrainDraft`)에 저장하고 다시 읽기 (`MightyMolly.terrResume`로 지형 편집 모드·카메라·붓으로 돌아온다). 개발판은 초안이 있으면 terrain.js보다 먼저 쓰고, 두 내용이 같으면 초안을 버린다.
+
 ## 작전 정보
 - 게임 시작 직후 `missionUI`(81_ui.js, config `mission`): 한 글자씩 나타났다가 치지직+디더링으로 사라지고, `endMission()`에서 HUD를 켠다 (`hudRevealT`).
 
@@ -164,7 +180,7 @@ _promo/             ← 소개용 스크린샷·문구 (배포 안 함)
 - 전투 불능·적군 섬멸 창이 떠 있으면 ESC는 무시.
 
 ## 시험·시안 만드는 법
-- 미리보기: `.claude/launch.json`의 `minitank` (python http.server 8123).
+- 미리보기: `.claude/launch.json`의 `minitank` (python http.server 8123). 개발판은 `/dev.html`.
 - 셰이더 미리 컴파일은 `warmCompile()`(90_loop.js): 렌더 타깃 `rt`에 맞춰 컴파일한다 (캔버스 기준이면 출력 색 공간이 달라 전부 다시 컴파일된다). 새 재질·인스턴스 색 버퍼는 로딩 때 장면에 있어야 미리 컴파일된다. **`scene` 밖에서 따로 그리는 장면(궤도 자국 `stampScene`·`fadeScene` 등)은 warmCompile에 안 들어가므로** 90_loop.js 로딩 단계에서 그려질 렌더 타깃을 맞춰 `compileAsync`로 따로 미리 컴파일하고 끝날 때까지 기다린다 (안 하면 처음 쓰이는 순간 컴파일·링크를 기다리며 1초 넘게 멈춘다: 게임 시작 때 `updateTrackMap`에서 1.5초 멈춘 적 있음). 끊김 확인: `renderer.info.programs.length`가 게임 중에 늘면 그때 컴파일한 것.
 - 그을음(`addScorchDecal`)은 건물이면 잘게 쪼개기 전 저해상도 사본(`group.userData.ray`)에 투영하고, 데칼 상자에 닿는 삼각형만 골라 계산한다(`decalCulled`). 잔해 그을음은 로딩 때 3벌 미리 만들어 잔해에 자식으로 붙인다(`WRECK_SCORCH`). 게임 중에 무거운 계산을 새로 넣을 때는 이렇게 미리 만들거나 저해상도로.
 - 화면 성능 표시(설정 메뉴 '성능 표시' 또는 `!`(Shift+1, 캡처 단계에서 가로채 성장 선택지 1번이 골리지 않게. 타이틀 키 처리도 통과), `perfHud`, 81_ui.js): 좌상단 캔버스(DOM, CRT 위). 머리 두 줄(그리기 호출·삼각형·배율·해상도) + 줄마다 0.5초 평균/최대와 왼쪽으로 흐르는 그래프(한 칸 = 한 프레임, 초록·노랑(주의)·빨강(위험)). 첫 줄은 프레임 간격 막대 + JS 계산 시간(흰 점), 나머지는 `PH_GROUPS`가 `perfMark` 이름을 묶은 단계별 시간 (frame()에도 카메라·날씨·기타·HUD·UI·장면 그리기·후처리·화면 늘리기, CRT는 10a_crt.js의 `crtMark`로 레이어 올리기·합치기·1단계·2단계 표시가 있다. crtMark는 로딩 중 perfT가 없을 때의 오류를 삼킨다. 새 단계를 재려면 perfMark를 넣고 PH_GROUPS에 이름을). 켜져 있으면 `renderer.info`를 프레임마다 직접 비운다(autoReset 끔).
@@ -172,7 +188,7 @@ _promo/             ← 소개용 스크린샷·문구 (배포 안 함)
 - GPU 부담 줄이기: 땅은 그리는 격자만 config `map.terrainStep`칸마다 (10_world.js, 0.5m 격자의 난수·`terrainCol`·물리 높이는 그대로 두고 같은 자리 값을 골라 옮긴다. 풀은 `terrainCol`을 0.5m 격자 번호로 읽는다). 건물 AO는 `HOUSE_AO_E` m 간격으로 쪼개 굽고(11_props.js), 잔해는 AO를 덜 쪼개고 `mergeByTex`(20_objects.js)로 재질 색을 정점 색에 곱해 텍스처·면 방향이 같은 것끼리 합친다. 쪼개는 크기를 바꾸면 AO 캐시를 새로 굽는다(첫 로딩만 느림).
 - 끊김 기록(`perfFrame`, 콘솔 `[끊김]`): 프레임 JS 전체 시간·그리기·새 셰이더 수·오래 걸린 단계·해상도·GPU 이름.
 - 미리보기 창이 가려져 있으면 rAF가 거의 돌지 않는다. 시험할 때는 `src/90_loop.js`에 임시로 `window.__frame = frame` 같은 훅을 넣고 빌드해서 루프를 직접 돌린 뒤, **끝나면 반드시 지우고 다시 빌드**한다.
-- 디버그: `window.dbg` (`dbg.tank`, `dbg.setOffer([...id])`, `dbg.setOfferRaw`, `dbg.offerPad`, `dbg.offerFreeze`, `dbg.holdPick`, `dbg.showClear`, `dbg.showPause`, `dbg.fillPickLog(n)`, `dbg.uiShot()` = HUD+UI를 게임 해상도 PNG data URL로).
+- 디버그: `window.dbg` (개발판만. `dbg.tank`, `dbg.setOffer([...id])`, `dbg.setOfferRaw`, `dbg.offerPad`, `dbg.offerFreeze`, `dbg.holdPick`, `dbg.showClear`, `dbg.showPause`, `dbg.fillPickLog(n)`, `dbg.uiShot()` = HUD+UI를 게임 해상도 PNG data URL로).
 - 설정 메뉴(~ 키, Shift+`): 성장 선택지 표시, 10레벨 무작위 성장, 무적(`godMode`), 내 탱크 파괴, 적군 섬멸, 카메라·DOF 게이지(`CAM_ROWS`: 지금 화면 `camScr()` = 타이틀 title.camera·플레이 지금 카메라 모드·임무 완료 `CLR_CAM`의 값을 바꾼다. 그 화면에 없는 값은 비활성, [초기화]는 세 화면 모두) 등 (타이틀로는 콘솔 `goTitle()`). 게이지 묶음은 `.wg`(이름·게이지·값, 메뉴 폭이 좁으면 `.one` = 1단), 크기는 우하단 `#hudGrip`을 끌어서 (`MightyMolly.dbgSize`에 기억).
 - '새로 시작'은 `sessionStorage['MightyMolly.skipTitle']`로 타이틀을 건너뛴다 (시험할 때도 유용).
 

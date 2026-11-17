@@ -81,8 +81,8 @@
   body.crt #loading { background: transparent !important; }
   .ver { color: #e8dcc0; opacity: .6; font: 12px monospace; }
 </style>
-<!-- 사용자가 고치는 파일(config.js·map.js·decals.js)은 브라우저 캐시를 거치지 않게 매번 다른 주소로 읽는다 (아이패드 사파리가 예전 config.js를 계속 쓰던 문제). document.write라 순서대로 바로 실행된다 -->
-<script>for (const f of ['config.js', 'map.js', 'decal_images.js', 'title_images.js', 'supply_images.js', 'decals.js']) document.write(`<script src="${f}?v=${Date.now()}"><\/script>`);</script>
+<!-- 사용자가 고치는 파일(config.js·map.js·terrain.js·decals.js)은 브라우저 캐시를 거치지 않게 매번 다른 주소로 읽는다 (아이패드 사파리가 예전 config.js를 계속 쓰던 문제). document.write라 순서대로 바로 실행된다 -->
+<script>for (const f of ['config.js', 'map.js', 'terrain.js', 'decal_images.js', 'title_images.js', 'supply_images.js', 'decals.js']) document.write(`<script src="${f}?v=${Date.now()}"><\/script>`);</script>
 <script src="fonts/galmuri11c.js"></script>
 <script type="importmap">
 { "imports": {
@@ -107,9 +107,9 @@
   <div id="hudBody">
   <div>내 탱크 <b id="tankPos">-</b> <span style="opacity:.6">(config.js player.start와 같은 형식)</span></div>
   <div>해상도 <select id="res"><option>180</option><option>240</option><option selected>300</option><option>360</option><option>420</option><option value="max">최대</option></select>
-       <button id="aaBtn">AA 꺼짐</button> <button id="ppBtn">Pixel Perfect 꺼짐</button> <button id="olBtn">외곽선 꺼짐</button> <button id="vfBtn">복셀 안개 꺼짐</button> <button id="grassBtn">풀: 텍스처2 (이삭 풀)</button> <button id="cbox">충돌박스</button> <button id="touchBtn">터치 버튼 꺼짐</button>
+       <button id="aaBtn">AA 꺼짐</button> <button id="ppBtn">Pixel Perfect 꺼짐</button> <button id="olBtn">외곽선 꺼짐</button> <button id="rimBtn">림 라이트 꺼짐</button> <button id="toonBtn">카툰 명암 꺼짐</button> <button id="vfBtn">복셀 안개 꺼짐</button> <button id="grassBtn">풀: 텍스처2 (이삭 풀)</button> <button id="cbox">충돌박스</button> <button id="touchBtn">터치 버튼 꺼짐</button>
        <button id="camModeBtn">시점: 포탑 방향</button></div>
-  <div><button id="mapEditBtn">맵 편집 모드</button> <button id="decalEditBtn">데칼 편집 모드</button> <button id="mapBtn">맵 셋팅</button></div>
+  <div><button id="mapEditBtn">맵 편집 모드</button> <button id="terrEditBtn">지형 편집 모드</button> <button id="decalEditBtn">데칼 편집 모드</button> <button id="mapBtn">맵 셋팅</button></div>
   <div class="wg">
     <span><span>비</span><input id="rainA" type="range" min="0" max="2" step="0.05" value="0"><span><b id="rainAV">0.00</b></span></span>
     <span><span>모래</span><input id="sandA" type="range" min="0" max="2" step="0.05" value="0"><span><b id="sandAV">0.00</b> <input id="sandC" type="color" value="#c8a070"></span></span>
@@ -147,7 +147,7 @@
 </div>
 <script>
   // 버전·빌드 시각: 여기 한 곳만 고치면 로딩 화면과 설정 메뉴에 같이 나온다
-  const VERSION = '0.8.088', BUILD = '2026-11-13', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
+  const VERSION = '0.8.096', BUILD = '2026-11-17', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
   for (const e of document.querySelectorAll('.ver')) e.textContent = BUILD_TXT;
 </script>
 <canvas id="perfHud" style="display:none"></canvas>

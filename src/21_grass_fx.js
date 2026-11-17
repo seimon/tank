@@ -82,10 +82,15 @@ const grassHt = new Float32Array(FN * FN);   // 0.5m 칸마다 가장 큰 풀 �
   let gseed = 0x9e3779b9;
   const grand = () => { gseed = (gseed + 0x6d2b79f5) | 0; let t = Math.imul(gseed ^ (gseed >>> 15), 1 | gseed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
   const grr = (a, b) => a + (b - a) * grand();
-  const plant = (x, z) => {   // 풀 하나 심기 (심을 수 없는 자리면 false)
-    const gi = gridIndex(x, z), d = roadD[gi];
-    if (d < ROAD_HW + 0.1 || creekD[gi] < CREEK_HW + 0.9 || cliffG[gi] > 0.2) return false;   // 절벽엔 풀이 없다
-    if (cliffNear[gi] && creekD[gi] < CREEK_HW + 7) return false;   // 강가 절벽 발치의 좁은 땅도
+  // 지형 편집 칠(TD.grass): '풀 없음'은 난수를 다 쓴 뒤 심지 않고(뒤 풀 자리가 그대로), '풀 있음'인데 원래 못 심는 자리(도로·절벽)는 모아 두었다가 따로 시드한 난수로 심는다
+  const forced = [];
+  const plant = (x, z, force) => {   // 풀 하나 심기 (심을 수 없는 자리면 false)
+    const gi = gridIndex(x, z), d = roadD[gi], gp = TD.grass[gi];
+    if (creekD[gi] < CREEK_HW + 0.9) return false;
+    if (!force && (roadDV[gi] < ROAD_HW + 0.1 || cliffG[gi] > 0.2 || (cliffNear[gi] && creekD[gi] < CREEK_HW + 7))) {   // 도로·절벽(강가 절벽 발치의 좁은 땅도)엔 풀이 없다
+      if (gp === 2) forced.push(x, z);
+      return false;
+    }
     if (WRECKS.some(w => Math.hypot(w.x - x, w.z - z) < 3.6)) return false;   // 부서진 탱크 주변은 맨땅
     const n1 = vn2(x * 0.05, z * 0.05), n2 = vn2(x * 0.13 + 17, z * 0.13 + 5), n3 = vn2(x * 0.31 + 3, z * 0.31 + 11);
     let hScale = grr(1.05, 1.8) * (0.8 + 0.4 * n2);
@@ -103,7 +108,7 @@ const grassHt = new Float32Array(FN * FN);   // 0.5m 칸마다 가장 큰 풀 �
     const gn = new THREE.Vector3((heightAt(x - 1, z) - heightAt(x + 1, z)) * 1.4, 2, (heightAt(x, z - 1) - heightAt(x, z + 1)) * 1.4).normalize();
     c.copy(cStraw).lerp(cOlive, smooth(0.35, 0.75, n1)).lerp(cRust, smooth(0.55, 0.85, n2) * 0.6).lerp(cPale, smooth(0.6, 0.9, n3) * 0.45);
     c.lerp(PALETTE[Math.floor(grand() * PALETTE.length)], 0.25).multiplyScalar(grr(0.9, 1.06));
-    if (!inBoard(x, z, 0.15)) return true;   // 64각형 밖 (예전 사각 보드의 모서리): 난수는 다 쓰고 심지 않는다
+    if (!inBoard(x, z, 0.15) || gp === 1) return true;   // 64각형 밖 (예전 사각 보드의 모서리)·'풀 없음' 칠: 난수는 다 쓰고 심지 않는다
     const root = new THREE.Vector3().fromArray(terrainCol, gi * 3);
     (planting2 ? ring : chunks)[ci].push(m4.compose(v, q, s).clone(), c.clone(), gn, root); grassCount++;
     return true;
@@ -122,6 +127,9 @@ const grassHt = new Float32Array(FN * FN);   // 0.5m 칸마다 가장 큰 풀 �
     if ((Math.abs(x) < SQ - 0.2 && Math.abs(z) < SQ - 0.2) || !inBoard(x, z, 0.15)) continue;
     plant(x, z);
   }
+  // 3) '풀 있음' 칠: 원래 못 심는 자리(도로·절벽)에서 고른 것을 따로 시드한 난수로 (같은 넓이당 같은 수)
+  gseed = 0x2c1b3c6d;
+  for (let k = 0; k < forced.length; k += 2) plant(forced[k], forced[k + 1], true);
   // 구역마다 앞의 절반만 그리므로(아래 cm.count) 두 묶음을 각각 반씩 앞에 둔다: 예전 풀의 앞 절반 + 새 풀의 앞 절반 + 나머지
   const half4 = (l) => Math.ceil(l.length / 8) * 4;
   for (let i = 0; i < chunks.length; i++) {
@@ -212,7 +220,8 @@ const grassHt = new Float32Array(FN * FN);   // 0.5m 칸마다 가장 큰 풀 �
 for (let j = 0; j < FN; j++) for (let i = 0; i < FN; i++) {
   const x = -HALF + (i + 0.5) * FCELL, z = -HALF + (j + 0.5) * FCELL, k = j * FN + i;
   const gi = gridIndex(x, z);
-  let cap = roadD[gi] < ROAD_HW + 0.1 || creekD[gi] < CREEK_HW + 0.9 || cliffG[gi] > 0.2 || (cliffNear[gi] && creekD[gi] < CREEK_HW + 7) ? 0 : 1;
+  const gp = TD.grass[gi];   // 지형 편집 칠: 풀 없음이면 타지 않고, 풀 있음이면 도로·절벽이어도 탄다
+  let cap = gp === 1 || creekD[gi] < CREEK_HW + 0.9 ? 0 : gp === 2 || !(roadDV[gi] < ROAD_HW + 0.1 || cliffG[gi] > 0.2 || (cliffNear[gi] && creekD[gi] < CREEK_HW + 7)) ? 1 : 0;
   cap *= lerp(1, 0.3, townAt(x, z));   // 마을은 풀이 성기다
   if (inFootprint(x, z) || !inBoard(x, z)) cap = 0;   // 보드 밖(정사각 격자의 모서리)에는 불이 번지지 않게
   fCap[k] = fFuel[k] = cap;

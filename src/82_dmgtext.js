@@ -73,4 +73,4 @@ function dmgTextUpdate(dt) {
     dtDraw(f.text, x, y, k2, plot);
   }
 }
-Object.assign(window.dbg, { dmgText, dmgTexts, setDmgText: (v) => { dmgTextOn = v; } });
+Object.assign(DBG, { dmgText, dmgTexts, setDmgText: (v) => { dmgTextOn = v; } });

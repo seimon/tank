@@ -1,3 +1,5 @@
+// @dev-file (배포판 index.html에서는 빠지고 아래 //@release 줄만 남는다: tools/build.py)
+//@release let editMode = false; function editUpdate() {}
 // ---------------------------------------------------------------- 맵 편집 모드 (설정 메뉴 '맵 편집 모드'): 나무 상자(소·대), 탱크 잔해, 벙커(멀쩡한·부서진), 드럼통, 모래주머니를 넣고 옮기고 지운다.
 // 결과는 R로 복사해 map.js에 붙여 넣는다 (선택한 물체가 있으면 그 한 줄, 없으면 파일 전체).
 // 편집하는 동안: 적은 모두 사라지고(나중에 다시 떨어진다) 증원·AI가 멈추고, 탱크는 움직이지 않는다. 카메라는 탱크를 따라가지 않는다
@@ -14,7 +16,7 @@ const EDIT_ITEMS = [
 ];
 const editName = (s) => !s ? '' : s.kind === 'crate' ? (s.o.drum ? '드럼통' : s.o.s >= 2 ? '나무 상자 (대)' : '나무 상자 (소)') : s.kind === 'wreck' ? '탱크 잔해' : s.kind === 'sandbag' ? '모래주머니' : s.o.ruin ? '부서진 벙커' : '벙커';
 const editPos = (s) => s.kind === 'wreck' ? { x: s.o.x, z: s.o.z, rot: s.o.yaw } : { x: s.o.x, z: s.o.z, rot: s.o.rot };
-function editNote(t) { editMsg = t; editMsgT = 2.5; uiDirty(); }
+function editNote(t) { if (terrMode) { terrNote(t); return; } editMsg = t; editMsgT = 2.5; uiDirty(); }   // 지형 편집 중이면 그쪽 알림으로 (복사 결과 등)
 function setEditMode(on) {
   if (on === editMode || titleState !== 'play') return;
   editMode = on;
@@ -29,14 +31,15 @@ function setEditMode(on) {
     cancelOffer();
     uiShow(editUI);
   } else {
+    if (terrMode) terrOff();   // 지형 편집도 같이 끝 (87_terrain_editor.js)
     editSelect(null); editKeys.clear();
     setAiFrozen(editAiWas);
     if (UI.screen === editUI) uiShow(null);
     resetCamera();
   }
-  document.getElementById('mapEditBtn').textContent = editMode ? '맵 편집 모드 끝내기' : '맵 편집 모드';
+  $el('mapEditBtn').textContent = editMode ? '맵 편집 모드 끝내기' : '맵 편집 모드';
 }
-document.getElementById('mapEditBtn').onclick = (e) => { setEditMode(!editMode); e.target.blur(); };
+$el('mapEditBtn').onclick = (e) => { setEditMode(!editMode); e.target.blur(); };
 // 선택 표시: 그 물체만 한 번 더, 흰색으로 뒤집어 조금 크게 그린다 (테두리처럼 보인다)
 const editOutMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.BackSide, fog: false });
 const editBoxGeo = new THREE.BoxGeometry(1, 1, 1), editDrumGeo = new THREE.CylinderGeometry(0.42, 0.42, 1, 8);   // 선택 테두리: 상자 / 드럼통
@@ -129,6 +132,7 @@ addEventListener('keydown', (e) => {
   if (e.target && /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
   e.preventDefault(); e.stopImmediatePropagation();
   editKeys.add(e.code);
+  if (terrMode) { terrKey(e); return; }   // 지형 편집: 키는 그쪽에서 (WASD·QE 카메라는 아래 editUpdate 그대로)
   if (/^Digit[1-9]$/.test(e.code)) { const i = +e.code.slice(5) - 1; if (EDIT_ITEMS[i]) editAdd(i); return; }
   if (e.code === 'Escape') { editSelect(null); return; }
   if (e.code === 'KeyR') { if (editSel) copyText(editLine(editSel), '한 줄'); else copyText(mapFileText(), 'map.js 전체'); return; }
@@ -150,7 +154,7 @@ addEventListener('blur', () => editKeys.clear());
 const _eF = new THREE.Vector3(), _eR = new THREE.Raycaster(), _eRay = new THREE.Ray(), _eB = new THREE.Box3(), _eV = new THREE.Vector3();
 // 클릭(끌지 않고 누름)으로 고르기: 화면 광선이 물체 상자(회전 포함)에 닿는 것 중 가장 가까운 것. 빈 곳을 누르면 선택 해제
 let editDown = null;
-addEventListener('pointerdown', (e) => { if (editMode && e.target === renderer.domElement) editDown = { x: e.clientX, y: e.clientY }; }, true);
+addEventListener('pointerdown', (e) => { if (editMode && !terrMode && e.target === renderer.domElement) editDown = { x: e.clientX, y: e.clientY }; }, true);
 addEventListener('pointerup', (e) => {
   if (!editMode || !editDown || e.target !== renderer.domElement) { editDown = null; return; }
   const moved = Math.hypot(e.clientX - editDown.x, e.clientY - editDown.y); editDown = null;
@@ -173,6 +177,7 @@ addEventListener('pointerup', (e) => {
 }, true);
 // 매 프레임: 선택한 물체가 없으면 WASD로 카메라 옮기기, QE로 돌리기 (Shift면 느리게)
 function editUpdate(dt) {
+  if (terrMode) terrUpdate(dt);   // 지형 편집 (카메라 옮기기·돌리기는 아래 그대로)
   if (editMsgT > 0 && (editMsgT -= dt) <= 0) { editMsg = ''; uiDirty(); }
   editSync();
   if (editSel) return;
@@ -231,4 +236,4 @@ const editUI = {
   },
   click(id) { if (id.startsWith('add')) editAdd(+id.slice(3)); },
 };
-Object.assign(window.dbg, { mapFileText, setEditMode, editAdd, editMove, editSelect, BUNKERS, damageBunker, edit: () => ({ editMode, editSel }) });
+Object.assign(DBG, { mapFileText, setEditMode, editAdd, editMove, editSelect, BUNKERS, damageBunker, edit: () => ({ editMode, editSel }) });

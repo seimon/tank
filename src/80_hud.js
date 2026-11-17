@@ -2,8 +2,8 @@
 // 게임 화면과 같은 저해상도에, 노란주황색 한 가지와 5x7 고정폭 글자로. 줄 높이 7칸, 줄 간격 4칸.
 // HUD 칸 = 1픽셀인 작은 캔버스 두 장(색, 검은 그림자)에 값이 바뀔 때만 다시 그려 두고, 화면 캔버스로 늘려 옮긴다.
 // 색은 스크린(또는 더하기) 블렌딩, 그 밑에 그림자를 살짝 깐다. 피해를 입으면 몇 칸 높이 띠마다 좌우로 치지직 어긋난다
-const phud = document.getElementById('phud'), pg = cv2d(phud);
-const phudS = document.getElementById('phudS'), sg = cv2d(phudS);
+const phud = $el('phud'), pg = cv2d(phud);
+const phudS = $el('phudS'), sg = cv2d(phudS);
 const HC = Object.assign({ color: '#ffb43a', blend: 'screen', shadow: 0.55, glitchTime: 0.45, glitchPx: 6 }, CFG.hud);
 phud.style.mixBlendMode = HC.blend;
 const hudC = document.createElement('canvas'), hc = cv2d(hudC);   // 색
@@ -62,7 +62,7 @@ function pixelText(cv, lines, col = '#ffffff', align = 'left') {   // align 'rig
 }
 // ---- 타이틀 그림: 제목·MIYACAT 로고는 images/의 도트 PNG (직접 고쳐 쓸 수 있게 따로 둔다), 제목 아래 설명 한 줄은 HUD 글꼴,
 // 좌하단 배지는 사각형 + HUD 글꼴. 모두 게임 픽셀 단위 캔버스(_src)에 한 번 그리고 layoutTitle이 늘려 보인다
-const titleSrc = (id, w, h) => { const c = document.getElementById(id), s = c._src || (c._src = document.createElement('canvas')); s.width = w; s.height = h; return s.getContext('2d'); };
+const titleSrc = (id, w, h) => { const c = $el(id), s = c._src || (c._src = document.createElement('canvas')); s.width = w; s.height = h; return s.getContext('2d'); };
 const fontText = (g, t, x, y, k = 1) => fontDraw(t, x, y, k, (a, b, kk) => g.fillRect(a, b, kk, kk));
 const loadImg = (src) => new Promise((ok) => { const im = new Image(); im.onload = () => ok(im); im.onerror = () => ok(null); im.src = imgSrc(src); });
 const TGREEN = '#2e6a40', TINK = '#1b1b19', TCREAM = '#f6f1e3';
@@ -94,16 +94,16 @@ async function drawTitleArt() {
   layoutTitle();
 }
 let titlePad = false;   // 타이틀 키 안내가 게임패드 글자인가
-if (document.getElementById('tPress')) {
+if ($el('tPress')) {
   // (타이틀 우하단 키 안내는 한글 글꼴이 있는 81_ui.js 맨 끝에서 처음 그린다)
-  pixelText(document.getElementById('tVer'), [`VERSION ${VERSION}`, `BUILD ${BUILD}`]);
+  pixelText($el('tVer'), [`VERSION ${VERSION}`, `BUILD ${BUILD}`]);
   drawTitleArt();
   layoutTitle();
 }
 // 타이틀 키 안내: 마지막에 쓴 입력(키보드 / 게임패드)에 맞춰 SPACE·Q·E ↔ A·LB·RB
 function drawTitleKeys(pad) {
   titlePad = pad;
-  const c = document.getElementById('tPress');
+  const c = $el('tPress');
   if (!c) return;
   titleStartButton(c, pad ? 'A' : 'SPACE');
   drawCamoText();
@@ -131,7 +131,7 @@ function titleStartButton(cv, key) {
 }
 // 타이틀 위장색 안내 (PRESS SPACE 아래, 깜빡이지 않음): 지금 고른 위장색 이름
 function drawCamoText() {
-  const c = document.getElementById('tCamo');
+  const c = $el('tCamo');
   if (!c) return;
   titleKeyRows(c, [   // 우하단 키 안내: 오른쪽 정렬
     [titlePad ? ['LB', 'RB'] : ['Q', 'E'], `위장색 변경: ${CAMO_LIST[camoIdx].name}`],
@@ -148,7 +148,7 @@ const CALLOUTS = [
 ];
 const _cw = new THREE.Vector3(), INK = '#1b1b19';
 function drawCallouts() {
-  const out = document.getElementById('tCall');
+  const out = $el('tCall');
   if (!out || titleState === 'play') return;
   const cv = out._src || (out._src = document.createElement('canvas'));   // 게임 해상도. 화면에는 샤프 바이리니어로
   if (cv.width !== rt.width || cv.height !== rt.height) { cv.width = rt.width; cv.height = rt.height; }

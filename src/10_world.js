@@ -1,3 +1,65 @@
+// ---------------------------------------------------------------- 지형 고친 값 (terrain.js의 window.TERRAIN_DATA, 지형 편집 모드가 만든다: 87_terrain_editor.js)
+// 코드가 만드는 지형은 그대로 두고 고친 만큼만 겹친다. 지형 격자(N×N, 0.5m)마다:
+//   h = 높이 차이(m, 기본 높이에 더한다. 길·시냇물 높이도 그 땅을 따라간다), grass = 풀(0 자동·1 없음·2 있음), cliff = 절벽(0 자동·1 절벽으로·2 절벽 아님), road = 도로 칠(0~255)
+//   creek = 시냇물 줄기 { x0, step, dz: 손잡이마다 z 어긋남(m), w: 폭 배율 } (x 방향 step m마다 손잡이, 사이는 부드럽게)
+// 자동 배치(상자·나무 등)는 원래 도로·시냇물 거리로 판정한다 (도로·풀·절벽 칠은 배치를 바꾸지 않는다). 시냇물 줄기를 옮기면 그 근처 배치는 바뀔 수 있다.
+// 파일 안 배열은 '0 줄임 + 지그재그 가변 길이 정수'를 base64로 (tdPack/tdUnpack). 개발판은 편집하다 적용한 초안(localStorage)이 있으면 그것을 먼저 쓴다
+const TD_KEY = 'MightyMolly.terrainDraft', TD_CREEK_X0 = -90, TD_CREEK_STEP = 10, TD_CREEK_N = 19;
+function tdPack(arr) {   // 정수 배열 → 문자열
+  const out = [];
+  const vu = (v) => { while (v > 127) { out.push((v & 127) | 128); v = Math.floor(v / 128); } out.push(v); };
+  for (let i = 0; i < arr.length;) {
+    let j = i;
+    if (!arr[i]) { while (j < arr.length && !arr[j]) j++; vu((j - i) * 2); }
+    else { while (j < arr.length && arr[j] && j - i < 1e6) j++; vu((j - i) * 2 + 1); for (let k = i; k < j; k++) { const v = Math.round(arr[k]); vu(v < 0 ? -v * 2 - 1 : v * 2); } }
+    i = j;
+  }
+  let s = ''; for (let i = 0; i < out.length; i += 8192) s += String.fromCharCode.apply(null, out.slice(i, i + 8192));
+  return btoa(s);
+}
+function tdUnpack(str, arr) {   // 문자열 → 정수 배열 (arr에 채운다. 잘못된 값이면 그대로 둔다)
+  if (!str) return arr;
+  try {
+    const b = atob(str); let p = 0, i = 0;
+    const vu = () => { let v = 0, m = 1, c; do { c = b.charCodeAt(p++); v += (c & 127) * m; m *= 128; } while (c & 128); return v; };
+    while (p < b.length && i < arr.length) {
+      const k = vu(), n = Math.floor(k / 2);
+      if (!(k & 1)) i += n;
+      else for (let t = 0; t < n && i < arr.length; t++) { const v = vu(); arr[i++] = v & 1 ? -(v + 1) / 2 : v / 2; }
+    }
+  } catch (e) { console.warn('[지형] 고친 값을 읽지 못했어요', e); }
+  return arr;
+}
+const TD = (() => {
+  let src = window.TERRAIN_DATA || null, draft = false;
+  if (DEV) try {
+    const d = JSON.parse(localStorage.getItem(TD_KEY) || 'null');
+    if (d && JSON.stringify(d) === JSON.stringify(src)) localStorage.removeItem(TD_KEY);   // 파일에 붙여 넣은 것과 같으면 초안은 버린다
+    else if (d) { src = d; draft = true; console.log('[지형] 편집 초안(브라우저에 저장된 것)을 쓰는 중'); }
+  } catch (_) {}
+  const NN = N * N, hc = tdUnpack(src?.h, new Int16Array(NN)), h = new Float32Array(NN);
+  for (let i = 0; i < NN; i++) h[i] = hc[i] / 100;   // cm → m
+  const cr = src?.creek, dz = new Float32Array(TD_CREEK_N), w = new Float32Array(TD_CREEK_N).fill(1);
+  if (cr && cr.x0 === TD_CREEK_X0 && cr.step === TD_CREEK_STEP) for (let k = 0; k < TD_CREEK_N; k++) { dz[k] = +cr.dz?.[k] || 0; w[k] = +cr.w?.[k] || 1; }
+  return {
+    draft, h, dz, w,
+    grass: tdUnpack(src?.grass, new Uint8Array(NN)), cliff: tdUnpack(src?.cliff, new Uint8Array(NN)), road: tdUnpack(src?.road, new Uint8Array(NN)),
+  };
+})();
+// 시냇물 손잡이 사이 (Catmull-Rom, 끝은 늘린다)
+function tdCurve(a, x) {
+  const u = (x - TD_CREEK_X0) / TD_CREEK_STEP, i = Math.floor(u), t = u - i, at = (k) => a[Math.max(0, Math.min(TD_CREEK_N - 1, k))];
+  const p0 = at(i - 1), p1 = at(i), p2 = at(i + 1), p3 = at(i + 2);
+  return 0.5 * (2 * p1 + (p2 - p0) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t + (3 * p1 - p0 - 3 * p2 + p3) * t * t * t);
+}
+// 높이 차이 (격자 사이는 이중선형)
+function tdH(x, z) {
+  const fx = (x + HALF) / STEP, fz = (z + HALF) / STEP;
+  const ix = Math.min(N - 2, Math.max(0, Math.floor(fx))), iz = Math.min(N - 2, Math.max(0, Math.floor(fz)));
+  const tx = Math.min(1, Math.max(0, fx - ix)), tz = Math.min(1, Math.max(0, fz - iz)), i = iz * N + ix, h = TD.h;
+  return (h[i] * (1 - tx) + h[i + 1] * tx) * (1 - tz) + (h[i + N] * (1 - tx) + h[i + N + 1] * tx) * tz;
+}
+
 // ---------------------------------------------------------------- 지형
 const HILLS = [
   { x: -46, z: -45, a: 8, r: 13 }, { x: 50, z: 50, a: 9.5, r: 15 }, { x: 54, z: -42, a: 6, r: 10 },
@@ -16,6 +78,7 @@ function baseH(x, z) {
 const TOWN_H = baseH(0, 0);
 // 마을 주변은 평평하게
 const preH = (x, z) => lerp(TOWN_H, baseH(x, z), smooth(24, 36, Math.hypot(x, z)));
+const preHE = (x, z) => preH(x, z) + tdH(x, z);   // + 지형 편집으로 고친 높이 (길·시냇물·땅 모두 이것을 따른다)
 // 마을 영향 (1=마을 한가운데). 경계를 노이즈로 흔들어 정확한 원이 보이지 않게
 function townAt(x, z) {
   const n = Math.sin(x * 0.21 + 1.3) * Math.sin(z * 0.17 + 0.4) * 0.6 + Math.sin(x * 0.47 - z * 0.39 + 2.0) * 0.4;
@@ -30,7 +93,8 @@ function mainRoadX0(z) {
   return 33 * s + j;
 }
 // 다리 자리 = 원래 도로가 시냇물과 만나는 곳. 그 앞뒤로 도로를 시냇물과 수직이 되게 펴서 다리가 똑바로 건넌다
-const creekZ = (x) => 33 + 3.5 * Math.sin(x * 0.055 + 0.8) + 1.8 * Math.sin(x * 0.13 + 2.3) + 0.7 * Math.sin(x * 0.31);
+const creekZ0 = (x) => 33 + 3.5 * Math.sin(x * 0.055 + 0.8) + 1.8 * Math.sin(x * 0.13 + 2.3) + 0.7 * Math.sin(x * 0.31);
+const creekZ = (x) => creekZ0(x) + tdCurve(TD.dz, x);   // + 지형 편집으로 옮긴 만큼
 let XB_Z = 33;
 for (let k = 0; k < 40; k++) XB_Z = creekZ(mainRoadX0(XB_Z));
 const XB_X = mainRoadX0(XB_Z), XB_SLOPE = -(creekZ(XB_X + 0.5) - creekZ(XB_X - 0.5));
@@ -51,7 +115,7 @@ for (let x = -SQ - 4; x <= SQ + 4; x += 0.75) creekPoly.push({ x, z: creekZ(x) }
 
 // 길 방향으로 높이를 부드럽게
 function smoothHeights(poly, passes, win) {
-  let ys = poly.map(p => preH(p.x, p.z));
+  let ys = poly.map(p => preHE(p.x, p.z));
   for (let pass = 0; pass < passes; pass++) {
     ys = ys.map((_, i) => {
       let s = 0, c = 0;
@@ -78,7 +142,7 @@ smoothHeights(mainPoly, 4, 6); smoothHeights(branchPoly, 4, 6); smoothHeights(cr
 function creekW(x) {
   const far = smooth(4, 14, Math.abs(x - XB_X));
   const wob = 1 + (0.22 * Math.sin(x * 0.19 + 0.7) + 0.12 * Math.sin(x * 0.53 + 2.1)) * far;
-  return CREEK_HW * (1 + 3 * smooth(4, SQ - CREEK_UP * XB_X, (x - XB_X) * CREEK_UP)) * wob;
+  return CREEK_HW * (1 + 3 * smooth(4, SQ - CREEK_UP * XB_X, (x - XB_X) * CREEK_UP)) * wob * Math.max(0.3, tdCurve(TD.w, x));   // × 지형 편집 폭 배율
 }
 // 본도로와 시냇물이 만나는 곳 = 다리. 물은 다리 밑으로 충분히 낮게
 let ci = 0;
@@ -104,7 +168,7 @@ function polyExt(poly, fwd, ax, d, at, passes, win) {
   const old = fwd ? poly.slice(-H) : poly.slice(0, H).reverse();   // 끝에서 바깥 순서
   const ext = [];
   for (let k = 1; k <= Math.ceil((BOARD_R - SQ) / 0.75) + 1; k++) ext.push(at(end[ax] + d * k));
-  let ys = [...old, ...ext].map(p => preH(p.x, p.z));
+  let ys = [...old, ...ext].map(p => preHE(p.x, p.z));
   for (let pass = 0; pass < passes; pass++) ys = ys.map((_, i) => { let s = 0, c = 0; for (let k = -win; k <= win; k++) { const j = i + k; if (j >= 0 && j < ys.length) { s += ys[j]; c++; } } return s / c; });
   const off = end.y - ys[H - 1];
   ext.forEach((p, k) => p.y = ys[H + k] + off);
@@ -154,7 +218,7 @@ const creekS = new Float32Array(N * N), creekLat = new Float32Array(N * N), cree
   for (let iz = 0; iz < N; iz++) for (let ix = 0; ix < N; ix++) {
     const x = -HALF + ix * STEP, z = -HALF + iz * STEP, i = iz * N + ix;
     // 보드 밖 먼 칸(정사각 격자의 모서리)은 길·물 계산을 건너뛴다 (가장자리 보간에 쓰는 바로 바깥 칸은 계산)
-    if (x * x + z * z > (BOARD_R + 6) ** 2) { roadD[i] = 99; creekD[i] = 99; waterY[i] = -99; creekWd[i] = 0; hG[i] = preH(x, z); continue; }
+    if (x * x + z * z > (BOARD_R + 6) ** 2) { roadD[i] = 99; creekD[i] = 99; waterY[i] = -99; creekWd[i] = 0; hG[i] = preHE(x, z); continue; }
     nearestOnSegs(roadSegs, x, z, r);
     // 시냇물은 대략 z=26~42 띠 안에만 있으니 멀면 계산 생략
     if (Math.abs(z - creekZ(x)) < 28) nearestOnSegs(creekSegs, x, z, c); else { c.d = 99; c.y = -99; c.w = CREEK_HW; c.s = 0; c.side = 1; }
@@ -162,7 +226,7 @@ const creekS = new Float32Array(N * N), creekLat = new Float32Array(N * N), cree
     // 시냇물 거리는 기준 폭으로 환산 (넓은 곳은 바닥이 평평하게 넓어지고 깊이와 둑 모양은 같다)
     const cd = Math.max(0, c.d - (c.w - CREEK_HW));
     roadD[i] = r.d; creekD[i] = cd; waterY[i] = c.y;
-    let h = lerp(r.y, preH(x, z), smooth(ROAD_HW + 0.6, ROAD_HW + 4.5, r.d));
+    let h = lerp(r.y, preHE(x, z), smooth(ROAD_HW + 0.6, ROAD_HW + 4.5, r.d));
     if (cd < 30) {
       // 도로가 지나는 곳은 둑을 가파르게 (다리 받침)
       const bankW = lerp(1.4, 4, smooth(ROAD_HW + 1, ROAD_HW + 6, r.d));
@@ -184,12 +248,19 @@ const creekS = new Float32Array(N * N), creekLat = new Float32Array(N * N), cree
   BRIDGE.endA = hAt(-BRIDGE.hl) - 0.12; BRIDGE.endB = hAt(BRIDGE.hl) - 0.12;
   BRIDGE.top = Math.max(BRIDGE.endA, BRIDGE.endB, BRIDGE.roadY) + 0.9;
 }
+// 보이는 도로 거리: 지형 편집으로 칠한 도로까지 (땅 색·풀·절벽만. 자동 배치는 원래 roadD로 판정해 자리가 바뀌지 않게)
+const roadVisAt = (i) => { const p = TD.road[i]; return p ? Math.min(roadD[i], (1 - p / 255) * (ROAD_HW + 1.2)) : roadD[i]; };
+const roadDV = new Float32Array(N * N);
+for (let i = 0; i < N * N; i++) roadDV[i] = roadVisAt(i);
 // 절벽: 경사가 심한 곳은 풀 없이 바위 벽으로 (0~1)
-const cliffG = new Float32Array(N * N);
-for (let iz = 1; iz < N - 1; iz++) for (let ix = 1; ix < N - 1; ix++) {
-  const i = iz * N + ix, gx = (hG[i + 1] - hG[i - 1]) / (2 * STEP), gz = (hG[i + N] - hG[i - N]) / (2 * STEP);
-  cliffG[i] = smooth(0.62, 0.95, Math.hypot(gx, gz)) * smooth(ROAD_HW + 0.3, ROAD_HW + 1.2, roadD[i]);
+const cliffG = new Float32Array(N * N), cliffKeep = new Uint8Array(N * N);   // cliffKeep = 자동 판정에서 남은 곳 (지형 편집 미리보기용)
+function cliffRawAt(i) {   // 경사만 본 값 (격자 가장자리는 0)
+  const ix = i % N, iz = (i / N) | 0;
+  if (ix < 1 || iz < 1 || ix > N - 2 || iz > N - 2) return 0;
+  const gx = (hG[i + 1] - hG[i - 1]) / (2 * STEP), gz = (hG[i + N] - hG[i - N]) / (2 * STEP);
+  return smooth(0.62, 0.95, Math.hypot(gx, gz)) * smooth(ROAD_HW + 0.3, ROAD_HW + 1.2, roadDV[i]);
 }
+for (let i = 0; i < N * N; i++) cliffG[i] = cliffRawAt(i);
 // 큰 절벽(시작 지점 근처, 강 옆)만 남기고 자잘한 것은 그냥 풀 덮인 경사면으로. 이어진 덩어리 단위로 판단
 const cliffNear = new Uint8Array(N * N);   // 강가 절벽 발치: 절벽과 강 사이 좁은 땅 (풀 없음)
 {
@@ -209,6 +280,12 @@ const cliffNear = new Uint8Array(N * N);   // 강가 절벽 발치: 절벽과 �
     let big = 0;
     for (const i of comp) if (cliffG[i] > 0.2) big++;
     if (!(near && big >= 150)) for (const i of comp) cliffG[i] = 0;
+  }
+  // 지형 편집 칠: 1 = 이 경사를 절벽으로 (덩어리 크기와 상관없이), 2 = 절벽 아님
+  for (let i = 0; i < N * N; i++) {
+    cliffKeep[i] = cliffG[i] > 0 ? 1 : 0;
+    const p = TD.cliff[i];
+    if (p === 1) cliffG[i] = cliffRawAt(i); else if (p === 2) cliffG[i] = 0;
   }
   for (let i = 0; i < N * N; i++) {
     if (cliffG[i] < 0.2 || creekD[i] > CREEK_HW + 8) continue;
@@ -296,7 +373,7 @@ function forCells(x, z, r, fn) {
 
 await loadStep(0.12, 'SHAPING TERRAIN...');
 // ---------------------------------------------------------------- 씬
-const canvas = document.getElementById('c');
+const canvas = $el('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
 renderer.setPixelRatio(1);
 const scene = new THREE.Scene();
@@ -346,7 +423,7 @@ const controls = new OrbitControls(camera, canvas);
 controls.target.set(0, TOWN_H, 0);
 controls.enableDamping = true;
 controls.minDistance = 8; controls.maxDistance = 70; controls.maxPolarAngle = 1.52;   // (거리 범위는 카메라 모드가 정한다: camLimits)
-window.dbg = { camera, controls };
+Object.assign(DBG, { camera, controls });
 
 // 궤도 자국: 위에서 내려다본 2048² 마스크에 궤도판 무늬를 GPU로 찍고, 조금씩 빼서 30초에 걸쳐 지운다
 const trackRT = new THREE.WebGLRenderTarget(2048, 2048, {
@@ -394,7 +471,10 @@ const hemi = new THREE.HemisphereLight(0x7d8aac, 0x4a3a2a, 1.5);
 scene.add(hemi);
 // 낮게 비스듬히 비추는 달: 비탈마다 명암 차가 커져 지형 굴곡이 드러난다
 const moon = new THREE.DirectionalLight(MAP0.moonColor, MAP0.moon);
-moon.position.set(-70, 38, -45);
+{ // config map.moonDir (북 = +z, 동 = -x, 화면 나침반과 같다). 기본값 = 예전 자리 (-70, 38, -45)
+  const md = CFG.map.moonDir || {}, az = (md.azimuth ?? 122.7) * Math.PI / 180, el = (md.elevation ?? 24.5) * Math.PI / 180, R = 91.5;
+  moon.position.set(-Math.sin(az) * Math.cos(el) * R, Math.sin(el) * R, Math.cos(az) * Math.cos(el) * R);
+}
 scene.add(moon);
 // 타이틀 꾸밈 (config title.details): 탱크 포즈, 짙은 굴뚝 연기, 지나온 궤도 자국, 낙엽
 const TDET = Object.assign({ pose: true, turret: 25, elev: 14, smoke: 0.8, trail: 22, leaves: 6 }, CFG.title?.details);
@@ -409,6 +489,10 @@ for (let tries = 0; PUDDLES.length < 4 && tries < 400; tries++) {
   PUDDLES.push(new THREE.Vector3(x, z, rr(0.9, 1.7)));
 }
 let terrainCol;
+// 지형 편집 모드가 땅을 바로 고쳐 보이게 쓰는 것: 메시·격자 → 꼭짓점 번호·흙 색 난수·꼭짓점 색 함수 (아래 지형 메시에서 채운다)
+const TERR = { mesh: null, geo: null, vid: new Int32Array(N * N).fill(-1), noise: new Float32Array(N * N), color: null,
+  edit: { value: 0 },   // 1 = 칠한 곳을 색으로 보인다 (지형 편집 모드에서만)
+  paintG: (i) => [0, -1, 1][TD.grass[i]] || 0, paintC: (i) => [0, 1, -1][TD.cliff[i]] || 0 };   // 미리보기 색: 풀 없음 -1 / 있음 1, 절벽으로 1 / 아님 -1
 const BOARD_RIM = [];   // 지형 윗면 둘레 점 (각도가 줄어드는 순서, {x, z, y, a}): 옆 단면이 이 점들을 그대로 이어 윗면과 딱 맞는다
 // 지형 메시
 {
@@ -419,18 +503,9 @@ const BOARD_RIM = [];   // 지형 윗면 둘레 점 (각도가 줄어드는 순�
   const cRoad = new THREE.Color(0x9a8360), c = new THREE.Color(), rc = new THREE.Color();
   // 풀 밑 흙은 풀색에 가깝게: 풀 사이 틈이 깜빡여 보이는 대비를 줄인다
   const cUnder = new THREE.Color(0x5a5034), cBed = new THREE.Color(0x3a3a33), cMud = new THREE.Color(0x40352a);
-  const road = new Float32Array(pos.count), creek = new Float32Array(pos.count * 2), cliff = new Float32Array(pos.count);
-  // 흙 색 난수: 예전 사각 격자(301칸)가 쓰던 만큼을 예전 순서대로 먼저 뽑는다 (뒤 배치의 난수 순서가 밀리지 않게). 새로 생긴 가장자리 땅은 hash01
-  const N0 = SQ * 4 + 1, nOld = new Float32Array(N0 * N0);
-  for (let i = 0; i < N0 * N0; i++) nOld[i] = rand();
-  for (let i = 0; i < pos.count; i++) {
-    const ox = (i % N) - SQ_OFS, oz = ((i / N) | 0) - SQ_OFS;
-    const x = pos.getX(i), z = pos.getZ(i), gi = gridIndex(x, z), d = roadD[gi], cd = creekD[gi];
-    const n = ox >= 0 && oz >= 0 && ox < N0 && oz < N0 ? nOld[oz * N0 + ox] : hash01(i);
-    pos.setY(i, hG[gi]); cliff[i] = cliffG[gi];
-    road[i] = cd < CREEK_HW + 1.2 ? 99 : d;
-    // 시냇물까지 거리, 수심 (물길 밖의 낮은 땅은 물이 없으니 물속 표현도 없다)
-    creek[i * 2] = cd; creek[i * 2 + 1] = cd < CREEK_HW + 2 ? Math.max(0, waterY[gi] - hG[gi]) : 0;
+  const road = new Float32Array(pos.count), creek = new Float32Array(pos.count * 2), cliff = new Float32Array(pos.count), paint = new Float32Array(pos.count * 2);
+  // 꼭짓점 색: 흙 (난수 n) → 도로 둘레 풀 밑 흙 → 마을 → 도로 → 강가 진흙 → 강바닥 (d = 보이는 도로 거리, cd = 시냇물 거리)
+  TERR.color = (c, x, z, n, d, cd) => {
     c.copy(cSoil).lerp(cSoil2, n);
     const town = townAt(x, z);
     c.lerp(cUnder, smooth(ROAD_HW + 0.5, ROAD_HW + 2.5, d) * (1 - town) * 0.6);
@@ -440,7 +515,23 @@ const BOARD_RIM = [];   // 지형 윗면 둘레 점 (각도가 줄어드는 순�
     c.lerp(cMud, 1 - smooth(CREEK_HW + 0.5, CREEK_HW + 2.2, cd));
     rc.copy(cBed).multiplyScalar(0.8 + n * 0.4);
     c.lerp(rc, 1 - smooth(CREEK_HW - 0.6, CREEK_HW + 0.4, cd));
+    return c;
+  };
+  // 흙 색 난수: 예전 사각 격자(301칸)가 쓰던 만큼을 예전 순서대로 먼저 뽑는다 (뒤 배치의 난수 순서가 밀리지 않게). 새로 생긴 가장자리 땅은 hash01
+  const N0 = SQ * 4 + 1, nOld = new Float32Array(N0 * N0);
+  for (let i = 0; i < N0 * N0; i++) nOld[i] = rand();
+  for (let i = 0; i < pos.count; i++) {
+    const ox = (i % N) - SQ_OFS, oz = ((i / N) | 0) - SQ_OFS;
+    const x = pos.getX(i), z = pos.getZ(i), gi = gridIndex(x, z), d = roadDV[gi], cd = creekD[gi];
+    const n = ox >= 0 && oz >= 0 && ox < N0 && oz < N0 ? nOld[oz * N0 + ox] : hash01(i);
+    TERR.noise[i] = n;
+    pos.setY(i, hG[gi]); cliff[i] = cliffG[gi];
+    road[i] = cd < CREEK_HW + 1.2 ? 99 : d;
+    // 시냇물까지 거리, 수심 (물길 밖의 낮은 땅은 물이 없으니 물속 표현도 없다)
+    creek[i * 2] = cd; creek[i * 2 + 1] = cd < CREEK_HW + 2 ? Math.max(0, waterY[gi] - hG[gi]) : 0;
+    TERR.color(c, x, z, n, d, cd);
     col.set([c.r, c.g, c.b], i * 3);
+    paint[i * 2] = TERR.paintG(gi); paint[i * 2 + 1] = TERR.paintC(gi);
   }
   // 픽셀 단위로: 흙 알갱이, 구불구불 끊기는 바퀴 자국, 탱크 궤도 자국, 그을림, 잉걸불
   const mat = ps1(new THREE.MeshLambertMaterial({ vertexColors: true }), (sh) => {
@@ -448,10 +539,11 @@ const BOARD_RIM = [];   // 지형 윗면 둘레 점 (각도가 줄어드는 순�
     sh.uniforms.uTrack = U.uTrack;
     sh.uniforms.uTime = U.uTime;
     sh.uniforms.uSh0 = U.uSh0; sh.uniforms.uSh1 = U.uSh1; sh.uniforms.uLamp0 = U.uLamp0; sh.uniforms.uLamp1 = U.uLamp1;
-    sh.vertexShader = 'attribute float aRoad, aCliff; attribute vec2 aCreek; varying float vRoad, vCliff, vY; varying vec2 vXZ, vCreek;\n' + sh.vertexShader.replace('#include <begin_vertex>',
-      '#include <begin_vertex>\nvXZ = (modelMatrix * vec4(transformed, 1.0)).xz; vY = transformed.y; vRoad = aRoad; vCreek = aCreek; vCliff = aCliff;');
+    sh.uniforms.uEdit = TERR.edit;
+    sh.vertexShader = 'attribute float aRoad, aCliff; attribute vec2 aCreek, aPaint; varying float vRoad, vCliff, vY; varying vec2 vXZ, vCreek, vPaint;\n' + sh.vertexShader.replace('#include <begin_vertex>',
+      '#include <begin_vertex>\nvXZ = (modelMatrix * vec4(transformed, 1.0)).xz; vY = transformed.y; vRoad = aRoad; vCreek = aCreek; vCliff = aCliff; vPaint = aPaint;');
     sh.uniforms.uGap = U.uGap;
-    sh.fragmentShader = SHADOW_GLSL + `uniform sampler2D uField, uTrack, uGap; uniform float uTime; varying vec2 vXZ, vCreek; varying float vRoad, vCliff, vY;
+    sh.fragmentShader = SHADOW_GLSL + `uniform sampler2D uField, uTrack, uGap; uniform float uTime, uEdit; varying vec2 vXZ, vCreek, vPaint; varying float vRoad, vCliff, vY;
       float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float vnoise(vec2 p) {
         vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -509,7 +601,13 @@ const BOARD_RIM = [];   // 지형 윗면 둘레 점 (각도가 줄어드는 순�
         vec4 fld = texture2D(uField, ${UVW("vXZ")});
         diffuseColor.rgb *= 1.0 - fld.b * 0.8;
         float shade = (1.0 - 0.8 * contactShadow(vXZ)) * pow(texture2D(uGap, ${UVW("vXZ")}).r, uAO);   // 바닥 그림자 × 건물 사이 그늘
-        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.9), uWhite) * shade;`)
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.9), uWhite) * shade;
+        if (uEdit > 0.5) {   // 지형 편집: 풀 없음 빨강 · 풀 있음 초록, 절벽으로 파랑 · 절벽 아님 노랑 (빗금)
+          float st = step(0.5, fract((vXZ.x + vXZ.y) * 1.5));
+          vec3 tg = vPaint.x < 0.0 ? vec3(1.0, 0.25, 0.2) : vec3(0.3, 1.0, 0.3), tc = vPaint.y > 0.0 ? vec3(0.3, 0.5, 1.0) : vec3(1.0, 0.9, 0.2);
+          diffuseColor.rgb = mix(diffuseColor.rgb, tg, min(1.0, abs(vPaint.x)) * 0.5 * st);
+          diffuseColor.rgb = mix(diffuseColor.rgb, tc, min(1.0, abs(vPaint.y)) * 0.5 * (1.0 - st));
+        }`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
         totalEmissiveRadiance += vec3(1.4, 0.4, 0.08) * fld.g * 0.7;
         totalEmissiveRadiance += diffuseColor.rgb * lampGlow(vXZ) * 2.6;   // 뒷등 빛을 받은 땅
@@ -529,15 +627,15 @@ const BOARD_RIM = [];   // 지형 윗면 둘레 점 (각도가 줄어드는 순�
   if ((N - 1) % TS) TS = 1;
   const M = (N - 1) / TS + 1, vid = new Int32Array(M * M).fill(-1), inside = new Uint8Array(M * M);
   for (let b = 0; b < M; b++) for (let a = 0; a < M; a++) inside[b * M + a] = inBoard(-HALF + a * TS * STEP, -HALF + b * TS * STEP) ? 1 : 0;
-  const P = [], C = [], R = [], K = [], L = [], idx = [];
+  const P = [], C = [], R = [], K = [], L = [], E = [], idx = [];
   const vert = (a, b) => {
     const k = b * M + a;
     if (vid[k] < 0) {
       let j = b * TS * N + a * TS, x = -HALF + a * TS * STEP, z = -HALF + b * TS * STEP, y;
-      if (inside[k]) y = pos.getY(j);
+      if (inside[k]) { y = pos.getY(j); TERR.vid[j] = P.length / 3; }
       else { const f = BOARD_AP / boardD(x, z); x *= f; z *= f; y = heightAt(x, z); j = gridIndex(x, z); BOARD_RIM.push({ x, z, y, a: Math.atan2(z, x) }); }
       vid[k] = P.length / 3;
-      P.push(x, y, z); C.push(col[j * 3], col[j * 3 + 1], col[j * 3 + 2]); R.push(road[j]); K.push(creek[j * 2], creek[j * 2 + 1]); L.push(cliff[j]);
+      P.push(x, y, z); C.push(col[j * 3], col[j * 3 + 1], col[j * 3 + 2]); R.push(road[j]); K.push(creek[j * 2], creek[j * 2 + 1]); L.push(cliff[j]); E.push(paint[j * 2], paint[j * 2 + 1]);
     }
     return vid[k];
   };
@@ -553,9 +651,10 @@ const BOARD_RIM = [];   // 지형 윗면 둘레 점 (각도가 줄어드는 순�
   tgeo.setAttribute('aRoad', new THREE.Float32BufferAttribute(R, 1));
   tgeo.setAttribute('aCreek', new THREE.Float32BufferAttribute(K, 2));
   tgeo.setAttribute('aCliff', new THREE.Float32BufferAttribute(L, 1));
+  tgeo.setAttribute('aPaint', new THREE.Float32BufferAttribute(E, 2));
   tgeo.setIndex(idx); tgeo.computeVertexNormals();
   geo.dispose();
-  { const m = new THREE.Mesh(tgeo, mat); m.userData.noOutline = true; scene.add(m); }   // 땅은 외곽선 없음
+  { const m = new THREE.Mesh(tgeo, mat); m.userData.noOutline = true; scene.add(m); TERR.mesh = m; TERR.geo = tgeo; }   // 땅은 외곽선 없음
 }
 
 // 디오라마 단면 (지층 3단): 위 겉흙 / 가운데 흙(자갈·잔뿌리) / 아래 암반(바위). 디테일은 단면 텍스처 두 장에 그려 둔다

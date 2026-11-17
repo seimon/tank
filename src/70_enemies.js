@@ -800,14 +800,14 @@ function updateEnemies(dt) {
 
 // 고른 성장 목록 (설정 메뉴 버튼): 고른 순서대로, 이름은 레어도 색
 function drawPickLog() {   // 성장 초기화가 이 부분보다 먼저 불리므로 요소는 그때그때 찾는다
-  const pickLogEl = document.getElementById('pickLog');
+  const pickLogEl = $el('pickLog');
   if (pickLogEl.style.display === 'none') return;
   const list = tank.pickLog || [];
   pickLogEl.innerHTML = list.length ? list.map((c, i) => `<div>${i + 1}. <span style="color:${GC.rarity[c.u.rarity].color}">${c.label}</span> <span style="opacity:.6">${c.desc}</span></div>`).join('') : '<div style="opacity:.6">아직 고른 것이 없어요</div>';
 }
-document.getElementById('gLog').onclick = (e) => { const pickLogEl = document.getElementById('pickLog'); pickLogEl.style.display = pickLogEl.style.display === 'none' ? '' : 'none'; drawPickLog(); e.target.blur(); };
+$el('gLog').onclick = (e) => { const pickLogEl = $el('pickLog'); pickLogEl.style.display = pickLogEl.style.display === 'none' ? '' : 'none'; drawPickLog(); e.target.blur(); };
 // 설정 메뉴: 내 탱크 좌표 (m)와 바라보는 방향 (°. 0 = +z, 90 = +x). 메뉴가 열려 있을 때만 0.2초마다
-const tankPosEl = document.getElementById('tankPos');
+const tankPosEl = $el('tankPos');
 let tankPosT = 0;
 function updateTankPos(dt) {
   if ((tankPosT -= dt) > 0 || hudEl.style.display !== 'block') return;
@@ -818,7 +818,7 @@ function updateTankPos(dt) {
   tankPosEl.textContent = `{ x: ${tank.pos.x.toFixed(1)}, z: ${tank.pos.z.toFixed(1)}, yaw: ${yaw} }`;
 }
 // 대미지 플로터 (적 AI 표시를 켰을 때): 맞은 자리 위로 떠오르며 사라지는 한 줄. 최종 대미지 = 원래 대미지 × (1 - 방어력) × 장갑 강화, 소수점 버림
-const dmgEl = document.getElementById('dmgFloat'), floaters = [];
+const dmgEl = $el('dmgFloat'), floaters = [];
 const FACE_KO = { front: '정면', side: '측면', rear: '후면', top: '상단', bottom: '하단' };
 const fmtN = (v) => String(Math.round(v * 100) / 100);
 function addFloater(p, up, txt, col, key) {   // key: 같은 대상에 잇달아 뜨면 위로 한 줄씩 쌓는다
@@ -856,10 +856,10 @@ function updateFloaters(dt) {
 let aiShow = false;
 const aiLines = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x7fe8ff, fog: false, depthTest: false, transparent: true, opacity: 0.8 }));
 aiLines.frustumCulled = false; aiLines.renderOrder = 6; aiLines.visible = false; scene.add(aiLines);
-const aiTagsEl = document.getElementById('aiTags'), aiTagPool = [];
+const aiTagsEl = $el('aiTags'), aiTagPool = [];
 const AI_MODE = { explore: '정찰', chase: '쫓아가기', harass: '맴돌며 사격', search: '놓친 자리 찾기', detour: '막혀서 비켜 가는 중', kit: '수리 도구 줍기', repairSafe: '수리 보급품 깨기', flee: '도망', flank: '옆으로 돌아 들어가기', attack: '공격',
   search: '놓친 곳 찾아가기', look: '두리번', defend: '벙커 지원', gold: '골드 줍기', prowl: '기척 쪽으로 접근', hunt: '골드 보급품 사냥', wander: '배회', aim: '포격 조준', reload: '포격 장전', idle: '대기' };
-document.getElementById('aiBtn').onclick = (e) => { aiShow = !aiShow; e.target.textContent = aiShow ? '적 AI 표시 켜짐' : '적 AI 표시 꺼짐'; e.target.blur(); };
+$el('aiBtn').onclick = (e) => { aiShow = !aiShow; e.target.textContent = aiShow ? '적 AI 표시 켜짐' : '적 AI 표시 꺼짐'; e.target.blur(); };
 function updateAiView() {
   aiLines.visible = aiShow;
   if (!aiShow) { for (const d of aiTagPool) d.style.display = 'none'; return; }

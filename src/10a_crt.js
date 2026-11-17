@@ -171,9 +171,9 @@ const crtMat = new THREE.ShaderMaterial({
 const crtQuad = (m) => { const s = new THREE.Scene(); s.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), m)); return s; };
 const crtCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 const crtCompScene = crtQuad(crtCompMat), crtPrepScene = crtQuad(crtPrepMat), crtScene = crtQuad(crtMat);
-const CRT_TITLE = ['tCall', 'tLogo', 'tBrand', 'tBadge', 'tVer', 'tPress', 'tCamo'].map((id) => document.getElementById(id)).filter(Boolean);
+const CRT_TITLE = ['tCall', 'tLogo', 'tBrand', 'tBadge', 'tVer', 'tPress', 'tCamo'].map((id) => $el(id)).filter(Boolean);
 for (const c of CRT_TITLE) CRT_LAYER.add(c);
-const crtLoadCv = document.getElementById('loadCv');
+const crtLoadCv = $el('loadCv');
 if (crtLoadCv) { CRT_LAYER.add(crtLoadCv); crtLoadCv._crtHi = true; }   // 로딩 화면이 사라지는 동안 (fadeLoading)
 const _crtRes = new THREE.Vector2();
 let crtKeyLo = '', crtKeyHi = '', crtReady = false;
@@ -192,7 +192,7 @@ function crtSize(W, H) {
 function crtLayers(W, H) {
   // 아래 묶음(HUD·대미지 숫자·타이틀 = A 보통·B 더하기)과 위 묶음(UI 창·선택지·로딩·나가기 덮개 = C·D)을 따로: 바뀐 묶음만 다시 그리고 올린다
   // (예전엔 무엇 하나만 바뀌어도 네 장을 다 다시 그려 올렸다. HUD는 거의 매 프레임 바뀌어 아이패드에서 크게 느렸다)
-  const pdmg = document.getElementById('pdmg'), showT = crtVis(document.getElementById('title')), ld = document.getElementById('loading');
+  const pdmg = $el('pdmg'), showT = crtVis($el('title')), ld = $el('loading');
   let kLo = `${W},${H},${showT},${HC.blend},${DTC.blend},`, kHi = `${W},${H},${pui.style.mixBlendMode},${ld ? 'L' : ''}${crtLeave ? 'X' : ''},`;
   for (const el of [phudS, phud, pdmg, ...CRT_TITLE]) kLo += crtVis(el) ? 1 : 0;
   for (const el of [puiS, pui]) kHi += crtVis(el) ? 1 : 0;

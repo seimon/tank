@@ -4,9 +4,9 @@
 // 타이틀 동안 적은 움직이지 않고, HUD·조준선은 숨긴다
 let titleState = titleK >= 1 ? 'play' : 'title', titleT = 0, titleWait = 0;   // titleWait: 타이틀이 보인 뒤 흐른 시간 (로딩 화면이 걷힌 뒤부터)
 const TITLE_DELAY = TT.inputDelay ?? 2;   // 이 시간이 지나야 아무 키나 눌러 시작할 수 있다
-const titleEl = document.getElementById('title');
+const titleEl = $el('title');
 const easeInOutCubic = (t) => t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
-function showPlayHud(v) { for (const id of ['phud', 'phudS', 'touchUI']) document.getElementById(id).style.visibility = v ? '' : 'hidden'; }
+function showPlayHud(v) { for (const id of ['phud', 'phudS', 'touchUI']) $el(id).style.visibility = v ? '' : 'hidden'; }
 // HUD는 게임이 시작되고 hud.showDelay초 뒤에, 피해 입을 때와 같은 치지직과 함께 나타난다
 let hudRevealT = titleState === 'play' ? CFG.hud?.showDelay ?? 3 : -1;
 showPlayHud(false);
@@ -34,8 +34,8 @@ function goTitle() {
 }
 // 설정 메뉴 '적 AI 정지': 모든 적이 그 자리에 멈춘다 (움직임·사격·증원 모두. 떨어지던 것은 마저 떨어진다)
 let aiFrozen = false;
-function setAiFrozen(on) { aiFrozen = on; document.getElementById('aiStopBtn').textContent = on ? '적 AI 정지 켜짐' : '적 AI 정지 꺼짐'; }   // 버튼 글자도 같이
-document.getElementById('aiStopBtn').onclick = (e) => { setAiFrozen(!aiFrozen); e.target.blur(); };
+function setAiFrozen(on) { aiFrozen = on; $el('aiStopBtn').textContent = on ? '적 AI 정지 켜짐' : '적 AI 정지 꺼짐'; }   // 버튼 글자도 같이
+$el('aiStopBtn').onclick = (e) => { setAiFrozen(!aiFrozen); e.target.blur(); };
 function updateHudReveal(dt) { if (hudRevealT >= 0 && (hudRevealT -= dt) < 0) hudRevealT = -1; }
 // HUD를 켤지: 시작 뒤 showDelay초가 지났고, 가운데 창이 떠 있지 않을 때. 켜질 때마다 피해 입을 때처럼 치지직하며 나타난다
 let hudOn = false, hudOffAt = 0, hudWaitLand = false;   // hudWaitLand: 재출격해서 떨어지는 중 (착지하면 HUD)   // hudOffAt: 이 시각(ms)에 HUD를 끈다 (끄기 전에 치지직)
@@ -142,11 +142,11 @@ function titleWipe(c) {
   const r = c.getBoundingClientRect(), H = c._src.height;
   sharpBlit(c, ditherWipe(c._src, titleFadeF, (y) => 1 - (r.top + y / H * r.height) / innerHeight), c._css[0], c._css[1]);
 }
-const tPressEl = document.getElementById('tPress'), tCamoEl = document.getElementById('tCamo');
+const tPressEl = $el('tPress'), tCamoEl = $el('tCamo');
 tCamoEl.style.visibility = 'hidden';
 function updateTitle(dt) {
   if (titleState === 'title') {   // PRESS ANY KEY: 입력을 받기 시작할 때 나타나 깜빡인다
-    if (!document.getElementById('loading')) titleWait += dt;
+    if (!$el('loading')) titleWait += dt;
     const t = titleWait - TITLE_DELAY;
     tPressEl.style.visibility = t >= 0 && (titleBtnHot || t % 1.1 < 0.72) ? '' : 'hidden';   // 시작 버튼은 깜빡인다 (마우스를 올리면 멈춤)
     tCamoEl.style.visibility = t >= 0 ? '' : 'hidden';   // 키 안내는 깜빡이지 않는다
@@ -162,7 +162,7 @@ function updateTitle(dt) {
     if (q !== titleFadeQ) {
       titleFadeQ = q; titleFadeF = f; titleFadeTh = Math.min(16, Math.floor(f * 16));
       if (f >= 1) titleEl.style.display = 'none';
-      else for (const id of ['tLogo', 'tBrand', 'tBadge', 'tVer', 'tPress', 'tCamo']) titleWipe(document.getElementById(id));
+      else for (const id of ['tLogo', 'tBrand', 'tBadge', 'tVer', 'tPress', 'tCamo']) titleWipe($el(id));
     }
   }
   titleK = easeInOutCubic(titleT); applyEnv();
@@ -238,7 +238,7 @@ function titleCamEnd() {
 }
 
 // ---------------------------------------------------------------- 루프
-const statsEl = document.getElementById('stats');
+const statsEl = $el('stats');
 const clock = new THREE.Clock();
 let frames = 0, acc = 0, physAcc = 0, fieldAcc = 0, lastDt = 0, uiDt = 0, grayK = 0;
 const _shake = new THREE.Vector3();

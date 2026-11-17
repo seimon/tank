@@ -82,8 +82,8 @@
   body.crt #loading { background: transparent !important; }
   .ver { color: #e8dcc0; opacity: .6; font: 12px monospace; }
 </style>
-<!-- 사용자가 고치는 파일(config.js·map.js·decals.js)은 브라우저 캐시를 거치지 않게 매번 다른 주소로 읽는다 (아이패드 사파리가 예전 config.js를 계속 쓰던 문제). document.write라 순서대로 바로 실행된다 -->
-<script>for (const f of ['config.js', 'map.js', 'decal_images.js', 'title_images.js', 'supply_images.js', 'decals.js']) document.write(`<script src="${f}?v=${Date.now()}"><\/script>`);</script>
+<!-- 사용자가 고치는 파일(config.js·map.js·terrain.js·decals.js)은 브라우저 캐시를 거치지 않게 매번 다른 주소로 읽는다 (아이패드 사파리가 예전 config.js를 계속 쓰던 문제). document.write라 순서대로 바로 실행된다 -->
+<script>for (const f of ['config.js', 'map.js', 'terrain.js', 'decal_images.js', 'title_images.js', 'supply_images.js', 'decals.js']) document.write(`<script src="${f}?v=${Date.now()}"><\/script>`);</script>
 <script src="fonts/galmuri11c.js"></script>
 <script type="importmap">
 { "imports": {
@@ -108,9 +108,9 @@
   <div id="hudBody">
   <div>내 탱크 <b id="tankPos">-</b> <span style="opacity:.6">(config.js player.start와 같은 형식)</span></div>
   <div>해상도 <select id="res"><option>180</option><option>240</option><option selected>300</option><option>360</option><option>420</option><option value="max">최대</option></select>
-       <button id="aaBtn">AA 꺼짐</button> <button id="ppBtn">Pixel Perfect 꺼짐</button> <button id="olBtn">외곽선 꺼짐</button> <button id="vfBtn">복셀 안개 꺼짐</button> <button id="grassBtn">풀: 텍스처2 (이삭 풀)</button> <button id="cbox">충돌박스</button> <button id="touchBtn">터치 버튼 꺼짐</button>
+       <button id="aaBtn">AA 꺼짐</button> <button id="ppBtn">Pixel Perfect 꺼짐</button> <button id="olBtn">외곽선 꺼짐</button> <button id="rimBtn">림 라이트 꺼짐</button> <button id="toonBtn">카툰 명암 꺼짐</button> <button id="vfBtn">복셀 안개 꺼짐</button> <button id="grassBtn">풀: 텍스처2 (이삭 풀)</button> <button id="cbox">충돌박스</button> <button id="touchBtn">터치 버튼 꺼짐</button>
        <button id="camModeBtn">시점: 포탑 방향</button></div>
-  <div><button id="mapEditBtn">맵 편집 모드</button> <button id="decalEditBtn">데칼 편집 모드</button> <button id="mapBtn">맵 셋팅</button></div>
+  <div><button id="mapEditBtn">맵 편집 모드</button> <button id="terrEditBtn">지형 편집 모드</button> <button id="decalEditBtn">데칼 편집 모드</button> <button id="mapBtn">맵 셋팅</button></div>
   <div class="wg">
     <span><span>비</span><input id="rainA" type="range" min="0" max="2" step="0.05" value="0"><span><b id="rainAV">0.00</b></span></span>
     <span><span>모래</span><input id="sandA" type="range" min="0" max="2" step="0.05" value="0"><span><b id="sandAV">0.00</b> <input id="sandC" type="color" value="#c8a070"></span></span>
@@ -148,7 +148,7 @@
 </div>
 <script>
   // 버전·빌드 시각: 여기 한 곳만 고치면 로딩 화면과 설정 메뉴에 같이 나온다
-  const VERSION = '0.8.088', BUILD = '2026-11-13', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
+  const VERSION = '0.8.096', BUILD = '2026-11-17', BUILD_TXT = `버전 ${VERSION} · 빌드 ${BUILD}`;   // 작업할 때마다 0.0.001씩 (끝자리 세 자리). 타이틀 화면에도 (HUD 글꼴)
   for (const e of document.querySelectorAll('.ver')) e.textContent = BUILD_TXT;
 </script>
 <canvas id="perfHud" style="display:none"></canvas>
@@ -172,6 +172,14 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { DecalGeometry } from 'three/addons/geometries/DecalGeometry.js';
+// ---------------------------------------------------------------- 개발판(dev.html) · 배포판(index.html)
+// build.py가 배포판에서 DEV를 false로 바꾸고, 개발용 파일(첫 줄 @dev-file: 맵·데칼·지형 편집)을 뺀다 (그 파일의 //@release 줄만 남긴다).
+// 배포판에서는 설정 메뉴(#hud)를 문서에서 떼어 둔다: 메뉴를 찾는 코드는 $el로 그대로 돌지만 화면·콘솔에서는 닿지 않는다. 디버그 묶음 DBG도 window.dbg로 내놓지 않는다
+const DEV = false;
+const DBG = {}; if (DEV) window.dbg = DBG;
+const DEV_OFF = DEV ? null : document.createElement('div');
+if (DEV_OFF) for (const id of ['hud', 'hudGrip']) { const e = document.getElementById(id); if (e) DEV_OFF.append(e); }
+const $el = (id) => document.getElementById(id) || (DEV_OFF && DEV_OFF.querySelector('#' + id));
 // ---------------------------------------------------------------- 도트 글꼴 · 2D 늘리기 (로딩 화면부터 쓴다)
 // 글자: 5x7 고정폭 (한 글자 6칸). 일곱 줄, 줄마다 다섯 칸을 비트로 (16 = 왼쪽 끝 … 1 = 오른쪽 끝)
 const FONT = {
@@ -311,14 +319,14 @@ function sharpBlit(dst, src, cssW, cssH) {
 // 게임 화면처럼 300줄 해상도 캔버스에 HUD 글꼴·게이지로 그리고 샤프 바이리니어로 창에 늘린다 (영어만)
 let loadLabel = 'LOADING...', loadK = 0;
 const loadImg0 = new Image();   // 로딩 그림 (그림이 없거나 못 읽어도 로딩은 그대로)
-loadImg0.onload = () => { if (document.getElementById('loading')) drawLoading(); };
+loadImg0.onload = () => { if ($el('loading')) drawLoading(); };
 // images/*.png는 build.py가 title_images.js에 data URL로도 담는다: file://로 열면 PNG 파일을 그린 캔버스가 '오염'돼 WebGL(CRT 표현)로 못 올리기 때문
 const imgSrc = (p) => (window.TITLE_IMAGES || {})[p.replace(/^images\//, '').replace(/\.png$/, '')] || p;
 loadImg0.src = imgSrc('images/loading_tank.png');
 function drawLoading() {
-  const cv = document.getElementById('loadCv');
+  const cv = $el('loadCv');
   if (!cv || !innerWidth || !innerHeight) return;
-  let cr = crtOn ? document.getElementById('c').getBoundingClientRect() : null;   // CRT면 게임 화면 자리에 맞춰
+  let cr = crtOn ? $el('c').getBoundingClientRect() : null;   // CRT면 게임 화면 자리에 맞춰
   if (!cr || cr.width < 2 || cr.height < 2) cr = { width: innerWidth, height: innerHeight };
   let H = 300, W = Math.round(H * cr.width / cr.height);   // 세로 300줄. 창이 아주 좁으면 가로 200칸에 맞춰 세로를 늘린다 (픽셀은 늘 정사각형)
   if (W < 200) { W = 200; H = Math.round(W * cr.height / cr.width); }
@@ -452,6 +460,8 @@ const U = {
   // 하늘에서 비추는 원형 빛 (조준 폭발 범위, 자주포 포격 예고): 0 = x, z, 반경, 세기(0이면 꺼짐) / 1 = 색 rgb
   uRing0: { value: Array.from({ length: RING_N }, () => new THREE.Vector4()) },
   uRing1: { value: Array.from({ length: RING_N }, () => new THREE.Vector4()) },
+  // 카툰 명암 (config toon): 빛 받는 정도(dotNL)를 단계로 끊는다. 물체 세기, 땅 세기, 단계 수, 경계 폭, 가장 어두운 단계 밝기
+  uToon: { value: 0 }, uToonG: { value: 0 }, uToonN: { value: 2 }, uToonS: { value: 0.02 }, uToonD: { value: 0 },
 };
 // 탱크·보급품 밑의 부드러운 둥근 사각형 그림자. 지면과 풀 셰이더가 같은 식으로 어둡게 한다 (겹친 면이 없어 z-fighting 없음)
 const SHADOW_GLSL = `
@@ -524,6 +534,16 @@ const SNAP = 'gl_Position.xy = floor(gl_Position.xy / gl_Position.w * uSnap + 0.
 // PS1_NOSNAP이 켜진 동안 만든 재질은 스내핑하지 않는다 (탱크: AO를 굽느라 잘게 나눈 삼각형이 제각각 끌려가
 // 리벳·얼룩이 일그러져 떨리고 가는 삼각형이 뒤집혀 겹쳐 보였다)
 let PS1_NOSNAP = false;
+const TOON_NL = 'float dotNL = saturate( dot( geometryNormal, directLight.direction ) );';
+if (!THREE.ShaderChunk.lights_lambert_pars_fragment.includes(TOON_NL)) console.warn('[카툰] three.js 빛 계산 줄을 찾지 못함');
+const TOON_GLSL = `uniform float uToon, uToonG, uToonN, uToonS, uToonD;
+float toonNL(float x, float k) {
+  if (k <= 0.0) return x;
+  float b = 0.0;
+  for (int i = 1; i <= 6; i++) { if (float(i) > uToonN) break; float t = float(i) / (uToonN + 1.0); b += smoothstep(t - uToonS, t + uToonS, x); }
+  return mix(x, mix(uToonD, 1.0, b / uToonN), k);
+}
+`;
 function ps1(mat, extra, key) {
   const snap = !PS1_NOSNAP;
   mat.onBeforeCompile = function (sh) {   // this = 컴파일되는 재질 (복제본도 같은 함수를 쓴다)
@@ -534,6 +554,14 @@ function ps1(mat, extra, key) {
         (lit ? '\n{ vec4 rw = vec4(transformed, 1.0);\n#ifdef USE_INSTANCING\nrw = instanceMatrix * rw;\n#endif\nvRingW = (modelMatrix * rw).xyz; }' : ''));
     if (extra) extra.call(this, sh);   // (this = 컴파일되는 재질: 재질마다 다른 uniform을 쓸 때)
     if (lit) {
+      // 카툰 명암: 주광·폭발 빛의 dotNL만 단계로 (반구광·발광·그늘은 그대로). 값만 바뀌니 켜고 끌 때 다시 컴파일하지 않는다
+      const tk = this && this.userData.noOcc ? 'uToonG' : 'uToon';
+      for (const k of ['uToon', 'uToonG', 'uToonN', 'uToonS', 'uToonD']) sh.uniforms[k] = U[k];
+      for (const c of ['lights_lambert_pars_fragment', 'lights_phong_pars_fragment']) {
+        const inc = '#include <' + c + '>';
+        if (sh.fragmentShader.includes(inc)) sh.fragmentShader = sh.fragmentShader.replace(inc, THREE.ShaderChunk[c].replace(TOON_NL, 'float dotNL = toonNL(saturate( dot( geometryNormal, directLight.direction ) ), ' + tk + ');'));
+      }
+      sh.fragmentShader = TOON_GLSL + sh.fragmentShader;
       sh.uniforms.uRing0 = U.uRing0; sh.uniforms.uRing1 = U.uRing1;
       sh.fragmentShader = RING_GLSL + 'varying vec3 vRingW;\n' + sh.fragmentShader.replace('#include <emissivemap_fragment>',
         '#include <emissivemap_fragment>\ntotalEmissiveRadiance += ringGlow(vRingW.xz) * (diffuseColor.rgb * 1.6 + 0.12);');
@@ -610,14 +638,81 @@ function updateFadeIns(dt) {
 }
 // 외곽선 대상: 레이어 1에 올린 불투명 물체 (땅·풀·물·돌·파티클·데칼·조준 표시는 userData.noOutline이나 투명이라 빠짐).
 // 외곽선을 켜면 이 레이어만 깊이로 한 번 더 그려서, 깊이가 크게 끊기는 가장자리에 1픽셀 선을 긋는다
-const OUTLINE_LAYER = 1;
+// 정점 셰이더로 움직이는 물체(전봇대 흔들림)는 깊이 재질(olMat)로는 움직임이 빠지므로, 자기 깊이 재질(userData.olMat)을 가진 것은 레이어 4에 따로 두고 그 재질로 한 번 더 그린다 (OL_OWN, 90_loop.js)
+const OUTLINE_LAYER = 1, OUTLINE_OWN = 4, OL_OWN = [];
 function markOutline(root) {
-  root.traverse((o) => { if (o.isMesh && !o.userData.noOutline && o.material && !o.material.transparent && !o.material.isShaderMaterial) o.layers.enable(OUTLINE_LAYER); });
+  root.traverse((o) => {
+    if (!(o.isMesh && !o.userData.noOutline && o.material && !o.material.transparent && !o.material.isShaderMaterial)) return;
+    if (o.userData.olMat) { o.layers.enable(OUTLINE_OWN); if (!OL_OWN.includes(o)) OL_OWN.push(o); }
+    else o.layers.enable(OUTLINE_LAYER);
+  });
   return root;
 }
 
 await loadStep(0.04, 'SHAPING TERRAIN...');
 // ===== src/10_world.js =====
+// ---------------------------------------------------------------- 지형 고친 값 (terrain.js의 window.TERRAIN_DATA, 지형 편집 모드가 만든다: 87_terrain_editor.js)
+// 코드가 만드는 지형은 그대로 두고 고친 만큼만 겹친다. 지형 격자(N×N, 0.5m)마다:
+//   h = 높이 차이(m, 기본 높이에 더한다. 길·시냇물 높이도 그 땅을 따라간다), grass = 풀(0 자동·1 없음·2 있음), cliff = 절벽(0 자동·1 절벽으로·2 절벽 아님), road = 도로 칠(0~255)
+//   creek = 시냇물 줄기 { x0, step, dz: 손잡이마다 z 어긋남(m), w: 폭 배율 } (x 방향 step m마다 손잡이, 사이는 부드럽게)
+// 자동 배치(상자·나무 등)는 원래 도로·시냇물 거리로 판정한다 (도로·풀·절벽 칠은 배치를 바꾸지 않는다). 시냇물 줄기를 옮기면 그 근처 배치는 바뀔 수 있다.
+// 파일 안 배열은 '0 줄임 + 지그재그 가변 길이 정수'를 base64로 (tdPack/tdUnpack). 개발판은 편집하다 적용한 초안(localStorage)이 있으면 그것을 먼저 쓴다
+const TD_KEY = 'MightyMolly.terrainDraft', TD_CREEK_X0 = -90, TD_CREEK_STEP = 10, TD_CREEK_N = 19;
+function tdPack(arr) {   // 정수 배열 → 문자열
+  const out = [];
+  const vu = (v) => { while (v > 127) { out.push((v & 127) | 128); v = Math.floor(v / 128); } out.push(v); };
+  for (let i = 0; i < arr.length;) {
+    let j = i;
+    if (!arr[i]) { while (j < arr.length && !arr[j]) j++; vu((j - i) * 2); }
+    else { while (j < arr.length && arr[j] && j - i < 1e6) j++; vu((j - i) * 2 + 1); for (let k = i; k < j; k++) { const v = Math.round(arr[k]); vu(v < 0 ? -v * 2 - 1 : v * 2); } }
+    i = j;
+  }
+  let s = ''; for (let i = 0; i < out.length; i += 8192) s += String.fromCharCode.apply(null, out.slice(i, i + 8192));
+  return btoa(s);
+}
+function tdUnpack(str, arr) {   // 문자열 → 정수 배열 (arr에 채운다. 잘못된 값이면 그대로 둔다)
+  if (!str) return arr;
+  try {
+    const b = atob(str); let p = 0, i = 0;
+    const vu = () => { let v = 0, m = 1, c; do { c = b.charCodeAt(p++); v += (c & 127) * m; m *= 128; } while (c & 128); return v; };
+    while (p < b.length && i < arr.length) {
+      const k = vu(), n = Math.floor(k / 2);
+      if (!(k & 1)) i += n;
+      else for (let t = 0; t < n && i < arr.length; t++) { const v = vu(); arr[i++] = v & 1 ? -(v + 1) / 2 : v / 2; }
+    }
+  } catch (e) { console.warn('[지형] 고친 값을 읽지 못했어요', e); }
+  return arr;
+}
+const TD = (() => {
+  let src = window.TERRAIN_DATA || null, draft = false;
+  if (DEV) try {
+    const d = JSON.parse(localStorage.getItem(TD_KEY) || 'null');
+    if (d && JSON.stringify(d) === JSON.stringify(src)) localStorage.removeItem(TD_KEY);   // 파일에 붙여 넣은 것과 같으면 초안은 버린다
+    else if (d) { src = d; draft = true; console.log('[지형] 편집 초안(브라우저에 저장된 것)을 쓰는 중'); }
+  } catch (_) {}
+  const NN = N * N, hc = tdUnpack(src?.h, new Int16Array(NN)), h = new Float32Array(NN);
+  for (let i = 0; i < NN; i++) h[i] = hc[i] / 100;   // cm → m
+  const cr = src?.creek, dz = new Float32Array(TD_CREEK_N), w = new Float32Array(TD_CREEK_N).fill(1);
+  if (cr && cr.x0 === TD_CREEK_X0 && cr.step === TD_CREEK_STEP) for (let k = 0; k < TD_CREEK_N; k++) { dz[k] = +cr.dz?.[k] || 0; w[k] = +cr.w?.[k] || 1; }
+  return {
+    draft, h, dz, w,
+    grass: tdUnpack(src?.grass, new Uint8Array(NN)), cliff: tdUnpack(src?.cliff, new Uint8Array(NN)), road: tdUnpack(src?.road, new Uint8Array(NN)),
+  };
+})();
+// 시냇물 손잡이 사이 (Catmull-Rom, 끝은 늘린다)
+function tdCurve(a, x) {
+  const u = (x - TD_CREEK_X0) / TD_CREEK_STEP, i = Math.floor(u), t = u - i, at = (k) => a[Math.max(0, Math.min(TD_CREEK_N - 1, k))];
+  const p0 = at(i - 1), p1 = at(i), p2 = at(i + 1), p3 = at(i + 2);
+  return 0.5 * (2 * p1 + (p2 - p0) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t + (3 * p1 - p0 - 3 * p2 + p3) * t * t * t);
+}
+// 높이 차이 (격자 사이는 이중선형)
+function tdH(x, z) {
+  const fx = (x + HALF) / STEP, fz = (z + HALF) / STEP;
+  const ix = Math.min(N - 2, Math.max(0, Math.floor(fx))), iz = Math.min(N - 2, Math.max(0, Math.floor(fz)));
+  const tx = Math.min(1, Math.max(0, fx - ix)), tz = Math.min(1, Math.max(0, fz - iz)), i = iz * N + ix, h = TD.h;
+  return (h[i] * (1 - tx) + h[i + 1] * tx) * (1 - tz) + (h[i + N] * (1 - tx) + h[i + N + 1] * tx) * tz;
+}
+
 // ---------------------------------------------------------------- 지형
 const HILLS = [
   { x: -46, z: -45, a: 8, r: 13 }, { x: 50, z: 50, a: 9.5, r: 15 }, { x: 54, z: -42, a: 6, r: 10 },
@@ -636,6 +731,7 @@ function baseH(x, z) {
 const TOWN_H = baseH(0, 0);
 // 마을 주변은 평평하게
 const preH = (x, z) => lerp(TOWN_H, baseH(x, z), smooth(24, 36, Math.hypot(x, z)));
+const preHE = (x, z) => preH(x, z) + tdH(x, z);   // + 지형 편집으로 고친 높이 (길·시냇물·땅 모두 이것을 따른다)
 // 마을 영향 (1=마을 한가운데). 경계를 노이즈로 흔들어 정확한 원이 보이지 않게
 function townAt(x, z) {
   const n = Math.sin(x * 0.21 + 1.3) * Math.sin(z * 0.17 + 0.4) * 0.6 + Math.sin(x * 0.47 - z * 0.39 + 2.0) * 0.4;
@@ -650,7 +746,8 @@ function mainRoadX0(z) {
   return 33 * s + j;
 }
 // 다리 자리 = 원래 도로가 시냇물과 만나는 곳. 그 앞뒤로 도로를 시냇물과 수직이 되게 펴서 다리가 똑바로 건넌다
-const creekZ = (x) => 33 + 3.5 * Math.sin(x * 0.055 + 0.8) + 1.8 * Math.sin(x * 0.13 + 2.3) + 0.7 * Math.sin(x * 0.31);
+const creekZ0 = (x) => 33 + 3.5 * Math.sin(x * 0.055 + 0.8) + 1.8 * Math.sin(x * 0.13 + 2.3) + 0.7 * Math.sin(x * 0.31);
+const creekZ = (x) => creekZ0(x) + tdCurve(TD.dz, x);   // + 지형 편집으로 옮긴 만큼
 let XB_Z = 33;
 for (let k = 0; k < 40; k++) XB_Z = creekZ(mainRoadX0(XB_Z));
 const XB_X = mainRoadX0(XB_Z), XB_SLOPE = -(creekZ(XB_X + 0.5) - creekZ(XB_X - 0.5));
@@ -671,7 +768,7 @@ for (let x = -SQ - 4; x <= SQ + 4; x += 0.75) creekPoly.push({ x, z: creekZ(x) }
 
 // 길 방향으로 높이를 부드럽게
 function smoothHeights(poly, passes, win) {
-  let ys = poly.map(p => preH(p.x, p.z));
+  let ys = poly.map(p => preHE(p.x, p.z));
   for (let pass = 0; pass < passes; pass++) {
     ys = ys.map((_, i) => {
       let s = 0, c = 0;
@@ -698,7 +795,7 @@ smoothHeights(mainPoly, 4, 6); smoothHeights(branchPoly, 4, 6); smoothHeights(cr
 function creekW(x) {
   const far = smooth(4, 14, Math.abs(x - XB_X));
   const wob = 1 + (0.22 * Math.sin(x * 0.19 + 0.7) + 0.12 * Math.sin(x * 0.53 + 2.1)) * far;
-  return CREEK_HW * (1 + 3 * smooth(4, SQ - CREEK_UP * XB_X, (x - XB_X) * CREEK_UP)) * wob;
+  return CREEK_HW * (1 + 3 * smooth(4, SQ - CREEK_UP * XB_X, (x - XB_X) * CREEK_UP)) * wob * Math.max(0.3, tdCurve(TD.w, x));   // × 지형 편집 폭 배율
 }
 // 본도로와 시냇물이 만나는 곳 = 다리. 물은 다리 밑으로 충분히 낮게
 let ci = 0;
@@ -724,7 +821,7 @@ function polyExt(poly, fwd, ax, d, at, passes, win) {
   const old = fwd ? poly.slice(-H) : poly.slice(0, H).reverse();   // 끝에서 바깥 순서
   const ext = [];
   for (let k = 1; k <= Math.ceil((BOARD_R - SQ) / 0.75) + 1; k++) ext.push(at(end[ax] + d * k));
-  let ys = [...old, ...ext].map(p => preH(p.x, p.z));
+  let ys = [...old, ...ext].map(p => preHE(p.x, p.z));
   for (let pass = 0; pass < passes; pass++) ys = ys.map((_, i) => { let s = 0, c = 0; for (let k = -win; k <= win; k++) { const j = i + k; if (j >= 0 && j < ys.length) { s += ys[j]; c++; } } return s / c; });
   const off = end.y - ys[H - 1];
   ext.forEach((p, k) => p.y = ys[H + k] + off);
@@ -774,7 +871,7 @@ const creekS = new Float32Array(N * N), creekLat = new Float32Array(N * N), cree
   for (let iz = 0; iz < N; iz++) for (let ix = 0; ix < N; ix++) {
     const x = -HALF + ix * STEP, z = -HALF + iz * STEP, i = iz * N + ix;
     // 보드 밖 먼 칸(정사각 격자의 모서리)은 길·물 계산을 건너뛴다 (가장자리 보간에 쓰는 바로 바깥 칸은 계산)
-    if (x * x + z * z > (BOARD_R + 6) ** 2) { roadD[i] = 99; creekD[i] = 99; waterY[i] = -99; creekWd[i] = 0; hG[i] = preH(x, z); continue; }
+    if (x * x + z * z > (BOARD_R + 6) ** 2) { roadD[i] = 99; creekD[i] = 99; waterY[i] = -99; creekWd[i] = 0; hG[i] = preHE(x, z); continue; }
     nearestOnSegs(roadSegs, x, z, r);
     // 시냇물은 대략 z=26~42 띠 안에만 있으니 멀면 계산 생략
     if (Math.abs(z - creekZ(x)) < 28) nearestOnSegs(creekSegs, x, z, c); else { c.d = 99; c.y = -99; c.w = CREEK_HW; c.s = 0; c.side = 1; }
@@ -782,7 +879,7 @@ const creekS = new Float32Array(N * N), creekLat = new Float32Array(N * N), cree
     // 시냇물 거리는 기준 폭으로 환산 (넓은 곳은 바닥이 평평하게 넓어지고 깊이와 둑 모양은 같다)
     const cd = Math.max(0, c.d - (c.w - CREEK_HW));
     roadD[i] = r.d; creekD[i] = cd; waterY[i] = c.y;
-    let h = lerp(r.y, preH(x, z), smooth(ROAD_HW + 0.6, ROAD_HW + 4.5, r.d));
+    let h = lerp(r.y, preHE(x, z), smooth(ROAD_HW + 0.6, ROAD_HW + 4.5, r.d));
     if (cd < 30) {
       // 도로가 지나는 곳은 둑을 가파르게 (다리 받침)
       const bankW = lerp(1.4, 4, smooth(ROAD_HW + 1, ROAD_HW + 6, r.d));
@@ -804,12 +901,19 @@ const creekS = new Float32Array(N * N), creekLat = new Float32Array(N * N), cree
   BRIDGE.endA = hAt(-BRIDGE.hl) - 0.12; BRIDGE.endB = hAt(BRIDGE.hl) - 0.12;
   BRIDGE.top = Math.max(BRIDGE.endA, BRIDGE.endB, BRIDGE.roadY) + 0.9;
 }
+// 보이는 도로 거리: 지형 편집으로 칠한 도로까지 (땅 색·풀·절벽만. 자동 배치는 원래 roadD로 판정해 자리가 바뀌지 않게)
+const roadVisAt = (i) => { const p = TD.road[i]; return p ? Math.min(roadD[i], (1 - p / 255) * (ROAD_HW + 1.2)) : roadD[i]; };
+const roadDV = new Float32Array(N * N);
+for (let i = 0; i < N * N; i++) roadDV[i] = roadVisAt(i);
 // 절벽: 경사가 심한 곳은 풀 없이 바위 벽으로 (0~1)
-const cliffG = new Float32Array(N * N);
-for (let iz = 1; iz < N - 1; iz++) for (let ix = 1; ix < N - 1; ix++) {
-  const i = iz * N + ix, gx = (hG[i + 1] - hG[i - 1]) / (2 * STEP), gz = (hG[i + N] - hG[i - N]) / (2 * STEP);
-  cliffG[i] = smooth(0.62, 0.95, Math.hypot(gx, gz)) * smooth(ROAD_HW + 0.3, ROAD_HW + 1.2, roadD[i]);
+const cliffG = new Float32Array(N * N), cliffKeep = new Uint8Array(N * N);   // cliffKeep = 자동 판정에서 남은 곳 (지형 편집 미리보기용)
+function cliffRawAt(i) {   // 경사만 본 값 (격자 가장자리는 0)
+  const ix = i % N, iz = (i / N) | 0;
+  if (ix < 1 || iz < 1 || ix > N - 2 || iz > N - 2) return 0;
+  const gx = (hG[i + 1] - hG[i - 1]) / (2 * STEP), gz = (hG[i + N] - hG[i - N]) / (2 * STEP);
+  return smooth(0.62, 0.95, Math.hypot(gx, gz)) * smooth(ROAD_HW + 0.3, ROAD_HW + 1.2, roadDV[i]);
 }
+for (let i = 0; i < N * N; i++) cliffG[i] = cliffRawAt(i);
 // 큰 절벽(시작 지점 근처, 강 옆)만 남기고 자잘한 것은 그냥 풀 덮인 경사면으로. 이어진 덩어리 단위로 판단
 const cliffNear = new Uint8Array(N * N);   // 강가 절벽 발치: 절벽과 강 사이 좁은 땅 (풀 없음)
 {
@@ -829,6 +933,12 @@ const cliffNear = new Uint8Array(N * N);   // 강가 절벽 발치: 절벽과 �
     let big = 0;
     for (const i of comp) if (cliffG[i] > 0.2) big++;
     if (!(near && big >= 150)) for (const i of comp) cliffG[i] = 0;
+  }
+  // 지형 편집 칠: 1 = 이 경사를 절벽으로 (덩어리 크기와 상관없이), 2 = 절벽 아님
+  for (let i = 0; i < N * N; i++) {
+    cliffKeep[i] = cliffG[i] > 0 ? 1 : 0;
+    const p = TD.cliff[i];
+    if (p === 1) cliffG[i] = cliffRawAt(i); else if (p === 2) cliffG[i] = 0;
   }
   for (let i = 0; i < N * N; i++) {
     if (cliffG[i] < 0.2 || creekD[i] > CREEK_HW + 8) continue;
@@ -916,7 +1026,7 @@ function forCells(x, z, r, fn) {
 
 await loadStep(0.12, 'SHAPING TERRAIN...');
 // ---------------------------------------------------------------- 씬
-const canvas = document.getElementById('c');
+const canvas = $el('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
 renderer.setPixelRatio(1);
 const scene = new THREE.Scene();
@@ -966,7 +1076,7 @@ const controls = new OrbitControls(camera, canvas);
 controls.target.set(0, TOWN_H, 0);
 controls.enableDamping = true;
 controls.minDistance = 8; controls.maxDistance = 70; controls.maxPolarAngle = 1.52;   // (거리 범위는 카메라 모드가 정한다: camLimits)
-window.dbg = { camera, controls };
+Object.assign(DBG, { camera, controls });
 
 // 궤도 자국: 위에서 내려다본 2048² 마스크에 궤도판 무늬를 GPU로 찍고, 조금씩 빼서 30초에 걸쳐 지운다
 const trackRT = new THREE.WebGLRenderTarget(2048, 2048, {
@@ -1014,7 +1124,10 @@ const hemi = new THREE.HemisphereLight(0x7d8aac, 0x4a3a2a, 1.5);
 scene.add(hemi);
 // 낮게 비스듬히 비추는 달: 비탈마다 명암 차가 커져 지형 굴곡이 드러난다
 const moon = new THREE.DirectionalLight(MAP0.moonColor, MAP0.moon);
-moon.position.set(-70, 38, -45);
+{ // config map.moonDir (북 = +z, 동 = -x, 화면 나침반과 같다). 기본값 = 예전 자리 (-70, 38, -45)
+  const md = CFG.map.moonDir || {}, az = (md.azimuth ?? 122.7) * Math.PI / 180, el = (md.elevation ?? 24.5) * Math.PI / 180, R = 91.5;
+  moon.position.set(-Math.sin(az) * Math.cos(el) * R, Math.sin(el) * R, Math.cos(az) * Math.cos(el) * R);
+}
 scene.add(moon);
 // 타이틀 꾸밈 (config title.details): 탱크 포즈, 짙은 굴뚝 연기, 지나온 궤도 자국, 낙엽
 const TDET = Object.assign({ pose: true, turret: 25, elev: 14, smoke: 0.8, trail: 22, leaves: 6 }, CFG.title?.details);
@@ -1029,6 +1142,10 @@ for (let tries = 0; PUDDLES.length < 4 && tries < 400; tries++) {
   PUDDLES.push(new THREE.Vector3(x, z, rr(0.9, 1.7)));
 }
 let terrainCol;
+// 지형 편집 모드가 땅을 바로 고쳐 보이게 쓰는 것: 메시·격자 → 꼭짓점 번호·흙 색 난수·꼭짓점 색 함수 (아래 지형 메시에서 채운다)
+const TERR = { mesh: null, geo: null, vid: new Int32Array(N * N).fill(-1), noise: new Float32Array(N * N), color: null,
+  edit: { value: 0 },   // 1 = 칠한 곳을 색으로 보인다 (지형 편집 모드에서만)
+  paintG: (i) => [0, -1, 1][TD.grass[i]] || 0, paintC: (i) => [0, 1, -1][TD.cliff[i]] || 0 };   // 미리보기 색: 풀 없음 -1 / 있음 1, 절벽으로 1 / 아님 -1
 const BOARD_RIM = [];   // 지형 윗면 둘레 점 (각도가 줄어드는 순서, {x, z, y, a}): 옆 단면이 이 점들을 그대로 이어 윗면과 딱 맞는다
 // 지형 메시
 {
@@ -1039,18 +1156,9 @@ const BOARD_RIM = [];   // 지형 윗면 둘레 점 (각도가 줄어드는 순�
   const cRoad = new THREE.Color(0x9a8360), c = new THREE.Color(), rc = new THREE.Color();
   // 풀 밑 흙은 풀색에 가깝게: 풀 사이 틈이 깜빡여 보이는 대비를 줄인다
   const cUnder = new THREE.Color(0x5a5034), cBed = new THREE.Color(0x3a3a33), cMud = new THREE.Color(0x40352a);
-  const road = new Float32Array(pos.count), creek = new Float32Array(pos.count * 2), cliff = new Float32Array(pos.count);
-  // 흙 색 난수: 예전 사각 격자(301칸)가 쓰던 만큼을 예전 순서대로 먼저 뽑는다 (뒤 배치의 난수 순서가 밀리지 않게). 새로 생긴 가장자리 땅은 hash01
-  const N0 = SQ * 4 + 1, nOld = new Float32Array(N0 * N0);
-  for (let i = 0; i < N0 * N0; i++) nOld[i] = rand();
-  for (let i = 0; i < pos.count; i++) {
-    const ox = (i % N) - SQ_OFS, oz = ((i / N) | 0) - SQ_OFS;
-    const x = pos.getX(i), z = pos.getZ(i), gi = gridIndex(x, z), d = roadD[gi], cd = creekD[gi];
-    const n = ox >= 0 && oz >= 0 && ox < N0 && oz < N0 ? nOld[oz * N0 + ox] : hash01(i);
-    pos.setY(i, hG[gi]); cliff[i] = cliffG[gi];
-    road[i] = cd < CREEK_HW + 1.2 ? 99 : d;
-    // 시냇물까지 거리, 수심 (물길 밖의 낮은 땅은 물이 없으니 물속 표현도 없다)
-    creek[i * 2] = cd; creek[i * 2 + 1] = cd < CREEK_HW + 2 ? Math.max(0, waterY[gi] - hG[gi]) : 0;
+  const road = new Float32Array(pos.count), creek = new Float32Array(pos.count * 2), cliff = new Float32Array(pos.count), paint = new Float32Array(pos.count * 2);
+  // 꼭짓점 색: 흙 (난수 n) → 도로 둘레 풀 밑 흙 → 마을 → 도로 → 강가 진흙 → 강바닥 (d = 보이는 도로 거리, cd = 시냇물 거리)
+  TERR.color = (c, x, z, n, d, cd) => {
     c.copy(cSoil).lerp(cSoil2, n);
     const town = townAt(x, z);
     c.lerp(cUnder, smooth(ROAD_HW + 0.5, ROAD_HW + 2.5, d) * (1 - town) * 0.6);
@@ -1060,7 +1168,23 @@ const BOARD_RIM = [];   // 지형 윗면 둘레 점 (각도가 줄어드는 순�
     c.lerp(cMud, 1 - smooth(CREEK_HW + 0.5, CREEK_HW + 2.2, cd));
     rc.copy(cBed).multiplyScalar(0.8 + n * 0.4);
     c.lerp(rc, 1 - smooth(CREEK_HW - 0.6, CREEK_HW + 0.4, cd));
+    return c;
+  };
+  // 흙 색 난수: 예전 사각 격자(301칸)가 쓰던 만큼을 예전 순서대로 먼저 뽑는다 (뒤 배치의 난수 순서가 밀리지 않게). 새로 생긴 가장자리 땅은 hash01
+  const N0 = SQ * 4 + 1, nOld = new Float32Array(N0 * N0);
+  for (let i = 0; i < N0 * N0; i++) nOld[i] = rand();
+  for (let i = 0; i < pos.count; i++) {
+    const ox = (i % N) - SQ_OFS, oz = ((i / N) | 0) - SQ_OFS;
+    const x = pos.getX(i), z = pos.getZ(i), gi = gridIndex(x, z), d = roadDV[gi], cd = creekD[gi];
+    const n = ox >= 0 && oz >= 0 && ox < N0 && oz < N0 ? nOld[oz * N0 + ox] : hash01(i);
+    TERR.noise[i] = n;
+    pos.setY(i, hG[gi]); cliff[i] = cliffG[gi];
+    road[i] = cd < CREEK_HW + 1.2 ? 99 : d;
+    // 시냇물까지 거리, 수심 (물길 밖의 낮은 땅은 물이 없으니 물속 표현도 없다)
+    creek[i * 2] = cd; creek[i * 2 + 1] = cd < CREEK_HW + 2 ? Math.max(0, waterY[gi] - hG[gi]) : 0;
+    TERR.color(c, x, z, n, d, cd);
     col.set([c.r, c.g, c.b], i * 3);
+    paint[i * 2] = TERR.paintG(gi); paint[i * 2 + 1] = TERR.paintC(gi);
   }
   // 픽셀 단위로: 흙 알갱이, 구불구불 끊기는 바퀴 자국, 탱크 궤도 자국, 그을림, 잉걸불
   const mat = ps1(new THREE.MeshLambertMaterial({ vertexColors: true }), (sh) => {
@@ -1068,10 +1192,11 @@ const BOARD_RIM = [];   // 지형 윗면 둘레 점 (각도가 줄어드는 순�
     sh.uniforms.uTrack = U.uTrack;
     sh.uniforms.uTime = U.uTime;
     sh.uniforms.uSh0 = U.uSh0; sh.uniforms.uSh1 = U.uSh1; sh.uniforms.uLamp0 = U.uLamp0; sh.uniforms.uLamp1 = U.uLamp1;
-    sh.vertexShader = 'attribute float aRoad, aCliff; attribute vec2 aCreek; varying float vRoad, vCliff, vY; varying vec2 vXZ, vCreek;\n' + sh.vertexShader.replace('#include <begin_vertex>',
-      '#include <begin_vertex>\nvXZ = (modelMatrix * vec4(transformed, 1.0)).xz; vY = transformed.y; vRoad = aRoad; vCreek = aCreek; vCliff = aCliff;');
+    sh.uniforms.uEdit = TERR.edit;
+    sh.vertexShader = 'attribute float aRoad, aCliff; attribute vec2 aCreek, aPaint; varying float vRoad, vCliff, vY; varying vec2 vXZ, vCreek, vPaint;\n' + sh.vertexShader.replace('#include <begin_vertex>',
+      '#include <begin_vertex>\nvXZ = (modelMatrix * vec4(transformed, 1.0)).xz; vY = transformed.y; vRoad = aRoad; vCreek = aCreek; vCliff = aCliff; vPaint = aPaint;');
     sh.uniforms.uGap = U.uGap;
-    sh.fragmentShader = SHADOW_GLSL + `uniform sampler2D uField, uTrack, uGap; uniform float uTime; varying vec2 vXZ, vCreek; varying float vRoad, vCliff, vY;
+    sh.fragmentShader = SHADOW_GLSL + `uniform sampler2D uField, uTrack, uGap; uniform float uTime, uEdit; varying vec2 vXZ, vCreek, vPaint; varying float vRoad, vCliff, vY;
       float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float vnoise(vec2 p) {
         vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -1129,7 +1254,13 @@ const BOARD_RIM = [];   // 지형 윗면 둘레 점 (각도가 줄어드는 순�
         vec4 fld = texture2D(uField, ${UVW("vXZ")});
         diffuseColor.rgb *= 1.0 - fld.b * 0.8;
         float shade = (1.0 - 0.8 * contactShadow(vXZ)) * pow(texture2D(uGap, ${UVW("vXZ")}).r, uAO);   // 바닥 그림자 × 건물 사이 그늘
-        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.9), uWhite) * shade;`)
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.9), uWhite) * shade;
+        if (uEdit > 0.5) {   // 지형 편집: 풀 없음 빨강 · 풀 있음 초록, 절벽으로 파랑 · 절벽 아님 노랑 (빗금)
+          float st = step(0.5, fract((vXZ.x + vXZ.y) * 1.5));
+          vec3 tg = vPaint.x < 0.0 ? vec3(1.0, 0.25, 0.2) : vec3(0.3, 1.0, 0.3), tc = vPaint.y > 0.0 ? vec3(0.3, 0.5, 1.0) : vec3(1.0, 0.9, 0.2);
+          diffuseColor.rgb = mix(diffuseColor.rgb, tg, min(1.0, abs(vPaint.x)) * 0.5 * st);
+          diffuseColor.rgb = mix(diffuseColor.rgb, tc, min(1.0, abs(vPaint.y)) * 0.5 * (1.0 - st));
+        }`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
         totalEmissiveRadiance += vec3(1.4, 0.4, 0.08) * fld.g * 0.7;
         totalEmissiveRadiance += diffuseColor.rgb * lampGlow(vXZ) * 2.6;   // 뒷등 빛을 받은 땅
@@ -1149,15 +1280,15 @@ const BOARD_RIM = [];   // 지형 윗면 둘레 점 (각도가 줄어드는 순�
   if ((N - 1) % TS) TS = 1;
   const M = (N - 1) / TS + 1, vid = new Int32Array(M * M).fill(-1), inside = new Uint8Array(M * M);
   for (let b = 0; b < M; b++) for (let a = 0; a < M; a++) inside[b * M + a] = inBoard(-HALF + a * TS * STEP, -HALF + b * TS * STEP) ? 1 : 0;
-  const P = [], C = [], R = [], K = [], L = [], idx = [];
+  const P = [], C = [], R = [], K = [], L = [], E = [], idx = [];
   const vert = (a, b) => {
     const k = b * M + a;
     if (vid[k] < 0) {
       let j = b * TS * N + a * TS, x = -HALF + a * TS * STEP, z = -HALF + b * TS * STEP, y;
-      if (inside[k]) y = pos.getY(j);
+      if (inside[k]) { y = pos.getY(j); TERR.vid[j] = P.length / 3; }
       else { const f = BOARD_AP / boardD(x, z); x *= f; z *= f; y = heightAt(x, z); j = gridIndex(x, z); BOARD_RIM.push({ x, z, y, a: Math.atan2(z, x) }); }
       vid[k] = P.length / 3;
-      P.push(x, y, z); C.push(col[j * 3], col[j * 3 + 1], col[j * 3 + 2]); R.push(road[j]); K.push(creek[j * 2], creek[j * 2 + 1]); L.push(cliff[j]);
+      P.push(x, y, z); C.push(col[j * 3], col[j * 3 + 1], col[j * 3 + 2]); R.push(road[j]); K.push(creek[j * 2], creek[j * 2 + 1]); L.push(cliff[j]); E.push(paint[j * 2], paint[j * 2 + 1]);
     }
     return vid[k];
   };
@@ -1173,9 +1304,10 @@ const BOARD_RIM = [];   // 지형 윗면 둘레 점 (각도가 줄어드는 순�
   tgeo.setAttribute('aRoad', new THREE.Float32BufferAttribute(R, 1));
   tgeo.setAttribute('aCreek', new THREE.Float32BufferAttribute(K, 2));
   tgeo.setAttribute('aCliff', new THREE.Float32BufferAttribute(L, 1));
+  tgeo.setAttribute('aPaint', new THREE.Float32BufferAttribute(E, 2));
   tgeo.setIndex(idx); tgeo.computeVertexNormals();
   geo.dispose();
-  { const m = new THREE.Mesh(tgeo, mat); m.userData.noOutline = true; scene.add(m); }   // 땅은 외곽선 없음
+  { const m = new THREE.Mesh(tgeo, mat); m.userData.noOutline = true; scene.add(m); TERR.mesh = m; TERR.geo = tgeo; }   // 땅은 외곽선 없음
 }
 
 // 디오라마 단면 (지층 3단): 위 겉흙 / 가운데 흙(자갈·잔뿌리) / 아래 암반(바위). 디테일은 단면 텍스처 두 장에 그려 둔다
@@ -1486,9 +1618,9 @@ const crtMat = new THREE.ShaderMaterial({
 const crtQuad = (m) => { const s = new THREE.Scene(); s.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), m)); return s; };
 const crtCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 const crtCompScene = crtQuad(crtCompMat), crtPrepScene = crtQuad(crtPrepMat), crtScene = crtQuad(crtMat);
-const CRT_TITLE = ['tCall', 'tLogo', 'tBrand', 'tBadge', 'tVer', 'tPress', 'tCamo'].map((id) => document.getElementById(id)).filter(Boolean);
+const CRT_TITLE = ['tCall', 'tLogo', 'tBrand', 'tBadge', 'tVer', 'tPress', 'tCamo'].map((id) => $el(id)).filter(Boolean);
 for (const c of CRT_TITLE) CRT_LAYER.add(c);
-const crtLoadCv = document.getElementById('loadCv');
+const crtLoadCv = $el('loadCv');
 if (crtLoadCv) { CRT_LAYER.add(crtLoadCv); crtLoadCv._crtHi = true; }   // 로딩 화면이 사라지는 동안 (fadeLoading)
 const _crtRes = new THREE.Vector2();
 let crtKeyLo = '', crtKeyHi = '', crtReady = false;
@@ -1507,7 +1639,7 @@ function crtSize(W, H) {
 function crtLayers(W, H) {
   // 아래 묶음(HUD·대미지 숫자·타이틀 = A 보통·B 더하기)과 위 묶음(UI 창·선택지·로딩·나가기 덮개 = C·D)을 따로: 바뀐 묶음만 다시 그리고 올린다
   // (예전엔 무엇 하나만 바뀌어도 네 장을 다 다시 그려 올렸다. HUD는 거의 매 프레임 바뀌어 아이패드에서 크게 느렸다)
-  const pdmg = document.getElementById('pdmg'), showT = crtVis(document.getElementById('title')), ld = document.getElementById('loading');
+  const pdmg = $el('pdmg'), showT = crtVis($el('title')), ld = $el('loading');
   let kLo = `${W},${H},${showT},${HC.blend},${DTC.blend},`, kHi = `${W},${H},${pui.style.mixBlendMode},${ld ? 'L' : ''}${crtLeave ? 'X' : ''},`;
   for (const el of [phudS, phud, pdmg, ...CRT_TITLE]) kLo += crtVis(el) ? 1 : 0;
   for (const el of [puiS, pui]) kHi += crtVis(el) ? 1 : 0;
@@ -2654,6 +2786,10 @@ scene.remove(poleGroup);
     mat.customProgramCacheKey = () => 'pole' + src.uuid;
     m.material = mat;
     if (src !== poleMat) m.userData.noOutline = true;   // 외곽선은 굵은 기둥에만 (가로대·애자·가로등 팔·갓은 전깃줄 쪽이 지저분해진다)
+    else m.userData.olMat = ps1(new THREE.MeshBasicMaterial({ colorWrite: false }), (sh) => {   // 외곽선·림 깊이도 흔들림대로 (00_core.js OL_OWN)
+      sh.uniforms.uPB = uPB; sh.uniforms.uPT = uPT;
+      sh.vertexShader = SWAY + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvec3 pB = uPB[int(aPole + 0.5)].xyz; transformed = pB + poleRot(transformed - pB, uPT[int(aPole + 0.5)]);');
+    }, 'poleOutline');
   });
   pg.traverse((o) => { if (o.userData.pole !== undefined) lampObjs.push({ obj: o, pole: o.userData.pole, p0: o.position.clone() }); });
   scene.add(pg);
@@ -4162,10 +4298,15 @@ const grassHt = new Float32Array(FN * FN);   // 0.5m 칸마다 가장 큰 풀 �
   let gseed = 0x9e3779b9;
   const grand = () => { gseed = (gseed + 0x6d2b79f5) | 0; let t = Math.imul(gseed ^ (gseed >>> 15), 1 | gseed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
   const grr = (a, b) => a + (b - a) * grand();
-  const plant = (x, z) => {   // 풀 하나 심기 (심을 수 없는 자리면 false)
-    const gi = gridIndex(x, z), d = roadD[gi];
-    if (d < ROAD_HW + 0.1 || creekD[gi] < CREEK_HW + 0.9 || cliffG[gi] > 0.2) return false;   // 절벽엔 풀이 없다
-    if (cliffNear[gi] && creekD[gi] < CREEK_HW + 7) return false;   // 강가 절벽 발치의 좁은 땅도
+  // 지형 편집 칠(TD.grass): '풀 없음'은 난수를 다 쓴 뒤 심지 않고(뒤 풀 자리가 그대로), '풀 있음'인데 원래 못 심는 자리(도로·절벽)는 모아 두었다가 따로 시드한 난수로 심는다
+  const forced = [];
+  const plant = (x, z, force) => {   // 풀 하나 심기 (심을 수 없는 자리면 false)
+    const gi = gridIndex(x, z), d = roadD[gi], gp = TD.grass[gi];
+    if (creekD[gi] < CREEK_HW + 0.9) return false;
+    if (!force && (roadDV[gi] < ROAD_HW + 0.1 || cliffG[gi] > 0.2 || (cliffNear[gi] && creekD[gi] < CREEK_HW + 7))) {   // 도로·절벽(강가 절벽 발치의 좁은 땅도)엔 풀이 없다
+      if (gp === 2) forced.push(x, z);
+      return false;
+    }
     if (WRECKS.some(w => Math.hypot(w.x - x, w.z - z) < 3.6)) return false;   // 부서진 탱크 주변은 맨땅
     const n1 = vn2(x * 0.05, z * 0.05), n2 = vn2(x * 0.13 + 17, z * 0.13 + 5), n3 = vn2(x * 0.31 + 3, z * 0.31 + 11);
     let hScale = grr(1.05, 1.8) * (0.8 + 0.4 * n2);
@@ -4183,7 +4324,7 @@ const grassHt = new Float32Array(FN * FN);   // 0.5m 칸마다 가장 큰 풀 �
     const gn = new THREE.Vector3((heightAt(x - 1, z) - heightAt(x + 1, z)) * 1.4, 2, (heightAt(x, z - 1) - heightAt(x, z + 1)) * 1.4).normalize();
     c.copy(cStraw).lerp(cOlive, smooth(0.35, 0.75, n1)).lerp(cRust, smooth(0.55, 0.85, n2) * 0.6).lerp(cPale, smooth(0.6, 0.9, n3) * 0.45);
     c.lerp(PALETTE[Math.floor(grand() * PALETTE.length)], 0.25).multiplyScalar(grr(0.9, 1.06));
-    if (!inBoard(x, z, 0.15)) return true;   // 64각형 밖 (예전 사각 보드의 모서리): 난수는 다 쓰고 심지 않는다
+    if (!inBoard(x, z, 0.15) || gp === 1) return true;   // 64각형 밖 (예전 사각 보드의 모서리)·'풀 없음' 칠: 난수는 다 쓰고 심지 않는다
     const root = new THREE.Vector3().fromArray(terrainCol, gi * 3);
     (planting2 ? ring : chunks)[ci].push(m4.compose(v, q, s).clone(), c.clone(), gn, root); grassCount++;
     return true;
@@ -4202,6 +4343,9 @@ const grassHt = new Float32Array(FN * FN);   // 0.5m 칸마다 가장 큰 풀 �
     if ((Math.abs(x) < SQ - 0.2 && Math.abs(z) < SQ - 0.2) || !inBoard(x, z, 0.15)) continue;
     plant(x, z);
   }
+  // 3) '풀 있음' 칠: 원래 못 심는 자리(도로·절벽)에서 고른 것을 따로 시드한 난수로 (같은 넓이당 같은 수)
+  gseed = 0x2c1b3c6d;
+  for (let k = 0; k < forced.length; k += 2) plant(forced[k], forced[k + 1], true);
   // 구역마다 앞의 절반만 그리므로(아래 cm.count) 두 묶음을 각각 반씩 앞에 둔다: 예전 풀의 앞 절반 + 새 풀의 앞 절반 + 나머지
   const half4 = (l) => Math.ceil(l.length / 8) * 4;
   for (let i = 0; i < chunks.length; i++) {
@@ -4292,7 +4436,8 @@ const grassHt = new Float32Array(FN * FN);   // 0.5m 칸마다 가장 큰 풀 �
 for (let j = 0; j < FN; j++) for (let i = 0; i < FN; i++) {
   const x = -HALF + (i + 0.5) * FCELL, z = -HALF + (j + 0.5) * FCELL, k = j * FN + i;
   const gi = gridIndex(x, z);
-  let cap = roadD[gi] < ROAD_HW + 0.1 || creekD[gi] < CREEK_HW + 0.9 || cliffG[gi] > 0.2 || (cliffNear[gi] && creekD[gi] < CREEK_HW + 7) ? 0 : 1;
+  const gp = TD.grass[gi];   // 지형 편집 칠: 풀 없음이면 타지 않고, 풀 있음이면 도로·절벽이어도 탄다
+  let cap = gp === 1 || creekD[gi] < CREEK_HW + 0.9 ? 0 : gp === 2 || !(roadDV[gi] < ROAD_HW + 0.1 || cliffG[gi] > 0.2 || (cliffNear[gi] && creekD[gi] < CREEK_HW + 7)) ? 1 : 0;
   cap *= lerp(1, 0.3, townAt(x, z));   // 마을은 풀이 성기다
   if (inFootprint(x, z) || !inBoard(x, z)) cap = 0;   // 보드 밖(정사각 격자의 모서리)에는 불이 번지지 않게
   fCap[k] = fFuel[k] = cap;
@@ -4590,7 +4735,7 @@ const WEATHER = { rain: 0, sand: 0, lightning: 0, flash: 0, flashT: 0, nextBolt:
 // 조명 밝기 (달빛·하늘빛 세기 × 빛깔 밝기). 처음 맵 셋팅일 때를 1로 두고 비 색에 곱한다
 const lightLum = (mi, mc, si, sc) => mi * (0.3 * mc.r + 0.59 * mc.g + 0.11 * mc.b) + si * (0.3 * sc.r + 0.59 * sc.g + 0.11 * sc.b);
 const WX_LREF = Math.max(0.01, lightLum(MAP0.moon, new THREE.Color(MAP0.moonColor), MAP0.sky, new THREE.Color(MAP0.skyColor)));
-window.dbg.WEATHER = WEATHER;
+DBG.WEATHER = WEATHER;
 function setWeather(p) {
   WEATHER.rain = p.rain ?? 0; WEATHER.sand = p.sand ?? 0; WEATHER.lightning = p.lightning ?? 0;
   rainFx.u.uColor.value.set(p.rainColor ?? '#a8b8d0').multiplyScalar(CFG.map.rainBright ?? 0.7);   // 색은 config 밝기 배율만큼 어둡게
@@ -6415,8 +6560,8 @@ function mgPick(from, range, avoid) {
 // 적 기관총의 표적: 사거리 안에 가리지 않은 내 탱크
 const enemyMgPick = (from, range) => tank.solid && tank.pos.distanceTo(from) < range && mgClear(from, mgTargetPos({ E: tank }, _mgP), null) ? { E: tank } : null;
 // 예광탄: 총구에서 표적으로 빠르게 날아가는 짧고 밝은 선 (점보다 잘 보이게)
-const TRACER_T = 0.12, TRACER_LEN = 0.33, mgTracers = [];   // TRACER_LEN: 꼬리 길이 (날아가는 거리의 비율)
-const TRACER_C = [new THREE.Color(0xffc070), new THREE.Color(0x7aff5a)];   // 예광탄 색: 내 것 (노란빛에 조금 붉게) · 적 (녹색). mgTracers의 en
+const TRACER_T = 0.12, TRACER_LEN = 0.4, mgTracers = [];   // TRACER_LEN: 꼬리 길이 (날아가는 거리의 비율)
+const TRACER_C = [new THREE.Color(0xff7835), new THREE.Color(0x5dff3d)];   // 예광탄 색: 내 것 (노란빛에 조금 붉게) · 적 (녹색). mgTracers의 en
 const tracerLines = new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(48 * 6), 3).setUsage(THREE.DynamicDrawUsage))
   .setAttribute('color', new THREE.BufferAttribute(new Float32Array(48 * 6), 3).setUsage(THREE.DynamicDrawUsage)),
   new THREE.LineBasicMaterial({ vertexColors: true, fog: false }));
@@ -6641,7 +6786,7 @@ const touch = { thr: 0, steer: 0, up: false, down: false, fire: false, tl: false
 // 게임패드 (81_ui.js padPoll이 매 프레임 채운다): 주행·선회·포탑·포각은 아날로그, fire = 발사 버튼을 누르고 있음
 const pad = { thr: 0, steer: 0, tq: 0, de: 0, fire: false };
 {
-  const stick = document.getElementById('stick'), knob = document.getElementById('knob'), R = 50;
+  const stick = $el('stick'), knob = $el('knob'), R = 50;
   let id = null;
   const move = (e) => {
     const r = stick.getBoundingClientRect();
@@ -6657,14 +6802,14 @@ const pad = { thr: 0, steer: 0, tq: 0, de: 0, fire: false };
   stick.addEventListener('pointermove', (e) => { if (e.pointerId === id) move(e); });
   stick.addEventListener('pointerup', end); stick.addEventListener('pointercancel', end);
   const hold = (btnId, key) => {
-    const b = document.getElementById(btnId);
+    const b = $el(btnId);
     const on = (v) => (e) => { touch[key] = v; b.classList.toggle('on', v); if (v) capture(b, e); e.preventDefault(); };
     b.addEventListener('pointerdown', on(true)); b.addEventListener('pointerup', on(false)); b.addEventListener('pointercancel', on(false));
   };
   hold('tUp', 'up'); hold('tDown', 'down'); hold('tFire', 'fire'); hold('tTL', 'tl'); hold('tTR', 'tr');
-  document.getElementById('tFix').addEventListener('pointerdown', (e) => { uprightTank(); e.preventDefault(); });
+  $el('tFix').addEventListener('pointerdown', (e) => { uprightTank(); e.preventDefault(); });
   // 메뉴 토글. 처음엔 숨기고, 화면을 손가락으로 만지면 나타나고 키보드·게임패드를 쓰면 다시 숨긴다 (아이패드에 키보드를 연결해 할 때 계속 보이지 않게)
-  const ui = document.getElementById('touchUI'), btn = document.getElementById('touchBtn');
+  const ui = $el('touchUI'), btn = $el('touchBtn');
   const show = (v) => { if ((ui.style.display !== 'none') === v) return; ui.style.display = v ? '' : 'none'; btn.textContent = v ? '터치 버튼 켜짐' : '터치 버튼 꺼짐'; };
   btn.onclick = (e) => { show(ui.style.display === 'none'); e.target.blur(); };
   show(false);
@@ -6685,7 +6830,13 @@ const olRT = new THREE.WebGLRenderTarget(2, 2, { magFilter: THREE.NearestFilter,
 const cutRT = new THREE.WebGLRenderTarget(2, 2, { type: THREE.HalfFloatType, magFilter: THREE.NearestFilter, minFilter: THREE.NearestFilter });
 cutRT.depthTexture = new THREE.DepthTexture(2, 2);
 const olMat = ps1(new THREE.MeshBasicMaterial({ colorWrite: false }), null, 'outlineDepth');
-let outlineOn = false;
+// 외곽선 (config outline): 'off' / 'dof' = 아웃포커싱에 함께 흐려진다 (후처리를 두 번: 색·외곽선·림 → preRT → 아웃포커싱부터) / 'dither' = 흐린 곳에서 4x4 디더링으로 성긴다
+const OLC = CFG.outline || {}, OL_MODES = ['off', 'dof', 'dither'], OL_NAME = { off: '외곽선 꺼짐', dof: '외곽선 켬 (아웃포커싱)', dither: '외곽선 켬 (흐린 곳 디더링)' };
+let olMode = OL_MODES.includes(OLC.mode) ? OLC.mode : 'off', outlineOn = olMode !== 'off';
+// 림 라이트 (config rimLight): 화면에서 정한 방향(시계)의 물체 가장자리를 주광 색으로 밝힌다. 외곽선과 같은 깊이(olRT)로
+const RIM = Object.assign({ enabled: true, clock: 1.5, follow: 'moon', minFacing: 0.4, minUp: 0, width: 1, strength: 0.35, add: 0.04, fx: 1.2, fxRef: 300, fxAdd: 0.15, groundFade: [0.3, 1.2], groundDither: false }, CFG.rimLight);
+let rimOn = !!RIM.enabled;
+const preRT = new THREE.WebGLRenderTarget(2, 2, { type: THREE.HalfFloatType, magFilter: THREE.NearestFilter, minFilter: THREE.NearestFilter, depthBuffer: false });
 const postScene = new THREE.Scene(), postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 // 가운데 창(전투 불능·적군 섬멸·일시정지·확인) 설정: 배경 회색조 두 색과 전환 시간, 창이 사라지는 시간, 창 색
 const POPC = CFG.popup || {};
@@ -6705,12 +6856,17 @@ let vfOn = !!VF.enabled;
 const VF_N = HALF * 2 + 1;   // 지형 격자 정사각을 1m 간격으로
 // 땅 높이 텍스처·유체 격자는 처음 켤 때 만든다 (꺼져 있으면 아무것도 만들지 않고, 매 프레임 일도 하지 않는다)
 let VF_TEX = null, vfFluid = null;
-function vfInit() {
-  if (vfFluid) return;
+function hgtTex() {   // 땅 높이 1m 텍스처 (복셀 안개·림 라이트 바닥 쪽 옅게). 처음 쓸 때 한 번
+  if (VF_TEX) return VF_TEX;
   const d = new Uint16Array(VF_N * VF_N);
   for (let z = 0; z < VF_N; z++) for (let x = 0; x < VF_N; x++) d[z * VF_N + x] = THREE.DataUtils.toHalfFloat(heightAt(x - HALF, z - HALF));
   VF_TEX = new THREE.DataTexture(d, VF_N, VF_N, THREE.RedFormat, THREE.HalfFloatType);
   VF_TEX.magFilter = VF_TEX.minFilter = THREE.LinearFilter; VF_TEX.needsUpdate = true;
+  return VF_TEX;
+}
+function vfInit() {
+  if (vfFluid) return;
+  hgtTex();
   vfFluid = [0, 1].map(() => new THREE.WebGLRenderTarget(VF_FN, VF_FN, { type: THREE.HalfFloatType, magFilter: THREE.LinearFilter, minFilter: THREE.LinearFilter, depthBuffer: false }));
   postMat.uniforms.tHgt.value = VF_TEX; postMat.uniforms.tClr.value = vfFluid[0].texture;
 }
@@ -6846,14 +7002,21 @@ function camPreTick(dt) {   // 매 프레임 (카메라 맞추기 전)
 }
 const postMat = new THREE.ShaderMaterial({
   uniforms: { tDrop: { value: LDROP_TEX }, uDrop: { value: 0 }, uDropR: { value: 0.035 * (LD.refract ?? 1) }, tDiffuse: { value: rt.texture }, tCut: { value: cutRT.texture }, tCutD: { value: cutRT.depthTexture }, uCut: { value: 0 }, uFlash: { value: 0 }, tDepth: { value: rt.depthTexture }, tOL: { value: olRT.depthTexture },
-    uOL: { value: 0 }, uNear: { value: camera.near }, uFar: { value: camera.far }, uTexel: { value: new THREE.Vector2(1, 1) },
+    uOL: { value: 0 }, uOLDith: { value: 0 }, uOLCol: { value: OLC.color ?? 1 }, uOLDark: { value: OLC.dark ?? 0.3 }, uOLSat: { value: OLC.saturate ?? 1.5 }, tPre: { value: preRT.texture },
+    uRim: { value: 0 }, uRimW: { value: 1 }, uRimDir: { value: new THREE.Vector2(1, 1) }, uRimC: { value: new THREE.Vector3() }, uRimA: { value: new THREE.Vector3() },
+    uView: { value: new THREE.Matrix4() }, uFxP: { value: [0, 1, 2, 3].map(() => new THREE.Vector3()) }, uFxC: { value: [0, 1, 2, 3].map(() => new THREE.Vector3()) }, uFxR: { value: [0, 0, 0, 0] },
+    uRimFxA: { value: RIM.fxAdd ?? 0.15 }, uRimMin: { value: RIM.minFacing ?? 0.4 }, uRimG0: { value: RIM.groundFade?.[0] ?? 0.3 }, uRimG1: { value: RIM.groundFade?.[1] ?? 1.2 }, uRimGD: { value: RIM.groundDither ? 1 : 0 },
+    uNear: { value: camera.near }, uFar: { value: camera.far }, uTexel: { value: new THREE.Vector2(1, 1) },
     uFogN: FOGN, uFogF: FOGF, uFogC: { value: FOG }, uDof: { value: 0 }, uFocus: { value: 20 }, uFocusR: { value: CAMV.dof.range }, uFocusF: { value: CAMV.dof.fall }, uDofPx: { value: CAMV.dof.px },
     uGrad: { value: 0 }, uGradA: { value: 0.6 }, uGradB: { value: 0.9 }, uGradC: { value: new THREE.Color(1, 1, 1) },
     uGray: { value: 0 }, uGrayA: { value: hexV3(POP.dark) }, uGrayB: { value: hexV3(POP.light) }, uBright: { value: 1 },
     tHgt: { value: null }, tClr: { value: null }, uVFWarp: { value: VF.flowWarp }, uCamP: { value: new THREE.Vector3() }, uVFMarch: { value: VF.march }, uInvPV: { value: new THREE.Matrix4() }, uVF: { value: 0 }, uVFTop: { value: VF.height }, uVFCell: { value: VF.cell }, uVFDen: { value: VF.density },
     uVFScale: { value: VF.scale }, uVFT: { value: 0 }, uVFSteps: { value: VF.steps }, uVFC: { value: new THREE.Color(VF.color) } },
+  defines: { STAGE: 0 },   // 0 = 한 번에 다, 1 = 색·빗방울·외곽선·림까지 (preRT), 2 = preRT에서 아웃포커싱부터 (외곽선 'dof' 모드)
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
   fragmentShader: `
+    uniform sampler2D tPre; uniform float uOLDith, uOLCol, uOLDark, uOLSat, uRim, uRimW; uniform vec2 uRimDir; uniform vec3 uRimC, uRimA;
+    uniform mat4 uView; uniform vec3 uFxP[4], uFxC[4]; uniform float uFxR[4], uRimFxA, uRimMin, uRimG0, uRimG1, uRimGD;
     uniform sampler2D tHgt, tClr; uniform vec3 uCamP; uniform float uVFMarch, uVFWarp; uniform mat4 uInvPV; uniform float uVF, uVFTop, uVFCell, uVFDen, uVFScale, uVFT, uVFSteps; uniform vec3 uVFC;
     uniform float uDof, uFocus, uFocusR, uFocusF, uDofPx;
     uniform sampler2D tDiffuse, tDepth, tOL, tCut, tCutD, tDrop; uniform float uCut, uDrop, uDropR, uFlash, uOL, uNear, uFar, uFogN, uFogF, uGrad, uGradA, uGradB, uGray, uBright; uniform vec2 uTexel; uniform vec3 uFogC, uGradC, uGrayA, uGrayB; varying vec2 vUv;
@@ -6870,37 +7033,92 @@ const postMat = new THREE.ShaderMaterial({
     float olD(vec2 uv, bool cut) { return cut ? texture2D(tCutD, uv).r : texture2D(tOL, uv).r; }
     float scD(vec2 uv, bool cut) { return cut ? texture2D(tCutD, uv).r : texture2D(tDepth, uv).r; }
     vec3 toSRGB(vec3 c) { c = max(c, 0.0); return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); }
+    vec3 colAt(vec2 uv, bool cut) {
+    #if STAGE == 2
+      return texture2D(tPre, uv).rgb;   // 색·외곽선·림까지 그린 것 (1단계)
+    #else
+      return cut ? texture2D(tCut, uv).rgb : texture2D(tDiffuse, uv).rgb;
+    #endif
+    }
+    // 외곽선·림 라이트 (keep: 0~1 = 그리는 정도, 'dither' 모드면 흐린 곳에서 디더링으로 0). oc = 그 픽셀의 원래 물체 색
+    // 림: dir 쪽으로 uRimW칸 안에 훨씬 먼 곳(물체만 그린 깊이)이 있으면 켠다. 단 화면 깊이로 그 자리가 이 물체보다 앞이면(풀·땅이 앞을 가림) 빼고
+    // 가로·세로를 따로 보고 dir 성분 비율로 섞는다 (한 방향을 픽셀로 반올림하면 빛이 눕는 순간 수평 가장자리 림이 탁 꺼졌다)
+    bool rimHit(vec2 q, float d, float gap, bool cut) { return lin(olD(q, cut)) - d > gap && lin(scD(q, cut)) - d > 0.3; }
+    float rimAt(vec2 dir, float d, float gap, bool cut) {
+      vec2 sx = vec2(dir.x >= 0.0 ? uTexel.x : -uTexel.x, 0.0), sy = vec2(0.0, dir.y >= 0.0 ? uTexel.y : -uTexel.y);
+      float rx = 0.0, ry = 0.0;
+      for (int k = 1; k <= 6; k++) {
+        if (float(k) > uRimW) break;
+        if (rx < 0.5 && rimHit(vUv + sx * float(k), d, gap, cut)) rx = 1.0;
+        if (ry < 0.5 && rimHit(vUv + sy * float(k), d, gap, cut)) ry = 1.0;
+      }
+      return min(1.0, rx * abs(dir.x) + ry * abs(dir.y));
+    }
+    vec2 rimDir(vec2 v) { return v / max(max(abs(v.x), abs(v.y)), 1e-4); }
+    void edges(inout vec3 lc, vec3 oc, bool cut, float keep) {
+      float d0 = olD(vUv, cut);
+      if (d0 >= 1.0 || keep <= 0.0) return;
+      float d = lin(d0);
+      if (lin(scD(vUv, cut)) < d - 0.3 - d * 0.02) return;   // 풀·땅에 가려진 곳은 빼고
+      float fk = max(d - uFogN, 0.0) * 2.0 / max(uFogF - uFogN, 0.001), fogK = 1.0 - exp(-fk * fk);   // 지형과 같은 안개: 멀수록 묻힌다
+      float gap = 0.6 + d * 0.06;
+      if (uRim > 0.5) {   // 림: 빛 쪽 가장자리를 밝힌다 (외곽선이 켜져 있으면 uRimW가 한 칸 더 = 선 바로 안쪽). 주광 + 주변 광원 4개
+        vec4 wp = uInvPV * vec4(vUv * 2.0 - 1.0, d0 * 2.0 - 1.0, 1.0); vec3 P = wp.xyz / wp.w;   // 이 픽셀의 월드 자리
+        float gk = smoothstep(uRimG0, uRimG1, P.y - texture2D(tHgt, (P.xz + ${HALF.toFixed(1)}) / ${VF_N.toFixed(1)} + 0.5 / ${VF_N.toFixed(1)}).r);   // 땅에 가까울수록 옅게
+        if (uRimGD > 0.5) gk = step(bayer4(gl_FragCoord.xy), gk - 0.01);   // (디더링으로)
+        gk *= (1.0 - fogK) * keep;
+        if (gk > 0.0) {
+          vec3 add = (oc * uRimC + uRimA) * rimAt(uRimDir, d, gap, cut);
+          for (int i = 0; i < 4; i++) {   // 폭발·섬광·불빛: 이 자리에서 광원 쪽을 화면에 비춘 방향
+            if (uFxR[i] <= 0.0) continue;
+            vec3 L = uFxP[i] - P; float ld = length(L);
+            if (ld >= uFxR[i]) continue;
+            vec3 v = mat3(uView) * L; float a = 1.0 - ld / uFxR[i];
+            add += (oc + uRimFxA) * uFxC[i] * (a * a * max(length(v.xy) / max(ld, 1e-3), uRimMin)) * rimAt(rimDir(v.xy), d, gap, cut);
+          }
+          lc += add * gk;
+        }
+      }
+      if (uOL > 0.5) {   // 외곽선: 물체 픽셀인데 이웃 중 훨씬 먼 곳(배경·뒤의 물체)이 있으면 1픽셀 선. 색은 물체 색을 어둡게 (uOLCol 0 = 예전 검정)
+        float m = max(max(lin(olD(vUv + vec2(uTexel.x, 0.0), cut)), lin(olD(vUv - vec2(uTexel.x, 0.0), cut))),
+                      max(lin(olD(vUv + vec2(0.0, uTexel.y), cut)), lin(olD(vUv - vec2(0.0, uTexel.y), cut))));
+        if (m - d > gap) {
+          vec3 lum = vec3(dot(oc, vec3(0.2126, 0.7152, 0.0722)));
+          vec3 lineC = mix(vec3(0.012, 0.01, 0.008), max(mix(lum, oc, uOLSat), 0.0) * uOLDark, uOLCol);
+          lc = mix(lc, mix(lineC, uFogC, fogK), 0.9 * keep);
+        }
+      }
+    }
     void main() {
       bool cut = uCut > 0.0 && bayer4(gl_FragCoord.xy) < clamp(uCut * 2.0 - vUv.y, 0.0, 1.0);   // 화면 아래에서 위로 쓸어 올리며
       vec2 uvR = vUv; float dA = 0.0;
+    #if STAGE != 2
       if (uDrop > 0.0) { vec4 dr = texture2D(tDrop, vUv); dA = dr.a; uvR = clamp(vUv + (dr.rg - 0.5) * 2.0 * uDropR * dA, 0.0, 1.0); }   // 화면에 맺힌 빗방울: 그만큼 어긋나게 읽는다 (22_weather.js)
-      vec3 lc = cut ? texture2D(tCut, uvR).rgb : texture2D(tDiffuse, uvR).rgb;
+    #endif
+      vec3 lc = colAt(uvR, cut), oc = lc;
+    #if STAGE == 1
+      if (dA > 0.0) { float b = texture2D(tDrop, vUv).b, db = (b - 0.5) * 2.0; lc = b > 0.99 ? mix(lc, vec3(0.75), dA) : lc * (1.0 + db * 0.6 * dA) + max(db - 0.2, 0.0) * 0.1 * dA; }
+      edges(lc, oc, cut, 1.0);
+      gl_FragColor = vec4(lc, 1.0);
+    #else
+      float coc = 0.0;
       if (uDof > 0.0) {   // 아웃포커싱: 초점에서 먼 만큼(coc) 둘레 8곳을 섞는다. 흐린 이웃일수록 많이 (또렷한 물체가 흐린 배경으로 번지지 않게)
-        float coc = clamp((abs(lin(scD(uvR, cut)) - uFocus) - uFocusR) / uFocusF, 0.0, 1.0) * uDof;
+        coc = clamp((abs(lin(scD(uvR, cut)) - uFocus) - uFocusR) / uFocusF, 0.0, 1.0) * uDof;
         if (coc > 0.02) {
           vec3 acc = lc; float ws = 1.0;
           for (int i = 0; i < 8; i++) {
             float a = float(i) * 0.785398 + 0.39;
             vec2 q = clamp(uvR + vec2(cos(a), sin(a)) * uTexel * uDofPx * coc * (i % 2 == 0 ? 1.0 : 0.55), 0.0, 1.0);
             float w = 0.2 + clamp((abs(lin(scD(q, cut)) - uFocus) - uFocusR) / uFocusF, 0.0, 1.0);
-            acc += (cut ? texture2D(tCut, q).rgb : texture2D(tDiffuse, q).rgb) * w; ws += w;
+            acc += colAt(q, cut) * w; ws += w;
           }
           lc = acc / ws;
         }
       }
+    #if STAGE == 0
       if (dA > 0.0) { float b = texture2D(tDrop, vUv).b, db = (b - 0.5) * 2.0; lc = b > 0.99 ? mix(lc, vec3(0.75), dA) : lc * (1.0 + db * 0.6 * dA) + max(db - 0.2, 0.0) * 0.1 * dA; }   // 방울 밝기 (b): 둘레 어둡게, 초승달 밝게, 1 = 반짝 점(단색)
-      if (uOL > 0.5) {
-        // 외곽선: 물체 픽셀인데 이웃 중 훨씬 먼 곳(배경·뒤의 물체)이 있으면 1픽셀 선. 풀·땅에 가려진 곳은 빼고
-        float d0 = olD(vUv, cut);
-        if (d0 < 1.0) {
-          float d = lin(d0);
-          float m = max(max(lin(olD(vUv + vec2(uTexel.x, 0.0), cut)), lin(olD(vUv - vec2(uTexel.x, 0.0), cut))),
-                        max(lin(olD(vUv + vec2(0.0, uTexel.y), cut)), lin(olD(vUv - vec2(0.0, uTexel.y), cut))));
-          float seen = step(d - 0.3 - d * 0.02, lin(scD(vUv, cut)));
-          float fk = max(d - uFogN, 0.0) * 2.0 / max(uFogF - uFogN, 0.001), fogK = 1.0 - exp(-fk * fk);   // 지형과 같은 안개: 멀수록 선 색이 안개 색으로 묻힌다
-          if (m - d > 0.6 + d * 0.06) lc = mix(lc, mix(vec3(0.012, 0.01, 0.008), uFogC, fogK), 0.9 * seen);
-        }
-      }
+      edges(lc, oc, cut, uOLDith > 0.5 && coc > 0.02 ? step(coc, bayer4(gl_FragCoord.xy) + 0.03) : 1.0);   // 'dither': 흐린 만큼 성기게
+    #endif
       if (uVF > 0.0) {   // 복셀 안개: 보이는 자리에서 카메라 쪽으로 거슬러 올라가며 지나는 칸마다 짙기를 쌓는다
         float d = texture2D(tDepth, vUv).r;
         vec4 w = uInvPV * vec4(vUv * 2.0 - 1.0, (d < 1.0 ? d : 0.9999) * 2.0 - 1.0, 1.0);
@@ -6929,26 +7147,88 @@ const postMat = new THREE.ShaderMaterial({
       if (uGray > 0.0) c = mix(c, mix(uGrayA, uGrayB, dot(c, vec3(0.299, 0.587, 0.114))), uGray);   // 끝 창·일시정지: 밝기를 두 색 사이로 (그라디언트 맵)
       c = floor(c * 31.0 + 0.5 + (bayer4(gl_FragCoord.xy) - 0.5)) / 31.0;
       gl_FragColor = vec4(c, 1.0);
+    #endif
     }`,
 });
-postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), postMat));
+// 외곽선 'dof' 모드의 두 단계 (uniform은 postMat과 같은 묶음을 함께 쓴다)
+const postMatOf = (stage) => new THREE.ShaderMaterial({ uniforms: postMat.uniforms, defines: { STAGE: stage }, vertexShader: postMat.vertexShader, fragmentShader: postMat.fragmentShader });
+const preMat = postMatOf(1), post2Mat = postMatOf(2);
+const postMesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), postMat);
+postScene.add(postMesh);
 postMat.uniforms.uVFC.value.convertSRGBToLinear();   // 장면 색(선형)에 섞는다
-postMat.onBeforeRender = () => {   // 복셀 안개: 화면 → 월드 행렬, 흐르는 시간(게임 시간: 멈추면 같이 멈춘다)
+// 후처리 그리기 (rt → postRT). 외곽선 'dof' 모드이고 아웃포커싱이 걸려 있으면 두 번: 색·외곽선·림 → preRT, 그다음 아웃포커싱부터
+function renderPost() {
+  postUniforms();
+  const u = postMat.uniforms, two = olMode === 'dof' && (u.uOL.value > 0 || u.uRim.value > 0) && u.uDof.value > 0;
+  if (two) { postMesh.material = preMat; renderer.setRenderTarget(preRT); renderer.render(postScene, postCam); }
+  postMesh.material = two ? post2Mat : postMat;
+  renderer.setRenderTarget(postRT); renderer.render(postScene, postCam);
+}
+function setOutlineMode(m, init) {
+  olMode = OL_MODES.includes(m) ? m : 'off'; outlineOn = olMode !== 'off';
+  const u = postMat.uniforms; u.uOL.value = outlineOn ? 1 : 0; u.uOLDith.value = olMode === 'dither' ? 1 : 0;
+  const b = $el('olBtn'); if (b) b.textContent = OL_NAME[olMode];
+  if (!init) { pausedDrawn = false; pauseScene = false; }   // (처음 부를 때는 90_loop.js의 이름이 아직 없다)
+}
+// 카툰 명암 (config toon): 셰이더는 그대로, uniform 값만 (00_core.js ps1)
+const TOON = Object.assign({ enabled: false, strength: 1, ground: 0, steps: 2, soft: 0.02, dark: 0 }, CFG.toon);
+let toonOn = !!TOON.enabled;
+function setToon(v) {
+  toonOn = !!v;
+  U.uToon.value = toonOn ? TOON.strength : 0; U.uToonG.value = toonOn ? TOON.ground : 0;
+  U.uToonN.value = Math.min(6, Math.max(1, Math.round(TOON.steps))); U.uToonS.value = Math.max(1e-4, TOON.soft); U.uToonD.value = TOON.dark;
+  const b = $el('toonBtn'); if (b) b.textContent = toonOn ? '카툰 명암 켜짐' : '카툰 명암 꺼짐';
+}
+function setRim(v, init) {
+  rimOn = !!v;
+  const b = $el('rimBtn'); if (b) b.textContent = rimOn ? '림 라이트 켜짐' : '림 라이트 꺼짐';
+  if (!init) { pausedDrawn = false; pauseScene = false; }
+}
+const _rimC = new THREE.Color(), _rimL = new THREE.Vector3();
+function postUniforms() {   // 아웃포커싱·림·복셀 안개: 화면 → 월드 행렬, 흐르는 시간(게임 시간: 멈추면 같이 멈춘다)
   const u = postMat.uniforms;
+  camera.updateMatrixWorld();
+  if (rimOn) { // 림 라이트: 방향(주광을 화면에 비춘 쪽 또는 시계, 큰 축이 1픽셀이 되게)·두께(외곽선이 있으면 한 칸 안쪽까지)·색(주광 색 × 세기)·주변 광원
+    if (!u.tHgt.value) u.tHgt.value = hgtTex();
+    u.uInvPV.value.copy(camera.matrixWorld).multiply(_vfM.copy(camera.projectionMatrix).invert());
+    u.uView.value.copy(camera.matrixWorldInverse);
+    let x, y, face = 1;
+    if (RIM.follow === 'clock') { const a = (RIM.clock ?? 1.5) * Math.PI / 6; x = Math.sin(a); y = Math.cos(a); }
+    else {   // 주광 쪽(월드)을 카메라 기준으로: 화면 오른쪽·위 성분. 화면에서 짧으면(빛이 카메라 앞·뒤) 그만큼 약하게
+      _rimL.copy(moon.position).sub(moon.target.position).normalize().transformDirection(camera.matrixWorldInverse);
+      x = _rimL.x; y = Math.max(_rimL.y, RIM.minUp ?? 0);   // 위쪽 성분 최소값: 빛을 등져도 위 가장자리 림이 남게
+      face =Math.max(RIM.minFacing ?? 0.4, Math.hypot(x, y));
+    }
+    const k = 1 / Math.max(Math.abs(x), Math.abs(y), 1e-3);
+    u.uRimDir.value.set(x * k, y * k);
+    u.uRimW.value = Math.max(1, Math.round(RIM.width ?? 1)) + (outlineOn ? 1 : 0);
+    _rimC.copy(moon.color).multiplyScalar(moon.intensity * face);
+    u.uRimC.value.set(_rimC.r, _rimC.g, _rimC.b).multiplyScalar(RIM.strength ?? 0.35);
+    u.uRimA.value.set(_rimC.r, _rimC.g, _rimC.b).multiplyScalar(RIM.add ?? 0.04);
+    const fx = RIM.fx ?? 1.2, ref = Math.max(1, RIM.fxRef ?? 300);
+    fxLights.forEach((l, i) => {   // 폭발·섬광·불빛 (21_grass_fx.js의 광원 4개, 30_combat.js가 매 프레임 채운다)
+      const on = fx > 0 && l.intensity > 0 && l.distance > 0;
+      u.uFxR.value[i] = on ? l.distance : 0;
+      if (!on) return;
+      u.uFxP.value[i].copy(l.position);
+      const s = fx * (1 - Math.exp(-l.intensity / ref));
+      u.uFxC.value[i].set(l.color.r * s, l.color.g * s, l.color.b * s);
+    });
+  }
+  u.uRim.value = rimOn ? 1 : 0;
   // 아웃포커싱 세기: 타이틀 → 플레이(titleK) → 임무 완료(clearSeq.k)로 섞는다. 초점은 내 탱크까지 거리
   const dA = TITLE_DOF, dB = CAMV.dof, dC = CLR_CAM.dof, ck = clearSeq ? clearSeq.k : 0, dm = (a) => lerp(lerp(dA[a], dB[a], titleK), dC[a], ck);   // 타이틀 → 플레이(카메라 모드) → 임무 완료
   u.uDof.value = dm('strength'); u.uFocusR.value = dm('range'); u.uFocusF.value = Math.max(0.1, dm('fall')); u.uDofPx.value = dm('px');
   if (u.uDof.value > 0) u.uFocus.value = camera.position.distanceTo(_dofT.copy(tank.pos).setY(tank.pos.y + 0.6));
   u.uVF.value = vfOn ? titleK : 0;   // 타이틀에서는 안 보이고 플레이로 넘어가며 나타난다
   if (!vfOn) return;
-  camera.updateMatrixWorld();
   u.uInvPV.value.copy(camera.matrixWorld).multiply(_vfM.copy(camera.projectionMatrix).invert());
   u.uCamP.value.setFromMatrixPosition(camera.matrixWorld);
   u.uVFT.value = playTime * VF.speed * VF.scale * 4;
 };
-function setVoxelFog(v) { vfOn = v; if (v) vfInit(); else vfReset(); document.getElementById('vfBtn').textContent = v ? '복셀 안개 켜짐' : '복셀 안개 꺼짐'; pausedDrawn = false; pauseScene = false; }
+function setVoxelFog(v) { vfOn = v; if (v) vfInit(); else vfReset(); $el('vfBtn').textContent = v ? '복셀 안개 켜짐' : '복셀 안개 꺼짐'; pausedDrawn = false; pauseScene = false; }
 if (vfOn) vfInit();   // config에서 켜 두었으면 처음부터
-document.getElementById('vfBtn').onclick = (e) => { setVoxelFog(!vfOn); e.target.blur(); };
+$el('vfBtn').onclick = (e) => { setVoxelFog(!vfOn); e.target.blur(); };
 // 화면으로 늘리기: 후처리(디더링·32단계 색)까지는 게임 해상도 버퍼(postRT)에서 끝내고, 마지막에 기기 픽셀 크기 캔버스로 옮긴다.
 // 샤프 바이리니어: 정수 배까지는 니어리스트처럼 또렷하게, 남는 소수 배만 경계에서 부드럽게 (픽셀마다 텍스처 한 번, 하드웨어 선형 필터)
 const postRT = new THREE.WebGLRenderTarget(2, 2, { magFilter: THREE.LinearFilter, minFilter: THREE.LinearFilter, depthBuffer: false });
@@ -7015,14 +7295,14 @@ function viewRect() {
     VR.w = rw * k / dpr; VR.h = h;
     VR.x = Math.round((W * dpr - rw * k) / 2) / dpr; VR.y = Math.round((H * dpr - lowH * k) / 2) / dpr;
   }
-  for (const el of [renderer.domElement, document.getElementById('phud'), document.getElementById('phudS'), document.getElementById('pui'), document.getElementById('puiS'), document.getElementById('title')])
+  for (const el of [renderer.domElement, $el('phud'), $el('phudS'), $el('pui'), $el('puiS'), $el('title')])
     if (el) Object.assign(el.style, { left: `${VR.x}px`, top: `${VR.y}px`, width: `${VR.w}px`, height: `${VR.h}px` });
   layoutTitle();
 }
 // 타이틀 네 귀퉁이: 좌상 로고, 우상 브랜드, 좌하 배지(옆에 버전·빌드), 우하 안내. 모두 게임 픽셀 단위 도트 그림(_src)이고
 // HUD와 같은 배율(해상도 360줄마다 1배씩)로 늘린다. 버전·빌드는 배지 옆에 자리가 없으면 배지 위로
 function layoutTitle() {
-  const el = (id) => document.getElementById(id);
+  const el = (id) => $el(id);
   if (!el('tLogo') || !el('tLogo')._src || !el('tPress')._src) return;
   const u = Math.max(1, Math.floor(lowH / 360)) * VR.h / lowH, m = 10 * u;   // u = 게임 픽셀 한 칸의 CSS 크기
   const put = (id, side, v, dx = 0, dy = 0) => {
@@ -7049,7 +7329,7 @@ function resize() {
   layerScale = crtOn ? lowH / VR.h : 0;   // CRT 표현: HUD·UI를 게임 픽셀 크기로 (00_core.js)
   const w = Math.max(2, Math.round(lowH * VR.w / VR.h)), dpr = crtOn ? crtDpr() : devicePixelRatio || 1, dw = Math.max(2, Math.round(VR.w * dpr)), dh = Math.max(2, Math.round(VR.h * dpr));   // CRT는 crt.maxScale 배율까지만
   renderer.setSize(dw, dh, false);   // 캔버스는 기기 픽셀 크기 (게임은 rt에 저해상도로 그리고 마지막에 늘린다)
-  rt.setSize(w, lowH); cutRT.setSize(w, lowH); olRT.setSize(w, lowH); postRT.setSize(w, lowH);
+  rt.setSize(w, lowH); cutRT.setSize(w, lowH); olRT.setSize(w, lowH); preRT.setSize(w, lowH); postRT.setSize(w, lowH);
   upMat.uniforms.uSrc.value.set(w, lowH); upMat.uniforms.uK.value = Math.max(1, Math.floor(dh / lowH + 1e-6));
   postMat.uniforms.uTexel.value.set(1 / w, 1 / lowH);
   U.uSnap.value.set(w / 2, lowH / 2);
@@ -7059,42 +7339,42 @@ function resize() {
   pausedDrawn = false; pauseScene = false;   // 멈춰 있어도 바뀐 크기로 한 번 다시 그린다 (장면까지)
 }
 addEventListener('resize', resize);
-document.getElementById('res').onchange = (e) => { resMax = e.target.value === 'max'; if (!resMax) lowH = +e.target.value; resize(); e.target.blur(); };
-document.getElementById('olBtn').onclick = (e) => {   // 외곽선 (풀 제외)
-  outlineOn = !outlineOn; postMat.uniforms.uOL.value = outlineOn ? 1 : 0;
-  e.target.textContent = outlineOn ? '외곽선 켜짐' : '외곽선 꺼짐'; e.target.blur();
-};
+$el('res').onchange = (e) => { resMax = e.target.value === 'max'; if (!resMax) lowH = +e.target.value; resize(); e.target.blur(); };
+$el('olBtn').onclick = (e) => { setOutlineMode(OL_MODES[(OL_MODES.indexOf(olMode) + 1) % OL_MODES.length]); e.target.blur(); };   // 외곽선 (풀 제외): 끔 → 켬(아웃포커싱) → 켬(흐린 곳 디더링)
+$el('rimBtn').onclick = (e) => { setRim(!rimOn); e.target.blur(); };
+$el('toonBtn').onclick = (e) => { setToon(!toonOn); if (typeof pausedDrawn !== 'undefined') { pausedDrawn = false; pauseScene = false; } e.target.blur(); };
+setOutlineMode(olMode, true); setRim(rimOn, true); setToon(toonOn);
 let grassMode = 0;   // 텍스처 종류 (0부터). grassCardMats.length = 풀 끔 (성능 비교용: 메시만 숨긴다)
 function setGrass(m) {
   grassMode = m;
   const off = m >= grassCardMats.length;
   for (const cm of grassCard) { cm.visible = !off; if (!off) cm.material = grassCardMats[m]; }
-  document.getElementById('grassBtn').textContent = off ? '풀: 끔' : `풀: 텍스처${grassCardNames[m]}`;
+  $el('grassBtn').textContent = off ? '풀: 끔' : `풀: 텍스처${grassCardNames[m]}`;
 }
-document.getElementById('grassBtn').onclick = (e) => { setGrass((grassMode + 1) % (grassCardMats.length + 1)); e.target.blur(); };   // 텍스처1 → 2 → 3 → 끔 → 1
+$el('grassBtn').onclick = (e) => { setGrass((grassMode + 1) % (grassCardMats.length + 1)); e.target.blur(); };   // 텍스처1 → 2 → 3 → 끔 → 1
 setGrass(1);   // 처음엔 텍스처2 (이삭 풀)
-document.getElementById('ppBtn').onclick = (e) => {
+$el('ppBtn').onclick = (e) => {
   pixelPerfect = !pixelPerfect; e.target.textContent = pixelPerfect ? 'Pixel Perfect 켜짐' : 'Pixel Perfect 꺼짐';
   resize(); e.target.blur();
 };
-document.getElementById('aaBtn').onclick = (e) => {   // 안티에일리어싱: 저해상도 화면 버퍼를 4배 다중 샘플로
+$el('aaBtn').onclick = (e) => {   // 안티에일리어싱: 저해상도 화면 버퍼를 4배 다중 샘플로
   rt.samples = rt.samples ? 0 : 4; rt.dispose();
   e.target.textContent = rt.samples ? 'AA 켜짐' : 'AA 꺼짐'; e.target.blur();
 };
-document.getElementById('camModeBtn').onclick = (e) => {   // 보는 방향 기준: 자동 → 차체 → 포탑 → 자동
+$el('camModeBtn').onclick = (e) => {   // 보는 방향 기준: 자동 → 차체 → 포탑 → 자동
   setCamMode(CAM_MODES[(CAM_MODES.indexOf(camMode) + 1) % CAM_MODES.length]); e.target.blur();
 };
-document.getElementById('fogC').oninput = (e) => { ENV_PLAY.fog.set(e.target.value); applyEnv(); };
-document.getElementById('fogC').onchange = (e) => e.target.blur();
-document.getElementById('vol').oninput = (e) => setVolume(+e.target.value);
-document.getElementById('debris').oninput = (e) => { windDebris = +e.target.value; document.getElementById('debrisV').textContent = windDebris.toFixed(2); };
-for (const id of ['vol', 'debris']) document.getElementById(id).onchange = (e) => e.target.blur();
+$el('fogC').oninput = (e) => { ENV_PLAY.fog.set(e.target.value); applyEnv(); };
+$el('fogC').onchange = (e) => e.target.blur();
+$el('vol').oninput = (e) => setVolume(+e.target.value);
+$el('debris').oninput = (e) => { windDebris = +e.target.value; $el('debrisV').textContent = windDebris.toFixed(2); };
+for (const id of ['vol', 'debris']) $el(id).onchange = (e) => e.target.blur();
 // 성장 테스트: 상자·적 떨구기 (내 탱크 둘레 12~32m), 내 탱크 성능 슬라이더 (오른쪽일수록 강하게)
-document.getElementById('tDropGold').onclick = (e) => { dropSafe('gold', tank.pos); e.target.blur(); };
-document.getElementById('tDropRepair').onclick = (e) => { dropSafe('repair', tank.pos); e.target.blur(); };
-for (const lv of [1, 2, 3]) document.getElementById('tDropEnemy' + lv).onclick = (e) => { startDrop(newEnemy(false, Math.min(EC.clearKills, enemyDrops + 2), lv), tank.pos); e.target.blur(); };   // 적 탱크 레벨 1~3   // 다음 순번 레벨로
-document.getElementById('tDropSpg').onclick = (e) => { spawnSpg(); e.target.blur(); };
-document.getElementById('tDropJeep').onclick = (e) => { startDrop(newJeep()); e.target.blur(); };
+$el('tDropGold').onclick = (e) => { dropSafe('gold', tank.pos); e.target.blur(); };
+$el('tDropRepair').onclick = (e) => { dropSafe('repair', tank.pos); e.target.blur(); };
+for (const lv of [1, 2, 3]) $el('tDropEnemy' + lv).onclick = (e) => { startDrop(newEnemy(false, Math.min(EC.clearKills, enemyDrops + 2), lv), tank.pos); e.target.blur(); };   // 적 탱크 레벨 1~3   // 다음 순번 레벨로
+$el('tDropSpg').onclick = (e) => { spawnSpg(); e.target.blur(); };
+$el('tDropJeep').onclick = (e) => { startDrop(newJeep()); e.target.blur(); };
 // 슬라이더: [id, 최소, 최대(config의 최대값), 처음 값(config), 적용]. 재장전은 짧을수록 오른쪽이 되게 음수로
 const GROW = [
   ['gReload', -8, -PM.reloadMin, -PC.reload, (v) => { tank.reload = -v; return `${(-v).toFixed(1)}초`; }],
@@ -7108,7 +7388,7 @@ const GROW = [
   ['gTurret', 15, PM.turretRate, PC.turretRate, (v) => { tank.turretRate = v * DEG; return `${Math.round(v)}°/s`; }],
 ];
 for (const [id, min, max, init, apply] of GROW) {
-  const el = document.getElementById(id), lab = document.getElementById(id + 'V');
+  const el = $el(id), lab = $el(id + 'V');
   el.min = min; el.max = max; el.value = el.defaultValue = init;
   el.oninput = () => { lab.textContent = apply(+el.value); };
   el.onchange = () => el.blur();
@@ -7116,27 +7396,27 @@ for (const [id, min, max, init, apply] of GROW) {
 }
 // 기관총 (내 탱크에 기관총이 있을 때만): 초당 발사 수 · 대미지. 성장으로 바뀌면 dbgSync가 따라 맞춘다
 const mgSl = [['gMgRate', 1, Math.max(PM.mgRate, 30), (v) => { if (tank.mg) tank.mg.rate = v; return `${v}발/초`; }], ['gMgDmg', 1, Math.max(PM.mgDamage, 40), (v) => { if (tank.mg) tank.mg.damage = v; return `${v}`; }]];
-for (const [id, min, max, apply] of mgSl) { const el = document.getElementById(id); el.min = min; el.max = max; el.oninput = () => { document.getElementById(id + 'V').textContent = apply(+el.value); }; el.onchange = () => el.blur(); }
-document.getElementById('gMgAdd').onclick = (e) => { UP_FX.mg.apply(); dbgSync(); e.target.blur(); };   // 기관총 하나 더 (최대 2정)
-document.getElementById('gRegen').oninput = (e) => { tank.regen = +e.target.value; document.getElementById('gRegenV').textContent = `${tank.regen}`; };
-document.getElementById('gRegen').onchange = (e) => e.target.blur();
+for (const [id, min, max, apply] of mgSl) { const el = $el(id); el.min = min; el.max = max; el.oninput = () => { $el(id + 'V').textContent = apply(+el.value); }; el.onchange = () => el.blur(); }
+$el('gMgAdd').onclick = (e) => { UP_FX.mg.apply(); dbgSync(); e.target.blur(); };   // 기관총 하나 더 (최대 2정)
+$el('gRegen').oninput = (e) => { tank.regen = +e.target.value; $el('gRegenV').textContent = `${tank.regen}`; };
+$el('gRegen').onchange = (e) => e.target.blur();
 // 무적: 내 탱크가 맞아도 체력이 줄지 않는다 (damageTank)
 let godMode = false;
-document.getElementById('gGod').onclick = (e) => { godMode = !godMode; e.target.textContent = godMode ? '무적 켜짐' : '무적 꺼짐'; e.target.blur(); };
+$el('gGod').onclick = (e) => { godMode = !godMode; e.target.textContent = godMode ? '무적 켜짐' : '무적 꺼짐'; e.target.blur(); };
 // 설정 메뉴 버튼·게이지 상태 맞추기 (메뉴가 열려 있을 때 0.2초마다): 할 수 없는 것은 흐리게
 function dbgSync() {
   const mg = tank.mg, n = mg ? mg.count : 0;
-  const add = document.getElementById('gMgAdd'); add.disabled = n >= 2; add.textContent = n >= 2 ? '기관총 추가 (최대 2정)' : `기관총 추가 (${n}정)`;
+  const add = $el('gMgAdd'); add.disabled = n >= 2; add.textContent = n >= 2 ? '기관총 추가 (최대 2정)' : `기관총 추가 (${n}정)`;
   for (const [id, , , apply] of mgSl) {
-    const el = document.getElementById(id); el.disabled = !mg;
-    if (mg && document.activeElement !== el) { el.value = id === 'gMgRate' ? mg.rate : mg.damage; document.getElementById(id + 'V').textContent = apply(+el.value); }
-    if (!mg) document.getElementById(id + 'V').textContent = '없음';
+    const el = $el(id); el.disabled = !mg;
+    if (mg && document.activeElement !== el) { el.value = id === 'gMgRate' ? mg.rate : mg.damage; $el(id + 'V').textContent = apply(+el.value); }
+    if (!mg) $el(id + 'V').textContent = '없음';
   }
 }
-const sliderAt = (id) => { const el = document.getElementById(id); return +el.value >= +el.max - 1e-6; };   // 최대값에 닿았는가
+const sliderAt = (id) => { const el = $el(id); return +el.value >= +el.max - 1e-6; };   // 최대값에 닿았는가
 // 성장으로 바뀌는 내 탱크 값을 모두 처음으로 (슬라이더 + 고른 성장 항목)
 function resetGrowth() {
-  for (const [id] of GROW) { const el = document.getElementById(id); el.value = el.defaultValue; el.oninput(); }
+  for (const [id] of GROW) { const el = $el(id); el.value = el.defaultValue; el.oninput(); }
   Object.assign(tank, { maxHp: PC.hp, hp: Math.min(tank.hp, PC.hp), magnetR: MAGNET_R, armorM: 1, goldMul: 1, pierce: 0, ram: false, waterSpeed: undefined, goldKeep: false, autoRepair: false, repairAcc: 0, mg: null, picks: {}, pickLog: [],
     berserk: 0, coinMul: 1, combos: [], apMg: false, dozer: 0, fieldRepair: false, scrap: 0, sniper: 0,
     bunkerMul: 1, kitMul: 1, supplyBlast: null, twin: 0, twinT: 0, crit: 0, critMul: 2, offerN: 3 });
@@ -7145,14 +7425,14 @@ function resetGrowth() {
   showGuns(0);
   growLevel = 0;
 }
-document.getElementById('gReset').onclick = (e) => { resetGrowth(); e.target.blur(); };
+$el('gReset').onclick = (e) => { resetGrowth(); e.target.blur(); };
 // 성장 선택지: 골드가 100(설정)개 모이면 3개 중 하나 (게임은 멈추지 않는다). 우상단에 픽셀 UI로 세로로 뜨고 (offerUI),
 // 숫자키 1·2·3, 게임패드 방향키 ←·↑·→, 또는 항목을 눌러 고른다.
 // 고르면 골드 100을 내고, 나머지는 곧바로 어두운 회색이 됐다가 잠시 뒤 모두 4x4 디더링으로 사라진다. 그래도 100개 이상 남았으면 이어서 다음 선택지.
 // 선택지는 레어도 가중치(일반 100 / 고급 70 / 희귀 30 / 전설 10, 설정)로 겹치지 않게 뽑는다
 // 성장 한 번에 드는 골드: 0~9단계는 100, 10~19단계는 200, … (설정)
 const GC = CFG.growth, offerCost = () => GC.goldPerOffer + Math.floor(growLevel / GC.goldStepEvery) * GC.goldStepAdd;
-const bumpSlider = (id, f) => { const el = document.getElementById(id); el.value = Math.max(+el.min, Math.min(+el.max, f(+el.value))); el.oninput(); };
+const bumpSlider = (id, f) => { const el = $el(id); el.value = Math.max(+el.min, Math.min(+el.max, f(+el.value))); el.oninput(); };
 // 항목별 효과 (v = config의 value)와 지금 고를 수 있는지
 const UP_FX = {
   speed:      { apply: (v) => bumpSlider('gSpd', x => x * (1 + v / 100)), ok: () => !sliderAt('gSpd') },
@@ -7195,7 +7475,7 @@ const UP_FX = {
 };
 const upText = (s, u) => s.replaceAll('{v}', u.value ?? '').replaceAll('{w}', u.value2 ?? '').replaceAll('{n}', tank.goldMul + 1);
 // 이번에 고르면 마지막 단계인가: 고를 수 있는 횟수(max)를 다 채우거나, 성능이 최대값에 닿는다
-const willMax = (id, f) => { const el = document.getElementById(id); return f(+el.value) >= +el.max - 1e-6; };
+const willMax = (id, f) => { const el = $el(id); return f(+el.value) >= +el.max - 1e-6; };
 const UP_LAST = {
   speed: (v) => willMax('gSpd', x => x * (1 + v / 100)), accel: (v) => willMax('gAcc', x => x * (1 + v / 100)), turn: (v) => willMax('gTurn', x => x * (1 + v / 100)),
   turret: (v) => willMax('gTurret', x => x * (1 + v / 100)), reload: (v) => willMax('gReload', x => x * (1 - v / 100)), muzzle: (v) => willMax('gMuzzle', x => x * (1 + v / 100)),
@@ -7305,9 +7585,9 @@ function landOffer() {
   else nextOffer();
 }
 addEventListener('keydown', (e) => { const m = /^(Digit|Numpad)([1-4])$/.exec(e.code); if (m && UI.screen === offerUI) pickOffer(+m[2] - 1); });   // 숫자 1~4 (위쪽 숫자 줄 또는 숫자 키패드. 4는 '폭넓은 선택'). 선택지가 보일 때만 (일시정지 창 아래에 있으면 안 됨)
-document.getElementById('gOffer').onclick = (e) => { testOffers++; nextOffer(); e.target.blur(); };   // 테스트: 골드 없이 바로 선택지
+$el('gOffer').onclick = (e) => { testOffers++; nextOffer(); e.target.blur(); };   // 테스트: 골드 없이 바로 선택지
 // 테스트: 성장 10단계를 한 번에. 단계마다 평소처럼 선택지 3개를 뽑아 그중 하나를 무작위로 고른다 (골드는 쓰지 않음. 떠 있는 선택지는 그대로)
-document.getElementById('gRand10').onclick = (e) => {
+$el('gRand10').onclick = (e) => {
   for (let k = 0; k < 10; k++) {
     const ch = rollChoices();
     if (!ch.length) break;   // 더 고를 것이 없다
@@ -7319,27 +7599,27 @@ document.getElementById('gRand10').onclick = (e) => {
   }
   drawPickLog(); sfx.coin(); e.target.blur();
 };
-document.getElementById('gReroll').onclick = (e) => {   // 테스트: 떠 있는 선택지 3개를 확률대로 다시 뽑는다
+$el('gReroll').onclick = (e) => {   // 테스트: 떠 있는 선택지 3개를 확률대로 다시 뽑는다
   if (curOffer && curOffer.picked < 0) { curOffer.choices = rollChoices(); drawOffer(); }
   e.target.blur();
 };
 // 맵 설정의 처음 값 (config.js)
-const setInput = (id, v) => { const el = document.getElementById(id); el.value = v; if (el.oninput) el.oninput({ target: el }); };
+const setInput = (id, v) => { const el = $el(id); el.value = v; if (el.oninput) el.oninput({ target: el }); };
 let windDir = MAP0.windDir;   // 바람이 불어 가는 쪽 (°): 0 = +x, 90 = +z(북쪽)
-document.getElementById('windDir').value = windDir; document.getElementById('windDirV').textContent = `${windDir}°`;
-document.getElementById('windDir').oninput = (e) => { windDir = +e.target.value; document.getElementById('windDirV').textContent = `${windDir}°`; };
-document.getElementById('wind').oninput = (e) => { U.uWind.value = +e.target.value; document.getElementById('windV').textContent = (+e.target.value).toFixed(2); };
-document.getElementById('wind').onchange = (e) => e.target.blur();
-document.getElementById('fog').oninput = (e) => { ENV_PLAY.far = 2 / Math.max(1e-4, +e.target.value); applyEnv(); document.getElementById('fogV').textContent = (+e.target.value).toFixed(4); };
-document.getElementById('fog').onchange = (e) => e.target.blur();
-document.getElementById('cbox').onclick = (e) => { toggleCollisionView(); e.target.blur(); };
+$el('windDir').value = windDir; $el('windDirV').textContent = `${windDir}°`;
+$el('windDir').oninput = (e) => { windDir = +e.target.value; $el('windDirV').textContent = `${windDir}°`; };
+$el('wind').oninput = (e) => { U.uWind.value = +e.target.value; $el('windV').textContent = (+e.target.value).toFixed(2); };
+$el('wind').onchange = (e) => e.target.blur();
+$el('fog').oninput = (e) => { ENV_PLAY.far = 2 / Math.max(1e-4, +e.target.value); applyEnv(); $el('fogV').textContent = (+e.target.value).toFixed(4); };
+$el('fog').onchange = (e) => e.target.blur();
+$el('cbox').onclick = (e) => { toggleCollisionView(); e.target.blur(); };
 // 설정 메뉴: ` 키로 열고 닫는다 (늘 펼쳐진 상태)
-const hudEl = document.getElementById('hud');
-addEventListener('keydown', (e) => { if (e.code === 'Backquote' && e.shiftKey) { hudEl.style.display = hudEl.style.display === 'block' ? 'none' : 'block'; e.preventDefault(); } });   // 설정 메뉴: ~ (Shift + `. 숫자 1 옆이라 잘못 눌러 열리지 않게)
-document.getElementById('camreset').onclick = (e) => { resetCamera(); e.target.blur(); };
+const hudEl = $el('hud');
+if (DEV) addEventListener('keydown', (e) => { if (e.code === 'Backquote' && e.shiftKey) { hudEl.style.display = hudEl.style.display === 'block' ? 'none' : 'block'; e.preventDefault(); } });   // 설정 메뉴: ~ (Shift + `. 숫자 1 옆이라 잘못 눌러 열리지 않게)
+$el('camreset').onclick = (e) => { resetCamera(); e.target.blur(); };
 // 마우스 오른쪽 끌기로 카메라 옮기기: 평소엔 끔 (설정 메뉴에서 켠다)
 controls.enablePan = false;
-document.getElementById('camPanBtn').onclick = (e) => { controls.enablePan = !controls.enablePan; e.target.textContent = controls.enablePan ? '우클릭 카메라 이동 켜짐' : '우클릭 카메라 이동 꺼짐'; e.target.blur(); };
+$el('camPanBtn').onclick = (e) => { controls.enablePan = !controls.enablePan; e.target.textContent = controls.enablePan ? '우클릭 카메라 이동 켜짐' : '우클릭 카메라 이동 꺼짐'; e.target.blur(); };
 // 자동 카메라 (설정, 기본 켜기): 마우스로 돌리거나 당긴 카메라가 손을 뗀 뒤 2초가 지나면 기본 방향·거리로 EaseInOutCubic(1.5초)으로 돌아온다.
 // 끄면 바꾼 방향·거리를 그대로 둔다. camBack()을 frame이 부른다
 const CAM_BACK_WAIT = 2000, CAM_BACK_T = 1.5;
@@ -7471,14 +7751,14 @@ function camElastic(dt) {
 }
 // AO 한 줄: 켜기/끄기, 세기, 흰색 보기
 let aoOn = true;
-const aoK = document.getElementById('aoK'), aoKv = document.getElementById('aoKv');
+const aoK = $el('aoK'), aoKv = $el('aoKv');
 const applyAO = () => { U.uAO.value = aoOn ? +aoK.value : 0; aoKv.textContent = (+aoK.value).toFixed(1); };
-document.getElementById('aoBtn').onclick = (e) => { aoOn = !aoOn; e.target.textContent = aoOn ? '켜짐' : '꺼짐'; applyAO(); e.target.blur(); };
+$el('aoBtn').onclick = (e) => { aoOn = !aoOn; e.target.textContent = aoOn ? '켜짐' : '꺼짐'; applyAO(); e.target.blur(); };
 aoK.oninput = applyAO; aoK.onchange = (e) => e.target.blur();
-document.getElementById('aoWhite').onclick = (e) => { U.uWhite.value = 1 - U.uWhite.value; e.target.textContent = U.uWhite.value ? '색 보기' : '흰색 보기'; e.target.blur(); };
-document.getElementById('moonI').oninput = (e) => { ENV_PLAY.moon = +e.target.value; applyEnv(); document.getElementById('moonIV').textContent = (+e.target.value).toFixed(2); };
-document.getElementById('moonC').oninput = (e) => { ENV_PLAY.moonC.set(e.target.value); applyEnv(); };
-for (const id of ['moonI', 'moonC']) document.getElementById(id).onchange = (e) => e.target.blur();
+$el('aoWhite').onclick = (e) => { U.uWhite.value = 1 - U.uWhite.value; e.target.textContent = U.uWhite.value ? '색 보기' : '흰색 보기'; e.target.blur(); };
+$el('moonI').oninput = (e) => { ENV_PLAY.moon = +e.target.value; applyEnv(); $el('moonIV').textContent = (+e.target.value).toFixed(2); };
+$el('moonC').oninput = (e) => { ENV_PLAY.moonC.set(e.target.value); applyEnv(); };
+for (const id of ['moonI', 'moonC']) $el(id).onchange = (e) => e.target.blur();
 setInput('aoK', CFG.map.ao);
 // 맵 셋팅 바꾸기: 설정 메뉴 슬라이더·하늘빛·날씨를 그 셋팅 값으로 (슬라이더는 그 뒤에 따로 만져 볼 수 있다)
 function applyMapPreset(i) {
@@ -7488,8 +7768,8 @@ function applyMapPreset(i) {
   ENV_PLAY.sky = p.sky; ENV_PLAY.skyC.set(p.skyColor); ENV_PLAY.gndC.set(p.groundColor); ENV_PLAY.bgAuto = !p.bgColor; bgOf(p, ENV_PLAY.bg); applyEnv();
   setWeather(p);
   for (const [id, v] of [['rainA', p.rain], ['sandA', p.sand], ['boltA', p.lightning]]) setInput(id, v);
-  document.getElementById('sandC').value = p.sandColor ?? '#c8a070';
-  document.getElementById('mapBtn').textContent = `맵 셋팅: ${p.name} (${mapIdx + 1}/${MAP_PRESETS.length})`;
+  $el('sandC').value = p.sandColor ?? '#c8a070';
+  $el('mapBtn').textContent = `맵 셋팅: ${p.name} (${mapIdx + 1}/${MAP_PRESETS.length})`;
 }
 // 남은 적이 map.stormAt대 이하가 되면 map.stormPreset 셋팅으로 stormTime초에 걸쳐 바뀐다 (클리어가 가깝다는 신호, 분위기 전환). 한 판에 한 번
 let storm = null, stormDone = false;
@@ -7518,16 +7798,16 @@ function stormTick(dt) {
 }
 // 날씨 양 슬라이더 (비 · 모래바람 · 번개)
 for (const [id, key] of [['rainA', 'rain'], ['sandA', 'sand'], ['boltA', 'lightning']]) {
-  const el = document.getElementById(id);
-  el.oninput = (e) => { WEATHER[key] = +e.target.value; document.getElementById(id + 'V').textContent = (+e.target.value).toFixed(2); };
+  const el = $el(id);
+  el.oninput = (e) => { WEATHER[key] = +e.target.value; $el(id + 'V').textContent = (+e.target.value).toFixed(2); };
   el.onchange = (e) => e.target.blur();
 }
-document.getElementById('sandC').oninput = (e) => WEATHER.sandCol.set(e.target.value);   // 모래 색 (설정 메뉴에서 바로)
-document.getElementById('sandC').onchange = (e) => e.target.blur();
-document.getElementById('mapBtn').onclick = (e) => { applyMapPreset(mapIdx + 1); e.target.blur(); };   // 처음 셋팅은 90_loop.js에서 (뒤 파일의 값이 다 준비된 뒤)
+$el('sandC').oninput = (e) => WEATHER.sandCol.set(e.target.value);   // 모래 색 (설정 메뉴에서 바로)
+$el('sandC').onchange = (e) => e.target.blur();
+$el('mapBtn').onclick = (e) => { applyMapPreset(mapIdx + 1); e.target.blur(); };   // 처음 셋팅은 90_loop.js에서 (뒤 파일의 값이 다 준비된 뒤)
 resetGrowth();
 resize();
-Object.assign(window.dbg, { U, ballHit, cliffG, mainRoadX, addScorchDecal, resetCamera, renderer, scene, rt, tank, keys, fireCannon, physStep, updateBalls, fieldTick, burning, fFire, fChar, fGrow, footprints, spawnTank, resetTank, heightAt, PHYS_H, driveEffects, syncTankVisual, smokeP, glowP, targets, destroyTarget, BRIDGE, waterAt, creekPoly, explode, trackRT, balls, ballGeo, ballMat, crates, wireSpans, allPoles, WRECKS, PUDDLES, poleTilt, kickPole, toggleCollisionView, CREEK_UP: () => CREEK_UP, creekPoly, aoMs: () => aoMs, aoHits: () => aoHits, gapData });
+Object.assign(DBG, { U, ballHit, cliffG, mainRoadX, addScorchDecal, resetCamera, renderer, scene, rt, tank, keys, fireCannon, physStep, updateBalls, fieldTick, burning, fFire, fChar, fGrow, footprints, spawnTank, resetTank, heightAt, PHYS_H, driveEffects, syncTankVisual, smokeP, glowP, targets, destroyTarget, BRIDGE, waterAt, creekPoly, explode, trackRT, balls, ballGeo, ballMat, crates, wireSpans, allPoles, WRECKS, PUDDLES, poleTilt, kickPole, toggleCollisionView, CREEK_UP: () => CREEK_UP, creekPoly, aoMs: () => aoMs, aoHits: () => aoHits, gapData });
 
 // 카메라는 탱크 뒤에서 시작해 탱크를 따라 이동. 마우스로 자유롭게 돌릴 수 있다.
 // 화면 가운데에는 탱크가 아니라 탱크가 바라보는 쪽 9m 앞을 둔다: 기본 시점에서 탱크는 화면 세로 2/3쯤 아래에 보이고
@@ -7541,7 +7821,7 @@ try { const m = localStorage.getItem('MightyMolly.camMode'); if (CAM_MODES.inclu
 const camTurret = () => { if (camMode !== 'auto') return camMode === 'turret'; try { return !inputPad; } catch (_) { return true; } };
 function setCamMode(m) {
   camMode = m; try { localStorage.setItem('MightyMolly.camMode', m); } catch (_) {}
-  document.getElementById('camModeBtn').textContent = `시점: ${CAM_MODE_KO[m]}`;
+  $el('camModeBtn').textContent = `시점: ${CAM_MODE_KO[m]}`;
 }
 setCamMode(camMode);
 // 소리 크기 (0~1): 일시정지 창 '설정' 탭과 설정 메뉴 게이지가 같이 쓴다. 기억해 둔다
@@ -7551,7 +7831,7 @@ function setVolume(v) {
   volNow = Math.max(0, Math.min(1, Math.round(v * 100) / 100));
   try { sfx.setVolume(volNow); } catch (_) {}   // (로딩 중엔 소리가 아직 없다: 60_audio.js 뒤에서 다시 맞춘다)
   try { localStorage.setItem('MightyMolly.volume', String(volNow)); } catch (_) {}
-  const el = document.getElementById('vol'); el.value = volNow; document.getElementById('volV').textContent = volNow.toFixed(2);
+  const el = $el('vol'); el.value = volNow; $el('volV').textContent = volNow.toFixed(2);
 }
 setVolume(volNow);
 // 켜기/끄기 설정 (일시정지 창 '설정' 탭): 기억해 두었다가 다시 쓴다
@@ -7593,7 +7873,7 @@ function resetCamera() {
   controls.update();
 }
 resetCamera();
-window.dbg.lastFollow = lastFollow;
+DBG.lastFollow = lastFollow;
 // 카메라가 땅 속으로 들어가지 않게: 카메라 자리와 화면 가운데 쪽으로 조금 나아간 두 곳의 땅 높이 + minHeight 아래로는 못 내려간다
 // (가까운 면이 화면 앞을 가로막지 않게 앞쪽도 본다). 마우스로 낮게 돌려도 여기서 막힌다
 const CAM_MIN_H = CC.minHeight ?? 2;
@@ -7652,7 +7932,7 @@ for (const row of CAM_ROWS) {
   lab.textContent = name; el.type = 'range'; el.min = min; el.max = max; el.step = step;
   el.oninput = () => { if (camSlScr) { set(camSlScr, +el.value); val.textContent = fmt(+el.value); } };
   el.onchange = () => el.blur();
-  vs.append(val); it.append(lab, el, vs); document.getElementById('camSl').append(it);
+  vs.append(val); it.append(lab, el, vs); $el('camSl').append(it);
   camSl.push({ it, el, val, row });
 }
 // 게이지를 지금 화면 값으로 (메뉴가 열려 있을 때 0.25초마다 보고, 화면이 바뀌었으면). 그 화면에 없는 값은 끈다
@@ -7661,7 +7941,7 @@ function camSlSync(force) {
   const m = camScr(), key = m + '/' + camPre;
   if (key === camSlKey && !force) return;
   camSlScr = m; camSlKey = key;
-  document.getElementById('camScr').textContent = `(${CAM_SCR_KO[m]} · ${camPreCfg().name})`;
+  $el('camScr').textContent = `(${CAM_SCR_KO[m]} · ${camPreCfg().name})`;
   for (const { it, el, val, row } of camSl) {
     const v = row[5](m), off = v === undefined;
     el.disabled = off; it.classList.toggle('off', off);
@@ -7670,7 +7950,7 @@ function camSlSync(force) {
   }
 }
 // 초기화: 타이틀·임무 완료 카메라와 모든 카메라 모드를 처음 값으로 되돌린다
-document.getElementById('camSlReset').onclick = (e) => {
+$el('camSlReset').onclick = (e) => {
   camSlSync();
   for (const m of ['title', 'clear']) CAM_ROWS.forEach((r, i) => { if (camSlInit[m][i] !== undefined) r[6](m, camSlInit[m][i]); });
   JSON.parse(CAMP_CFG0).forEach((o, i) => Object.assign(CFG.camera[CAMP_KEYS[i]], o));
@@ -7681,7 +7961,7 @@ document.getElementById('camSlReset').onclick = (e) => {
 setInterval(() => { if (hudEl.style.display === 'block') camSlSync(); }, 250);
 // 설정 메뉴 크기: 우하단 핸들(#hudGrip)을 끌어 바꾼다 (기억해 둔다). 게이지 묶음은 메뉴 폭이 좁으면 1단
 {
-  const hud = document.getElementById('hud'), grip = document.getElementById('hudGrip'), groups = hud.querySelectorAll('.wg');
+  const hud = $el('hud'), grip = $el('hudGrip'), groups = hud.querySelectorAll('.wg');
   try { const z = JSON.parse(localStorage.getItem('MightyMolly.dbgSize')); if (z && z.w > 100 && z.h > 100) { hud.style.width = z.w + 'px'; hud.style.height = z.h + 'px'; hud.style.boxSizing = 'border-box'; } } catch (_) {}
   const place = () => {
     const r = hud.getBoundingClientRect(), on = r.width > 0;
@@ -7718,9 +7998,9 @@ setInterval(() => { if (hudEl.style.display === 'block') camSlSync(); }, 250);
 // 타이틀 동안 적은 움직이지 않고, HUD·조준선은 숨긴다
 let titleState = titleK >= 1 ? 'play' : 'title', titleT = 0, titleWait = 0;   // titleWait: 타이틀이 보인 뒤 흐른 시간 (로딩 화면이 걷힌 뒤부터)
 const TITLE_DELAY = TT.inputDelay ?? 2;   // 이 시간이 지나야 아무 키나 눌러 시작할 수 있다
-const titleEl = document.getElementById('title');
+const titleEl = $el('title');
 const easeInOutCubic = (t) => t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
-function showPlayHud(v) { for (const id of ['phud', 'phudS', 'touchUI']) document.getElementById(id).style.visibility = v ? '' : 'hidden'; }
+function showPlayHud(v) { for (const id of ['phud', 'phudS', 'touchUI']) $el(id).style.visibility = v ? '' : 'hidden'; }
 // HUD는 게임이 시작되고 hud.showDelay초 뒤에, 피해 입을 때와 같은 치지직과 함께 나타난다
 let hudRevealT = titleState === 'play' ? CFG.hud?.showDelay ?? 3 : -1;
 showPlayHud(false);
@@ -7748,8 +8028,8 @@ function goTitle() {
 }
 // 설정 메뉴 '적 AI 정지': 모든 적이 그 자리에 멈춘다 (움직임·사격·증원 모두. 떨어지던 것은 마저 떨어진다)
 let aiFrozen = false;
-function setAiFrozen(on) { aiFrozen = on; document.getElementById('aiStopBtn').textContent = on ? '적 AI 정지 켜짐' : '적 AI 정지 꺼짐'; }   // 버튼 글자도 같이
-document.getElementById('aiStopBtn').onclick = (e) => { setAiFrozen(!aiFrozen); e.target.blur(); };
+function setAiFrozen(on) { aiFrozen = on; $el('aiStopBtn').textContent = on ? '적 AI 정지 켜짐' : '적 AI 정지 꺼짐'; }   // 버튼 글자도 같이
+$el('aiStopBtn').onclick = (e) => { setAiFrozen(!aiFrozen); e.target.blur(); };
 function updateHudReveal(dt) { if (hudRevealT >= 0 && (hudRevealT -= dt) < 0) hudRevealT = -1; }
 // HUD를 켤지: 시작 뒤 showDelay초가 지났고, 가운데 창이 떠 있지 않을 때. 켜질 때마다 피해 입을 때처럼 치지직하며 나타난다
 let hudOn = false, hudOffAt = 0, hudWaitLand = false;   // hudWaitLand: 재출격해서 떨어지는 중 (착지하면 HUD)   // hudOffAt: 이 시각(ms)에 HUD를 끈다 (끄기 전에 치지직)
@@ -7856,11 +8136,11 @@ function titleWipe(c) {
   const r = c.getBoundingClientRect(), H = c._src.height;
   sharpBlit(c, ditherWipe(c._src, titleFadeF, (y) => 1 - (r.top + y / H * r.height) / innerHeight), c._css[0], c._css[1]);
 }
-const tPressEl = document.getElementById('tPress'), tCamoEl = document.getElementById('tCamo');
+const tPressEl = $el('tPress'), tCamoEl = $el('tCamo');
 tCamoEl.style.visibility = 'hidden';
 function updateTitle(dt) {
   if (titleState === 'title') {   // PRESS ANY KEY: 입력을 받기 시작할 때 나타나 깜빡인다
-    if (!document.getElementById('loading')) titleWait += dt;
+    if (!$el('loading')) titleWait += dt;
     const t = titleWait - TITLE_DELAY;
     tPressEl.style.visibility = t >= 0 && (titleBtnHot || t % 1.1 < 0.72) ? '' : 'hidden';   // 시작 버튼은 깜빡인다 (마우스를 올리면 멈춤)
     tCamoEl.style.visibility = t >= 0 ? '' : 'hidden';   // 키 안내는 깜빡이지 않는다
@@ -7876,7 +8156,7 @@ function updateTitle(dt) {
     if (q !== titleFadeQ) {
       titleFadeQ = q; titleFadeF = f; titleFadeTh = Math.min(16, Math.floor(f * 16));
       if (f >= 1) titleEl.style.display = 'none';
-      else for (const id of ['tLogo', 'tBrand', 'tBadge', 'tVer', 'tPress', 'tCamo']) titleWipe(document.getElementById(id));
+      else for (const id of ['tLogo', 'tBrand', 'tBadge', 'tVer', 'tPress', 'tCamo']) titleWipe($el(id));
     }
   }
   titleK = easeInOutCubic(titleT); applyEnv();
@@ -7952,7 +8232,7 @@ function titleCamEnd() {
 }
 
 // ---------------------------------------------------------------- 루프
-const statsEl = document.getElementById('stats');
+const statsEl = $el('stats');
 const clock = new THREE.Clock();
 let frames = 0, acc = 0, physAcc = 0, fieldAcc = 0, lastDt = 0, uiDt = 0, grayK = 0;
 const _shake = new THREE.Vector3();
@@ -8141,7 +8421,7 @@ function leaveUpdate(dt) {
   }
   if (f >= 1 && !leaving.done) { leaving.done = true; setTimeout(() => location.reload(), 30); }   // 다 덮인 화면을 한 번 보이고
 }
-Object.assign(window.dbg, { clearBegin, clearSeq: () => clearSeq });
+Object.assign(DBG, { clearBegin, clearSeq: () => clearSeq });
 // ===== src/60_audio.js =====
 // ---------------------------------------------------------------- 소리 (WebAudio로 즉석 합성: 파일 없음)
 // 밀리터리 느낌: 걸러낸 잡음 + 낮은 사인파 쿵 + 긴 잔향(합성한 공간 울림). 전자음 같은 사각파는 줍기 소리에만.
@@ -9222,14 +9502,14 @@ function updateEnemies(dt) {
 
 // 고른 성장 목록 (설정 메뉴 버튼): 고른 순서대로, 이름은 레어도 색
 function drawPickLog() {   // 성장 초기화가 이 부분보다 먼저 불리므로 요소는 그때그때 찾는다
-  const pickLogEl = document.getElementById('pickLog');
+  const pickLogEl = $el('pickLog');
   if (pickLogEl.style.display === 'none') return;
   const list = tank.pickLog || [];
   pickLogEl.innerHTML = list.length ? list.map((c, i) => `<div>${i + 1}. <span style="color:${GC.rarity[c.u.rarity].color}">${c.label}</span> <span style="opacity:.6">${c.desc}</span></div>`).join('') : '<div style="opacity:.6">아직 고른 것이 없어요</div>';
 }
-document.getElementById('gLog').onclick = (e) => { const pickLogEl = document.getElementById('pickLog'); pickLogEl.style.display = pickLogEl.style.display === 'none' ? '' : 'none'; drawPickLog(); e.target.blur(); };
+$el('gLog').onclick = (e) => { const pickLogEl = $el('pickLog'); pickLogEl.style.display = pickLogEl.style.display === 'none' ? '' : 'none'; drawPickLog(); e.target.blur(); };
 // 설정 메뉴: 내 탱크 좌표 (m)와 바라보는 방향 (°. 0 = +z, 90 = +x). 메뉴가 열려 있을 때만 0.2초마다
-const tankPosEl = document.getElementById('tankPos');
+const tankPosEl = $el('tankPos');
 let tankPosT = 0;
 function updateTankPos(dt) {
   if ((tankPosT -= dt) > 0 || hudEl.style.display !== 'block') return;
@@ -9240,7 +9520,7 @@ function updateTankPos(dt) {
   tankPosEl.textContent = `{ x: ${tank.pos.x.toFixed(1)}, z: ${tank.pos.z.toFixed(1)}, yaw: ${yaw} }`;
 }
 // 대미지 플로터 (적 AI 표시를 켰을 때): 맞은 자리 위로 떠오르며 사라지는 한 줄. 최종 대미지 = 원래 대미지 × (1 - 방어력) × 장갑 강화, 소수점 버림
-const dmgEl = document.getElementById('dmgFloat'), floaters = [];
+const dmgEl = $el('dmgFloat'), floaters = [];
 const FACE_KO = { front: '정면', side: '측면', rear: '후면', top: '상단', bottom: '하단' };
 const fmtN = (v) => String(Math.round(v * 100) / 100);
 function addFloater(p, up, txt, col, key) {   // key: 같은 대상에 잇달아 뜨면 위로 한 줄씩 쌓는다
@@ -9278,10 +9558,10 @@ function updateFloaters(dt) {
 let aiShow = false;
 const aiLines = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x7fe8ff, fog: false, depthTest: false, transparent: true, opacity: 0.8 }));
 aiLines.frustumCulled = false; aiLines.renderOrder = 6; aiLines.visible = false; scene.add(aiLines);
-const aiTagsEl = document.getElementById('aiTags'), aiTagPool = [];
+const aiTagsEl = $el('aiTags'), aiTagPool = [];
 const AI_MODE = { explore: '정찰', chase: '쫓아가기', harass: '맴돌며 사격', search: '놓친 자리 찾기', detour: '막혀서 비켜 가는 중', kit: '수리 도구 줍기', repairSafe: '수리 보급품 깨기', flee: '도망', flank: '옆으로 돌아 들어가기', attack: '공격',
   search: '놓친 곳 찾아가기', look: '두리번', defend: '벙커 지원', gold: '골드 줍기', prowl: '기척 쪽으로 접근', hunt: '골드 보급품 사냥', wander: '배회', aim: '포격 조준', reload: '포격 장전', idle: '대기' };
-document.getElementById('aiBtn').onclick = (e) => { aiShow = !aiShow; e.target.textContent = aiShow ? '적 AI 표시 켜짐' : '적 AI 표시 꺼짐'; e.target.blur(); };
+$el('aiBtn').onclick = (e) => { aiShow = !aiShow; e.target.textContent = aiShow ? '적 AI 표시 켜짐' : '적 AI 표시 꺼짐'; e.target.blur(); };
 function updateAiView() {
   aiLines.visible = aiShow;
   if (!aiShow) { for (const d of aiTagPool) d.style.display = 'none'; return; }
@@ -9425,8 +9705,8 @@ function ruinBunker(B) {
 // 게임 화면과 같은 저해상도에, 노란주황색 한 가지와 5x7 고정폭 글자로. 줄 높이 7칸, 줄 간격 4칸.
 // HUD 칸 = 1픽셀인 작은 캔버스 두 장(색, 검은 그림자)에 값이 바뀔 때만 다시 그려 두고, 화면 캔버스로 늘려 옮긴다.
 // 색은 스크린(또는 더하기) 블렌딩, 그 밑에 그림자를 살짝 깐다. 피해를 입으면 몇 칸 높이 띠마다 좌우로 치지직 어긋난다
-const phud = document.getElementById('phud'), pg = cv2d(phud);
-const phudS = document.getElementById('phudS'), sg = cv2d(phudS);
+const phud = $el('phud'), pg = cv2d(phud);
+const phudS = $el('phudS'), sg = cv2d(phudS);
 const HC = Object.assign({ color: '#ffb43a', blend: 'screen', shadow: 0.55, glitchTime: 0.45, glitchPx: 6 }, CFG.hud);
 phud.style.mixBlendMode = HC.blend;
 const hudC = document.createElement('canvas'), hc = cv2d(hudC);   // 색
@@ -9485,7 +9765,7 @@ function pixelText(cv, lines, col = '#ffffff', align = 'left') {   // align 'rig
 }
 // ---- 타이틀 그림: 제목·MIYACAT 로고는 images/의 도트 PNG (직접 고쳐 쓸 수 있게 따로 둔다), 제목 아래 설명 한 줄은 HUD 글꼴,
 // 좌하단 배지는 사각형 + HUD 글꼴. 모두 게임 픽셀 단위 캔버스(_src)에 한 번 그리고 layoutTitle이 늘려 보인다
-const titleSrc = (id, w, h) => { const c = document.getElementById(id), s = c._src || (c._src = document.createElement('canvas')); s.width = w; s.height = h; return s.getContext('2d'); };
+const titleSrc = (id, w, h) => { const c = $el(id), s = c._src || (c._src = document.createElement('canvas')); s.width = w; s.height = h; return s.getContext('2d'); };
 const fontText = (g, t, x, y, k = 1) => fontDraw(t, x, y, k, (a, b, kk) => g.fillRect(a, b, kk, kk));
 const loadImg = (src) => new Promise((ok) => { const im = new Image(); im.onload = () => ok(im); im.onerror = () => ok(null); im.src = imgSrc(src); });
 const TGREEN = '#2e6a40', TINK = '#1b1b19', TCREAM = '#f6f1e3';
@@ -9517,16 +9797,16 @@ async function drawTitleArt() {
   layoutTitle();
 }
 let titlePad = false;   // 타이틀 키 안내가 게임패드 글자인가
-if (document.getElementById('tPress')) {
+if ($el('tPress')) {
   // (타이틀 우하단 키 안내는 한글 글꼴이 있는 81_ui.js 맨 끝에서 처음 그린다)
-  pixelText(document.getElementById('tVer'), [`VERSION ${VERSION}`, `BUILD ${BUILD}`]);
+  pixelText($el('tVer'), [`VERSION ${VERSION}`, `BUILD ${BUILD}`]);
   drawTitleArt();
   layoutTitle();
 }
 // 타이틀 키 안내: 마지막에 쓴 입력(키보드 / 게임패드)에 맞춰 SPACE·Q·E ↔ A·LB·RB
 function drawTitleKeys(pad) {
   titlePad = pad;
-  const c = document.getElementById('tPress');
+  const c = $el('tPress');
   if (!c) return;
   titleStartButton(c, pad ? 'A' : 'SPACE');
   drawCamoText();
@@ -9554,7 +9834,7 @@ function titleStartButton(cv, key) {
 }
 // 타이틀 위장색 안내 (PRESS SPACE 아래, 깜빡이지 않음): 지금 고른 위장색 이름
 function drawCamoText() {
-  const c = document.getElementById('tCamo');
+  const c = $el('tCamo');
   if (!c) return;
   titleKeyRows(c, [   // 우하단 키 안내: 오른쪽 정렬
     [titlePad ? ['LB', 'RB'] : ['Q', 'E'], `위장색 변경: ${CAMO_LIST[camoIdx].name}`],
@@ -9571,7 +9851,7 @@ const CALLOUTS = [
 ];
 const _cw = new THREE.Vector3(), INK = '#1b1b19';
 function drawCallouts() {
-  const out = document.getElementById('tCall');
+  const out = $el('tCall');
   if (!out || titleState === 'play') return;
   const cv = out._src || (out._src = document.createElement('canvas'));   // 게임 해상도. 화면에는 샤프 바이리니어로
   if (cv.width !== rt.width || cv.height !== rt.height) { cv.width = rt.width; cv.height = rt.height; }
@@ -9819,8 +10099,8 @@ function gfWrap(t, maxW) {
   return out;
 }
 
-const pui = document.getElementById('pui'), ug = cv2d(pui);
-const puiS = document.getElementById('puiS'), usg = cv2d(puiS);
+const pui = $el('pui'), ug = cv2d(pui);
+const puiS = $el('puiS'), usg = cv2d(puiS);
 pui.style.mixBlendMode = HC.blend;
 const uiC = document.createElement('canvas'), ucx = cv2d(uiC);   // 색
 const uiK = document.createElement('canvas'), ukx = cv2d(uiK);   // 글자·선 그림자
@@ -10054,7 +10334,7 @@ const missionUI = {
     }
   },
 };
-window.dbg.mission = missionUI;
+DBG.mission = missionUI;
 function startMission() {
   if (missionDone) return;
   Object.assign(missionUI, { t: 0, th: 0, shown: -1 });
@@ -10067,7 +10347,7 @@ function endMission() {
   if (pauseUI.under === missionUI) pauseUI.under = null;
 }
 // 플레이가 시작되면 (타이틀 전환이 끝나거나, 타이틀을 건너뛰면 로딩 화면이 걷힌 뒤) 한 번
-function missionCheck() { if (!missionDone && !UI.screen && !UI.closing && titleState === 'play' && !document.getElementById('loading')) startMission(); }
+function missionCheck() { if (!missionDone && !UI.screen && !UI.closing && titleState === 'play' && !$el('loading')) startMission(); }
 const offerUI = {
   passive: true, th: 0, freezeT: null,
   draw(ui) {
@@ -10545,14 +10825,14 @@ function padPoll() {
 }
 
 // 설정 메뉴: 내 탱크를 바로 파괴 / 적군을 바로 섬멸 (남은 증원도 없앤다. 지프는 섬멸 조건이 아님)
-document.getElementById('dbgDie').onclick = (e) => { if (tank.solid) damageTank(tank, 1e6, null, null, 'test'); e.target.blur(); };
-document.getElementById('dbgWipe').onclick = (e) => {
+$el('dbgDie').onclick = (e) => { if (tank.solid) damageTank(tank, 1e6, null, null, 'test'); e.target.blur(); };
+$el('dbgWipe').onclick = (e) => {
   enemyDrops = Math.max(enemyDrops, MAX_DROPS); dropTimers.length = 0; spgTimers.length = 0;
   for (const E of ENEMIES.slice()) if (!E.jeep && E.solid) destroyTankBody(E);
   checkMissionClear(); e.target.blur();
 };
 // 적 1대 물리침: 남은 적 수만 하나 줄인다 (아직 안 내려온 증원 → 내려오는 중 → 남은 한 대 순서). 0이 되면 섬멸과 같다
-document.getElementById('dbgKill1').onclick = (e) => {
+$el('dbgKill1').onclick = (e) => {
   if (enemyDrops < MAX_DROPS) enemyDrops++;
   else if (dropTimers.length) dropTimers.pop();
   else if (spgTimers.length) spgTimers.pop();
@@ -10613,7 +10893,7 @@ function updateLeaves(dt) {
     if (m.instanceColor) m.instanceColor.needsUpdate = true;
   });
 }
-document.getElementById('debris').value = windDebris; document.getElementById('debrisV').textContent = windDebris.toFixed(2);
+$el('debris').value = windDebris; $el('debrisV').textContent = windDebris.toFixed(2);
 function updateWindDebris(dt) {
   if (windDebris <= 0 || dt <= 0) return;
   const wd = U.uWindDir.value, ws = U.uWind.value, c = controls.target;
@@ -10651,8 +10931,8 @@ function perfFrame(frameMs, renderMs, progs, jsMs = 0) {
 // 줄마다 왼쪽 = 0.5초 평균 / 가장 큰 값 (ms), 오른쪽 = 왼쪽으로 흘러가는 그래프 (한 칸 = 한 프레임, 초록 → 노랑(주의) → 빨강(위험)).
 // 첫 줄은 프레임 간격(막대)과 그 프레임의 JS 계산 시간(흰 점). 나머지는 단계 묶음별 JS 시간 (perfMark 이름으로 묶는다).
 // 켜져 있는 동안은 renderer.info를 프레임마다 직접 비워(autoReset 끔) 한 프레임 전체의 그리기 호출·삼각형을 센다
-let perfHudOn = loadOpt('perfHud', false);
-const perfHudEl = document.getElementById('perfHud'), perfBtn = document.getElementById('perfBtn'), _phSz = new THREE.Vector2();
+let perfHudOn = DEV && loadOpt('perfHud', false);   // 배포판은 늘 끔
+const perfHudEl = $el('perfHud'), perfBtn = $el('perfBtn'), _phSz = new THREE.Vector2();
 const PH_GROUPS = [   // [이름, perfMark 이름들, 주의 ms, 위험 ms]
   ['물리', ['물리'], 4, 8],
   ['적 AI', ['적 AI'], 2, 4],
@@ -10745,10 +11025,10 @@ function setPerfHud(v) {
 }
 perfBtn.onclick = (e) => { setPerfHud(!perfHudOn); e.target.blur(); };
 // ! (Shift+1)로도 켜고 끈다. 성장 선택지 1번이 같이 골리지 않게 다른 키 처리보다 먼저 가로챈다
-addEventListener('keydown', (e) => { if (e.code === 'Digit1' && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) { e.stopImmediatePropagation(); e.preventDefault(); if (!e.repeat) setPerfHud(!perfHudOn); } }, true);
+if (DEV) addEventListener('keydown', (e) => { if (e.code === 'Digit1' && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) { e.stopImmediatePropagation(); e.preventDefault(); if (!e.repeat) setPerfHud(!perfHudOn); } }, true);
 setPerfHud(perfHudOn);
 // 타이틀 우하단 키 안내 첫 그리기: 한글 글꼴(GF)이 이 파일에 있어서 80_hud.js 로딩 중에는 그릴 수 없다 (const 선언 전). 여기서
-if (document.getElementById('tPress')) { drawTitleKeys(titlePad); layoutTitle(); }
+if ($el('tPress')) { drawTitleKeys(titlePad); layoutTitle(); }
 // ===== src/82_dmgtext.js =====
 // ---------------------------------------------------------------- 대미지 숫자 (config damageText)
 // 맞은 대상 머리 위에서 숫자가 뿅 튀어 오른다 (EaseOutExpo). 오르는 쪽은 화면에서 본 공격 방향의 반대쪽으로 기울고(↗), 각도는 조금씩 제각각.
@@ -10825,437 +11105,12 @@ function dmgTextUpdate(dt) {
     dtDraw(f.text, x, y, k2, plot);
   }
 }
-Object.assign(window.dbg, { dmgText, dmgTexts, setDmgText: (v) => { dmgTextOn = v; } });
-// ===== src/85_editor.js =====
-// ---------------------------------------------------------------- 맵 편집 모드 (설정 메뉴 '맵 편집 모드'): 나무 상자(소·대), 탱크 잔해, 벙커(멀쩡한·부서진), 드럼통, 모래주머니를 넣고 옮기고 지운다.
-// 결과는 R로 복사해 map.js에 붙여 넣는다 (선택한 물체가 있으면 그 한 줄, 없으면 파일 전체).
-// 편집하는 동안: 적은 모두 사라지고(나중에 다시 떨어진다) 증원·AI가 멈추고, 탱크는 움직이지 않는다. 카메라는 탱크를 따라가지 않는다
-let editMode = false, editSel = null, editMsg = '', editMsgT = 0, editAiWas = false;
-const editKeys = new Set();
-const EDIT_ITEMS = [
-  { name: '나무 상자 (소)', add: (x, z) => ({ kind: 'crate', o: addCrate(x, z, 0, 1.5) }) },
-  { name: '나무 상자 (대)', add: (x, z) => ({ kind: 'crate', o: addCrate(x, z, 0, 2.2) }) },
-  { name: '탱크 잔해', add: (x, z) => { const w = placeWreck(x, z, 0); wreckScorch(w); smokers.push({ x: w.x, y: w.y, z: w.z, t: 10, dur: Infinity, acc: 0, weak: true }); return { kind: 'wreck', o: w }; } },
-  { name: '벙커', add: (x, z) => ({ kind: 'bunker', o: placeBunker(x, z, 0, false) }) },
-  { name: '부서진 벙커', add: (x, z) => ({ kind: 'bunker', o: placeBunker(x, z, 0, true) }) },
-  { name: '드럼통', add: (x, z) => ({ kind: 'crate', o: addCrate(x, z, 0, DRUM_S, true) }) },
-  { name: '모래주머니', add: (x, z) => ({ kind: 'sandbag', o: placeSandbag(x, z, 0) }) },
-];
-const editName = (s) => !s ? '' : s.kind === 'crate' ? (s.o.drum ? '드럼통' : s.o.s >= 2 ? '나무 상자 (대)' : '나무 상자 (소)') : s.kind === 'wreck' ? '탱크 잔해' : s.kind === 'sandbag' ? '모래주머니' : s.o.ruin ? '부서진 벙커' : '벙커';
-const editPos = (s) => s.kind === 'wreck' ? { x: s.o.x, z: s.o.z, rot: s.o.yaw } : { x: s.o.x, z: s.o.z, rot: s.o.rot };
-function editNote(t) { editMsg = t; editMsgT = 2.5; uiDirty(); }
-function setEditMode(on) {
-  if (on === editMode || titleState !== 'play') return;
-  editMode = on;
-  if (on) {
-    editAiWas = aiFrozen; setAiFrozen(true);   // 편집하는 동안 '적 AI 정지' 켜짐 (버튼에도 보이게)
-    if (!missionDone) endMission();   // 작전 정보는 끝낸 것으로
-    // 적을 모두 없앤다 (떨어지는 중·예약 포함). 없앤 적 탱크·자주포는 편집이 끝나면 다시 떨어진다 (클리어 수에 안 셈)
-    let back = dropTimers.length + spgTimers.length;
-    for (const E of ENEMIES.slice()) { if (!E.jeep) back++; removeEnemy(E); }
-    dropTimers.length = 0; spgTimers.length = 0; jeepTimers.length = 0;
-    enemyDrops = Math.max(0, enemyDrops - back);
-    cancelOffer();
-    uiShow(editUI);
-  } else {
-    editSelect(null); editKeys.clear();
-    setAiFrozen(editAiWas);
-    if (UI.screen === editUI) uiShow(null);
-    resetCamera();
-  }
-  document.getElementById('mapEditBtn').textContent = editMode ? '맵 편집 모드 끝내기' : '맵 편집 모드';
-}
-document.getElementById('mapEditBtn').onclick = (e) => { setEditMode(!editMode); e.target.blur(); };
-// 선택 표시: 그 물체만 한 번 더, 흰색으로 뒤집어 조금 크게 그린다 (테두리처럼 보인다)
-const editOutMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.BackSide, fog: false });
-const editBoxGeo = new THREE.BoxGeometry(1, 1, 1), editDrumGeo = new THREE.CylinderGeometry(0.42, 0.42, 1, 8);   // 선택 테두리: 상자 / 드럼통
-let editOut = null;
-function editSelect(s) {
-  if (editOut) { scene.remove(editOut); editOut = null; }
-  editSel = s && s.o ? s : null;
-  if (editSel) {
-    if (editSel.kind === 'crate') editOut = new THREE.Mesh(editSel.o.drum ? editDrumGeo : editBoxGeo, editOutMat);
-    else {   // 그 물체의 메시들을 같은 모양(기하 공유)으로 흰색만 (복제하면 userData가 서로 물려 있어 안 된다)
-      const src = editSel.o.group, inv = src.matrixWorld.clone().invert();
-      src.updateMatrixWorld(true); editOut = new THREE.Group();
-      src.traverse((o) => { if (o.isMesh) { const m = new THREE.Mesh(o.geometry, editOutMat); m.matrixAutoUpdate = false; m.matrix.multiplyMatrices(inv, o.matrixWorld); editOut.add(m); } });
-    }
-    editOut.traverse((o) => { o.userData.noOutline = true; o.layers.set(0); });
-    scene.add(editOut); editSync();
-  }
-  uiDirty();
-}
-function editSync() {
-  if (!editOut || !editSel) return;
-  const o = editSel.o;
-  if (editSel.kind === 'crate') { editOut.position.set(o.x, o.y, o.z); editOut.rotation.set(0, o.rot, 0); editOut.scale.setScalar(o.s + 0.14); }
-  else { editOut.position.copy(o.group.position); editOut.quaternion.copy(o.group.quaternion); editOut.scale.setScalar(1.05); }
-}
-function editMove(dx, dz, dr) {
-  const s = editSel, p = editPos(s), q = { x: p.x + dx, z: p.z + dz };
-  boardClamp(q, 3); dx = q.x - p.x; dz = q.z - p.z;   // 판 밖으로는 못 간다
-  if (s.kind === 'crate') moveCrate(s.o, dx, dz, dr);
-  else if (s.kind === 'wreck') moveWreck(s.o, dx, dz, dr);
-  else if (s.kind === 'sandbag') { moveSandbag(s.o, dx, dz, dr); editSelect(s); }   // 땅에 맞춰 새로 만드니 선택 표시도 새로
-  else moveBunker(s.o, dx, dz, dr);
-  editSync(); uiDirty();
-}
-function editDelete() {
-  const s = editSel;
-  editSelect(null);
-  if (s.kind === 'crate') deleteCrate(s.o); else if (s.kind === 'wreck') deleteWreck(s.o); else if (s.kind === 'sandbag') deleteSandbag(s.o); else deleteBunker(s.o);
-  editNote(`${editName(s)} 지웠어요`);
-}
-function editAdd(i) {
-  const s = EDIT_ITEMS[i].add(controls.target.x, controls.target.z);   // 화면 가운데에
-  if (!s.o) { editNote('나무 상자·드럼통은 더 놓을 수 없어요'); return; }
-  editSelect(s);
-  editNote(`${EDIT_ITEMS[i].name} 추가`);
-}
-// ---- map.js 형식으로 복사
-const n2 = (v) => Math.round(v * 100) / 100, n3 = (v) => Math.round(wrapPi(v) * 1000) / 1000;
-function editLine(s) {
-  const o = s.o;
-  if (s.kind === 'crate') return o.drum ? `{ type: 'drum', x: ${n2(o.x)}, z: ${n2(o.z)}, rot: ${n3(o.rot)} },` : `{ type: 'crate', x: ${n2(o.x)}, z: ${n2(o.z)}, rot: ${n3(o.rot)}, s: ${n2(o.s)} },`;
-  if (s.kind === 'sandbag') return `{ type: 'sandbag', x: ${n2(o.x)}, z: ${n2(o.z)}, rot: ${n3(o.rot)} },`;
-  if (s.kind === 'wreck') return `{ type: 'wreck', x: ${n2(o.x)}, z: ${n2(o.z)}, rot: ${n3(o.yaw)} },`;
-  return `{ type: '${o.ruin ? 'bunkerRuin' : 'bunker'}', x: ${n2(o.x)}, z: ${n2(o.z)}, rot: ${n3(o.rot)} },`;
-}
-function mapFileText() {
-  const L = [
-    ...crates.filter((c) => c.alive).sort((a, b) => a.y - b.y).map((o) => editLine({ kind: 'crate', o })),   // 아래 상자부터 (위 상자가 그 위에 얹히게). 드럼통도 여기
-    ...SANDBAGS.map((o) => editLine({ kind: 'sandbag', o })),
-    ...WRECKS.map((o) => editLine({ kind: 'wreck', o })),
-    ...BUNKERS.map((o) => editLine({ kind: 'bunker', o })),
-  ];
-  return `// 지도 데이터: 나무 상자 · 드럼통 · 모래주머니 · 탱크 잔해 · 벙커의 자리.
-// 게임의 설정 메뉴(~ 키) → '맵 편집 모드'에서 고친 뒤, 선택한 물체가 없을 때 R을 누르면 이 파일 내용 전체가 복사된다. 그대로 덮어 붙여 넣으면 된다.
-//   type: crate(나무 상자, s = 한 변 m. 2 이상이면 큰 상자) · drum(드럼통) · sandbag(모래주머니) · wreck(탱크 잔해) · bunker(벙커) · bunkerRuin(부서진 벙커)
-//   x·z: 위치 (m, 판 가운데가 0)   rot: 방향 (라디안)
-//   나무 상자·드럼통은 적힌 순서대로 놓으며, 다른 상자와 겹치면 그 위에 얹힌다
-// window.MAP_DATA를 지우면(또는 이 파일이 없으면) 나무 상자·잔해는 예전처럼 자동으로 놓고 벙커는 없다
-window.MAP_DATA = {
-  objects: [
-${L.map((l) => '    ' + l).join('\n')}
-  ],
-};
-`;
-}
-function copyText(t, what) {
-  const fallback = () => {   // file://처럼 클립보드 기능이 막힌 곳: 숨긴 글상자를 골라 복사
-    const ta = document.createElement('textarea'); ta.value = t; ta.style.cssText = 'position:fixed;left:-9999px;top:0';
-    document.body.appendChild(ta); ta.select();
-    let ok = false; try { ok = document.execCommand('copy'); } catch (_) {}
-    ta.remove(); return ok;
-  };
-  const done = (ok) => editNote(ok ? `${what} 복사했어요` : '복사하지 못했어요');
-  if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(t).then(() => done(true), () => done(fallback()));
-  else done(fallback());
-}
-// ---- 입력: 편집 중에는 키를 모두 가로챈다 (설정 메뉴 \` 키·Ctrl 조합은 그대로)
-addEventListener('keydown', (e) => {
-  if (!editMode || e.code === 'Backquote' || e.ctrlKey || e.metaKey || e.altKey || /^F\d+$/.test(e.code)) return;
-  if (e.target && /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
-  e.preventDefault(); e.stopImmediatePropagation();
-  editKeys.add(e.code);
-  if (/^Digit[1-9]$/.test(e.code)) { const i = +e.code.slice(5) - 1; if (EDIT_ITEMS[i]) editAdd(i); return; }
-  if (e.code === 'Escape') { editSelect(null); return; }
-  if (e.code === 'KeyR') { if (editSel) copyText(editLine(editSel), '한 줄'); else copyText(mapFileText(), 'map.js 전체'); return; }
-  if (!editSel) return;   // 선택한 물체가 없으면 WASD·QE는 카메라 (editUpdate)
-  if (e.code === 'Delete' || e.code === 'Backspace') { editDelete(); return; }
-  const step = e.shiftKey ? 0.05 : 0.25, rstep = (e.shiftKey ? 1 : 15) * DEG;
-  _eF.set(controls.target.x - camera.position.x, 0, controls.target.z - camera.position.z).normalize();   // 화면 위쪽 = 앞
-  let dx = 0, dz = 0, dr = 0;
-  if (e.code === 'KeyW') { dx += _eF.x * step; dz += _eF.z * step; }
-  if (e.code === 'KeyS') { dx -= _eF.x * step; dz -= _eF.z * step; }
-  if (e.code === 'KeyA') { dx += _eF.z * step; dz -= _eF.x * step; }
-  if (e.code === 'KeyD') { dx -= _eF.z * step; dz += _eF.x * step; }
-  if (e.code === 'KeyQ') dr += rstep;
-  if (e.code === 'KeyE') dr -= rstep;
-  if (dx || dz || dr) editMove(dx, dz, dr);
-}, true);
-addEventListener('keyup', (e) => editKeys.delete(e.code), true);
-addEventListener('blur', () => editKeys.clear());
-const _eF = new THREE.Vector3(), _eR = new THREE.Raycaster(), _eRay = new THREE.Ray(), _eB = new THREE.Box3(), _eV = new THREE.Vector3();
-// 클릭(끌지 않고 누름)으로 고르기: 화면 광선이 물체 상자(회전 포함)에 닿는 것 중 가장 가까운 것. 빈 곳을 누르면 선택 해제
-let editDown = null;
-addEventListener('pointerdown', (e) => { if (editMode && e.target === renderer.domElement) editDown = { x: e.clientX, y: e.clientY }; }, true);
-addEventListener('pointerup', (e) => {
-  if (!editMode || !editDown || e.target !== renderer.domElement) { editDown = null; return; }
-  const moved = Math.hypot(e.clientX - editDown.x, e.clientY - editDown.y); editDown = null;
-  if (moved > 5) return;   // 끌었으면 카메라 돌리기
-  const r = renderer.domElement.getBoundingClientRect();
-  const cp = crtPoint(e.clientX, e.clientY);   // CRT 화면 휨을 되짚어서
-  _eR.setFromCamera({ x: (cp.x - r.left) / r.width * 2 - 1, y: -((cp.y - r.top) / r.height) * 2 + 1 }, camera);
-  let best = null, bd = Infinity;
-  const test = (kind, o, cx, cy, cz, hx, hy, hz, rot) => {
-    const C = Math.cos(rot), S = Math.sin(rot), q = _eR.ray.origin, d = _eR.ray.direction, ox = q.x - cx, oz = q.z - cz;
-    _eRay.origin.set(ox * C - oz * S, q.y - cy, ox * S + oz * C); _eRay.direction.set(d.x * C - d.z * S, d.y, d.x * S + d.z * C);   // 물체 기준으로 (회전 풀기)
-    _eB.min.set(-hx, -hy, -hz); _eB.max.set(hx, hy, hz);
-    if (_eRay.intersectBox(_eB, _eV)) { const k = _eV.distanceTo(_eRay.origin); if (k < bd) { bd = k; best = { kind, o }; } }
-  };
-  for (const c of crates) if (c.alive) test('crate', c, c.x, c.y, c.z, c.s / 2, c.s / 2, c.s / 2, c.rot);
-  for (const w of WRECKS) test('wreck', w, w.x, w.fp.y0 + 1.4, w.z, w.fp.hx, 1.5, w.fp.hz, w.yaw ?? 0);
-  for (const B of BUNKERS) test('bunker', B, B.x, B.y + BK_H / 2, B.z, BK_A + 0.3, BK_H / 2 + 0.2, BK_A + 0.3, B.rot);
-  for (const S of SANDBAGS) test('sandbag', S, S.fp.x, S.y + 0.7, S.fp.z, S.fp.hx, 0.9, S.fp.hz, S.rot);
-  editSelect(best);
-}, true);
-// 매 프레임: 선택한 물체가 없으면 WASD로 카메라 옮기기, QE로 돌리기 (Shift면 느리게)
-function editUpdate(dt) {
-  if (editMsgT > 0 && (editMsgT -= dt) <= 0) { editMsg = ''; uiDirty(); }
-  editSync();
-  if (editSel) return;
-  const sp = (editKeys.has('ShiftLeft') || editKeys.has('ShiftRight') ? 6 : 24) * dt;
-  _eF.set(controls.target.x - camera.position.x, 0, controls.target.z - camera.position.z).normalize();
-  let dx = 0, dz = 0;
-  if (editKeys.has('KeyW')) { dx += _eF.x; dz += _eF.z; }
-  if (editKeys.has('KeyS')) { dx -= _eF.x; dz -= _eF.z; }
-  if (editKeys.has('KeyA')) { dx += _eF.z; dz -= _eF.x; }
-  if (editKeys.has('KeyD')) { dx -= _eF.z; dz += _eF.x; }
-  if (dx || dz) {
-    const L = Math.hypot(dx, dz), q = { x: controls.target.x + dx / L * sp, z: controls.target.z + dz / L * sp };
-    boardClamp(q, 2); const nx = q.x, nz = q.z;
-    _eV.set(nx - controls.target.x, 0, nz - controls.target.z);
-    controls.target.add(_eV); camera.position.add(_eV);
-    controls.target.y = heightAt(controls.target.x, controls.target.z);
-  }
-  const rot = ((editKeys.has('KeyQ') ? 1 : 0) - (editKeys.has('KeyE') ? 1 : 0)) * 1.6 * dt * (sp < 1 ? 0.4 : 1);
-  if (rot) { _eV.copy(camera.position).sub(controls.target).applyAxisAngle(UP, rot); camera.position.copy(controls.target).add(_eV); }
-}
-// ---- 화면: 오른쪽 위 추가할 물체 목록 (번호 / 누르면 추가), 아래 조작키 안내, 선택한 물체 정보, 알림
-const EDIT_C = '#9c9c9c';
-const editUI = {
-  passive: true,
-  draw(ui) {
-    // 오른쪽 위: 목록
-    const lw = Math.max(...EDIT_ITEMS.map((it) => gfWidth(it.name))) + 26, x = ui.w - 6 - lw;
-    let y = 6;
-    ui.dim(x - 4, y - 3, lw + 8, 19 + EDIT_ITEMS.length * GF_LINE, 0.55);
-    ui.text('맵 편집 · 추가하기', x, y, HC.color); y += GF_LINE + 4;
-    EDIT_ITEMS.forEach((it, i) => {
-      const hot = ui.hit('add' + i, x - 4, y - 2, lw + 8, GF_LINE);
-      const kw = ui.keyText(x, y, `${i + 1}`, HC.color);
-      ui.text(it.name, x + kw + 6, y, hot ? '#ffffff' : EDIT_C);
-      y += GF_LINE;
-    });
-    // 아래: 조작키 (선택했을 때 / 안 했을 때)
-    const help = editSel
-      ? [['W A S D', '옮기기'], ['Q E', '돌리기'], ['Shift', '잘게'], ['Del', '지우기'], ['R', '이 물체 한 줄 복사'], ['Esc', '선택 해제']]
-      : [['클릭', '고르기'], ['W A S D', '카메라 옮기기'], ['Q E', '카메라 돌리기'], [`1~${EDIT_ITEMS.length}`, '추가'], ['R', 'map.js 전체 복사']];
-    const itemW = ([k, l]) => gfWidth(k) + 4 + 4 + gfWidth(l), gap = 10, maxW = ui.w - 16, rows = [[]];
-    let rw = 0;
-    for (const h of help) { const w = itemW(h); if (rows[rows.length - 1].length && rw + gap + w > maxW) { rows.push([]); rw = 0; } rw += (rw ? gap : 0) + w; rows[rows.length - 1].push(h); }
-    const info = editSel ? (() => { const p = editPos(editSel); return `${editName(editSel)}   x ${p.x.toFixed(2)}   z ${p.z.toFixed(2)}   ${Math.round(((wrapPi(p.rot) / DEG) + 360) % 360)}°`; })() : '선택한 물체 없음';
-    const lines = rows.length + 1 + (editMsg ? 1 : 0), y0 = ui.h - 6 - lines * GF_LINE;
-    ui.dim(0, y0 - 4, ui.w, ui.h - y0 + 4, 0.55);
-    let ly = y0;
-    if (editMsg) { ui.text(editMsg, ui.w / 2, ly, '#ffd25a', 'center'); ly += GF_LINE; }
-    ui.text(info, ui.w / 2, ly, editSel ? '#ffffff' : EDIT_C, 'center'); ly += GF_LINE;
-    for (const row of rows) {
-      const w = row.reduce((n, h, i) => n + itemW(h) + (i ? gap : 0), 0);
-      let hx = Math.round((ui.w - w) / 2);
-      for (const [k, l] of row) { hx += ui.keyText(hx, ly, k, HC.color) + 4; hx = ui.text(l, hx, ly, EDIT_C) + gap; }
-      ly += GF_LINE;
-    }
-  },
-  click(id) { if (id.startsWith('add')) editAdd(+id.slice(3)); },
-};
-Object.assign(window.dbg, { mapFileText, setEditMode, editAdd, editMove, editSelect, BUNKERS, damageBunker, edit: () => ({ editMode, editSel }) });
-// ===== src/86_decal_editor.js =====
-// ---------------------------------------------------------------- 데칼 편집 모드 (설정 메뉴 '데칼 편집 모드', 타이틀 화면에서만. 개발용)
-// 배경을 모두 끄고 내 탱크만 남긴다. 카메라는 마우스로 돌린다. 오른쪽 위 목록에서 그림을 고르면 지금 보이는 포탑 옆면 가운데에 붙는다.
-// 고른 데칼: WASD 옮기기 · QE 돌리기 · RF 크기 (Shift 잘게) · Del 지우기. 아무것도 안 골랐을 때: A/D 셋 바꾸기 · N 새 셋 · T 포탑 뒤집기 · C decals.js 복사
-let decalMode = false, decalSel = null, decalFlip = false, decalMsg = '', decalMsgT = 0, decalBg = null;
-const decalHidden = [];   // 편집하는 동안 숨긴 장면 물체와 원래 보임
-const decalSelLine = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints([[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]].map(([x, y]) => new THREE.Vector3(x, y, 0.01))),
-  new THREE.LineBasicMaterial({ color: 0xffffff, depthTest: false, fog: false }));   // 고른 데칼 테두리 (깜빡인다)
-decalSelLine.renderOrder = 7; decalSelLine.userData.noOutline = true;
-function decalNote(t) { decalMsg = t; decalMsgT = 2.5; uiDirty(); }
-const decalBtn = document.getElementById('decalEditBtn');
-function setDecalMode(on) {
-  if (on === decalMode) return;
-  if (on && titleState !== 'title') { decalBtn.textContent = '데칼 편집 모드 (타이틀에서만)'; return; }
-  decalMode = on;
-  if (on) {
-    for (const o of scene.children) if (o !== tankGroup && !o.isLight && !o.isCamera && o.visible) { decalHidden.push(o); o.visible = false; }
-    document.getElementById('title').style.visibility = 'hidden';
-    decalBg = scene.background; scene.background = new THREE.Color(0x34373a);   // 배경은 어두운 회색 (하늘·안개 대신)
-    controls.enabled = true; decalFlip = false;
-    decalView(1);
-    uiShow(decalUI);
-  } else {
-    for (const o of decalHidden) o.visible = true;
-    decalHidden.length = 0;
-    document.getElementById('title').style.visibility = '';
-    scene.background = decalBg; applyEnv();   // 배경·그라데이션 되돌리기
-    controls.enabled = false; decalSelect(null); decalFlip = false;
-    if (UI.screen === decalUI) uiShow(null);
-  }
-  decalBtn.textContent = decalMode ? '데칼 편집 모드 끝내기' : '데칼 편집 모드';
-}
-decalBtn.onclick = (e) => { setDecalMode(!decalMode); e.target.blur(); };
-// 카메라를 포탑 옆(sd = 1 왼쪽 / -1 오른쪽)에서 바라보게
-const _dv = new THREE.Vector3(), _dv2 = new THREE.Vector3();
-function decalView(sd) {
-  tankGroup.updateMatrixWorld(true);
-  parts.turret.localToWorld(_dv.set(0, TUR.y, 0));
-  parts.turret.localToWorld(_dv2.set(sd * 9, TUR.y + 1.2, 0));
-  controls.target.copy(_dv); camera.position.copy(_dv2); camera.lookAt(_dv);
-}
-// 지금 카메라 쪽 포탑 옆면 (1 = 왼쪽 +x / -1 = 오른쪽)
-const decalSide = () => parts.turret.worldToLocal(_dv.copy(camera.position)).x >= 0 ? 1 : -1;
-function decalSelect(m) {
-  decalSelLine.removeFromParent();
-  decalSel = m || null;
-  if (decalSel) decalSel.add(decalSelLine);
-  uiDirty();
-}
-function decalSet() { return DECAL_SETS[decalIdx]; }
-function decalAdd(i) {
-  const name = DECAL_NAMES[i];
-  if (!name) return;
-  const d = { img: name, side: decalSide(), z: 0, y: 0, rot: 0, s: 0.6 };
-  decalSet().decals.push(d);
-  decalSelect(addDecalMesh(d));
-  decalNote(`${name} 추가 (${d.side > 0 ? '왼쪽' : '오른쪽'})`);
-}
-function decalDelete() {
-  const d = decalSel.userData.decal, L = decalSet().decals;
-  L.splice(L.indexOf(d), 1);
-  const m = decalSel; decalSelect(null); m.removeFromParent();
-  decalNote(`${d.img} 지웠어요`);
-}
-function decalChange(fn) {   // 고른 데칼 값을 바꾸고 다시 놓는다 (옆면 밖으로 너무 나가지 않게)
-  const d = decalSel.userData.decal;
-  fn(d);
-  d.s = Math.max(0.1, Math.min(1.4, d.s));
-  d.z = Math.max(-TUR.d / 2, Math.min(TUR.d / 2, d.z)); d.y = Math.max(-TUR.h / 2, Math.min(TUR.h / 2, d.y));
-  decalPose(d, decalSel); uiDirty();
-}
-function decalSwitch(dir) { decalSelect(null); setDecalSet(decalIdx + dir); decalNote(`셋: ${decalSet().name}`); }
-function decalNewSet() {
-  let n = DECAL_SETS.length, name;
-  do name = `SET ${n++}`; while (DECAL_SETS.some((s) => s.name === name));
-  DECAL_SETS.push({ name, decals: [] });
-  decalSwitch(DECAL_SETS.length - 1 - decalIdx);
-  decalNote(`새 셋 '${name}' (이름은 decals.js에서 고친다)`);
-}
-// ---- decals.js 형식으로 복사
-const dn2 = (v) => Math.round(v * 1000) / 1000;
-function decalFileText() {
-  const sets = DECAL_SETS.map((s) => `  { name: '${s.name.replace(/'/g, "\\'")}', decals: [${s.decals.length ? '\n' + s.decals.map((d) =>
-    `    { img: '${d.img}', side: ${d.side}, z: ${dn2(d.z)}, y: ${dn2(d.y)}, rot: ${Math.round(d.rot)}, s: ${dn2(d.s)} },`).join('\n') + '\n  ' : ''}] },`).join('\n');
-  return `// 데칼 셋: 내 탱크 포탑 좌우에 붙이는 그림 묶음. 타이틀에서 A/D(패드 방향키 ←→)로 고른다 (위장색 × 데칼 셋).
-// 게임의 설정 메뉴(~ 키) → 타이틀 화면에서 '데칼 편집 모드'로 고친 뒤 C를 누르면 이 파일 내용 전체가 복사된다. 그대로 덮어 붙여 넣으면 된다.
-//   name: 셋 이름 (타이틀에 보인다. 영어 대문자·숫자)
-//   img: 그림 이름 = images/decals/의 PNG 파일 이름 (확장자 빼고). 그림을 고치거나 더하면 python tools/build.py (decal_images.js를 다시 만든다)
-//   side: 1 = 왼쪽(탱크 기준) · -1 = 오른쪽     z: 앞뒤 위치 (m, 포탑 가운데 0, 앞이 +)     y: 높이 (m, 포탑 옆면 가운데 0)
-//   rot: 돌림 (°, 바깥에서 볼 때 시계 반대 방향 +)     s: 세로 크기 (m. 가로는 그림 비율대로)
-window.DECAL_SETS = [
-${sets}
-];
-`;
-}
-function decalCopy() {
-  const t = decalFileText();
-  const fallback = () => { const ta = document.createElement('textarea'); ta.value = t; ta.style.cssText = 'position:fixed;left:-9999px;top:0'; document.body.appendChild(ta); ta.select(); let ok = false; try { ok = document.execCommand('copy'); } catch (_) {} ta.remove(); return ok; };
-  const done = (ok) => decalNote(ok ? 'decals.js 전체 복사했어요' : '복사하지 못했어요');
-  if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(t).then(() => done(true), () => done(fallback()));
-  else done(fallback());
-}
-// ---- 입력: 편집 중에는 키를 모두 가로챈다 (설정 메뉴 \` 키·Ctrl 조합은 그대로)
-addEventListener('keydown', (e) => {
-  if (!decalMode || e.code === 'Backquote' || e.ctrlKey || e.metaKey || e.altKey || /^F\d+$/.test(e.code)) return;
-  if (e.target && /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
-  e.preventDefault(); e.stopImmediatePropagation();
-  if (/^Digit[1-9]$/.test(e.code)) { decalAdd(+e.code.slice(5) - 1); return; }
-  if (e.code === 'Escape') { decalSelect(null); return; }
-  if (e.code === 'KeyT') { decalFlip = !decalFlip; decalNote(decalFlip ? '포탑을 뒤로 돌렸어요' : '포탑을 앞으로 돌렸어요'); return; }
-  if (e.code === 'KeyC') { decalCopy(); return; }
-  if (!decalSel) {
-    if (e.code === 'KeyA' || e.code === 'KeyD') decalSwitch(e.code === 'KeyD' ? 1 : -1);
-    else if (e.code === 'KeyN') decalNewSet();
-    return;
-  }
-  if (e.code === 'Delete' || e.code === 'Backspace') { decalDelete(); return; }
-  const fine = e.shiftKey, step = fine ? 0.005 : 0.02, sd = decalSel.userData.decal.side;
-  if (e.code === 'KeyW') decalChange((d) => { d.y += step; });
-  if (e.code === 'KeyS') decalChange((d) => { d.y -= step; });
-  if (e.code === 'KeyD') decalChange((d) => { d.z -= sd * step; });   // 화면 오른쪽 = 그 옆면의 오른쪽
-  if (e.code === 'KeyA') decalChange((d) => { d.z += sd * step; });
-  if (e.code === 'KeyQ') decalChange((d) => { d.rot += fine ? 1 : 5; });
-  if (e.code === 'KeyE') decalChange((d) => { d.rot -= fine ? 1 : 5; });
-  if (e.code === 'KeyR') decalChange((d) => { d.s *= fine ? 1.01 : 1.06; });
-  if (e.code === 'KeyF') decalChange((d) => { d.s /= fine ? 1.01 : 1.06; });
-}, true);
-// 클릭(끌지 않고 누름)으로 고르기. 끌면 카메라 돌리기
-let decalDown = null;
-const _dRay = new THREE.Raycaster();
-addEventListener('pointerdown', (e) => { if (decalMode && e.target === renderer.domElement) decalDown = { x: e.clientX, y: e.clientY }; }, true);
-addEventListener('pointerup', (e) => {
-  if (!decalMode || !decalDown || e.target !== renderer.domElement) { decalDown = null; return; }
-  const moved = Math.hypot(e.clientX - decalDown.x, e.clientY - decalDown.y); decalDown = null;
-  if (moved > 5) return;
-  const r = renderer.domElement.getBoundingClientRect();
-  const cp = crtPoint(e.clientX, e.clientY);   // CRT 화면 휨을 되짚어서
-  _dRay.setFromCamera({ x: (cp.x - r.left) / r.width * 2 - 1, y: -((cp.y - r.top) / r.height) * 2 + 1 }, camera);
-  const hit = _dRay.intersectObjects(decalGroup.children, false)[0];
-  decalSelect(hit ? hit.object : null);
-}, true);
-// 매 프레임: 포탑 자세는 titlePose가, 카메라는 마우스(OrbitControls)가. 여기서는 테두리 깜빡임과 알림만
-function decalUpdate(dt) {
-  if (decalMsgT > 0 && (decalMsgT -= dt) <= 0) { decalMsg = ''; uiDirty(); }
-  decalSelLine.visible = (performance.now() % 600) < 400;
-  postMat.uniforms.uGrad.value = 0;   // 타이틀 화면 위쪽 흰 그라데이션 끄기 (끝내면 applyEnv가 되돌린다)
-}
-// ---- 화면: 오른쪽 위 그림 목록 (번호 · 작은 그림 · 이름), 왼쪽 위 셋 이름, 아래 조작키 안내·고른 데칼 정보·알림
-const DEC_C = '#9c9c9c';
-const decalUI = {
-  passive: true,
-  draw(ui) {
-    // 오른쪽 위: 그림 목록
-    const rowH = 18, lw = Math.max(...DECAL_NAMES.map((n) => gfWidth(n)), gfWidth('데칼 편집 · 붙이기')) + 44, x = ui.w - 6 - lw;
-    let y = 6;
-    ui.dim(x - 4, y - 3, lw + 8, 19 + DECAL_NAMES.length * rowH, 0.55);
-    ui.text('데칼 편집 · 붙이기', x, y, HC.color); y += GF_LINE + 4;
-    DECAL_NAMES.forEach((n, i) => {
-      const hot = ui.hit('add' + i, x - 4, y - 2, lw + 8, rowH);
-      const kw = ui.keyText(x, y + 2, `${i + 1}`, HC.color);
-      const img = decalTex(n).image;
-      if (img && img.complete && img.naturalWidth) { const a = img.naturalWidth / img.naturalHeight, tw = a >= 1 ? 16 : Math.round(16 * a), th = a >= 1 ? Math.round(16 / a) : 16; ucx.imageSmoothingEnabled = false; ucx.drawImage(img, x + kw + 4 + (16 - tw) / 2, y - 1 + (16 - th) / 2, tw, th); }   // 비율 그대로
-      ui.text(n, x + kw + 24, y + 2, hot ? '#ffffff' : DEC_C);
-      y += rowH;
-    });
-    // 왼쪽 위: 셋 이름 (A/D로 바꾼다)
-    const s = decalSet(), st = `셋 ${decalIdx + 1}/${DECAL_SETS.length}  ${s.name}  (데칼 ${s.decals.length}장)`;
-    ui.dim(2, 3, gfWidth(st) + 60, 19, 0.55);
-    let sx = 6;
-    sx += ui.keyText(sx, 7, 'A', HC.color) + 2; sx += ui.keyText(sx, 7, 'D', HC.color) + 6;
-    ui.text(st, sx, 7, '#ffffff');
-    // 아래: 조작키
-    const help = decalSel
-      ? [['W A S D', '옮기기'], ['Q E', '돌리기'], ['R F', '크기'], ['Shift', '잘게'], ['Del', '지우기'], ['Esc', '선택 해제']]
-      : [['클릭', '고르기'], [`1~${DECAL_NAMES.length}`, '붙이기'], ['A D', '셋 바꾸기'], ['N', '새 셋'], ['T', '포탑 뒤집기'], ['C', 'decals.js 복사'], ['마우스 끌기', '카메라']];
-    const itemW = ([k, l]) => gfWidth(k) + 4 + 4 + gfWidth(l), gap = 10, maxW = ui.w - 16, rows = [[]];
-    let rw = 0;
-    for (const h of help) { const w = itemW(h); if (rows[rows.length - 1].length && rw + gap + w > maxW) { rows.push([]); rw = 0; } rw += (rw ? gap : 0) + w; rows[rows.length - 1].push(h); }
-    const d = decalSel && decalSel.userData.decal;
-    const info = d ? `${d.img}  ${d.side > 0 ? '왼쪽' : '오른쪽'}   z ${d.z.toFixed(3)}   y ${d.y.toFixed(3)}   ${Math.round(d.rot)}°   크기 ${d.s.toFixed(2)}` : '고른 데칼 없음';
-    const lines = rows.length + 1 + (decalMsg ? 1 : 0), y0 = ui.h - 6 - lines * GF_LINE;
-    ui.dim(0, y0 - 4, ui.w, ui.h - y0 + 4, 0.55);
-    let ly = y0;
-    if (decalMsg) { ui.text(decalMsg, ui.w / 2, ly, '#ffd25a', 'center'); ly += GF_LINE; }
-    ui.text(info, ui.w / 2, ly, d ? '#ffffff' : DEC_C, 'center'); ly += GF_LINE;
-    for (const row of rows) {
-      const w = row.reduce((n, h, i) => n + itemW(h) + (i ? gap : 0), 0);
-      let hx = Math.round((ui.w - w) / 2);
-      for (const [k, l] of row) { hx += ui.keyText(hx, ly, k, HC.color) + 4; hx = ui.text(l, hx, ly, DEC_C) + gap; }
-      ly += GF_LINE;
-    }
-  },
-  click(id) { if (id.startsWith('add')) decalAdd(+id.slice(3)); },
-};
-Object.assign(window.dbg, { setDecalMode, decalFileText, DECAL_SETS, setDecalSet });
+Object.assign(DBG, { dmgText, dmgTexts, setDmgText: (v) => { dmgTextOn = v; } });
+// ===== src/85_editor.js (배포판: 개발용 파일이라 뺌) =====
+let editMode = false; function editUpdate() {}
+// ===== src/86_decal_editor.js (배포판: 개발용 파일이라 뺌) =====
+let decalMode = false, decalFlip = false; function decalUpdate() {}
+// ===== src/87_terrain_editor.js (배포판: 개발용 파일이라 뺌) =====
 // ===== src/90_loop.js =====
 function tick(dt) {
   perfT.length = 0; perfLast = performance.now();
@@ -11355,11 +11210,11 @@ function tick(dt) {
   perfMark('조명·조준');
   updateCollisionView();
 }
-window.dbg.tick = tick;
-Object.assign(window.dbg, { ENEMIES, newEnemy, TANKS, startDrop, destroyTankBody, hitTank, spawnCoins, coins, battle: () => ({ enemyDrops, enemyKills, dropTimers, missionClear, gold, playTime, growLevel }), targets });
-Object.assign(window.dbg, { spawnSpg, spgWarns, damageTank, blastDamage, rollChoices, pickOffer, goldGain, crates, setAi: (v) => { aiShow = v; }, drawHud, gold: () => gold });
+DBG.tick = tick;
+Object.assign(DBG, { ENEMIES, newEnemy, TANKS, startDrop, destroyTankBody, hitTank, spawnCoins, coins, battle: () => ({ enemyDrops, enemyKills, dropTimers, missionClear, gold, playTime, growLevel }), targets });
+Object.assign(DBG, { spawnSpg, spgWarns, damageTank, blastDamage, rollChoices, pickOffer, goldGain, crates, setAi: (v) => { aiShow = v; }, drawHud, gold: () => gold });
 // 디버그: 원하는 항목으로 성장 선택지 띄우기 (id 3개), HUD + 픽셀 UI를 게임 해상도 그림 한 장으로 (배경은 단색)
-Object.assign(window.dbg, {
+Object.assign(DBG, {
   setOffer(ids) {
     const ch = ids.map((id) => GC.upgrades.find((u) => u.id === id)).filter(Boolean).map((u) => ({ u, label: upText(u.name, u), desc: upText(u.desc, u) + (upLast(u) ? ' (최대)' : ''), bad: u.bad ? upText(u.bad, u) : '' }));
     curOffer = { choices: ch, picked: -1, showT: 9 }; drawOffer();
@@ -11386,9 +11241,9 @@ Object.assign(window.dbg, {
     return c.toDataURL('image/png');
   },
 });
-Object.defineProperty(window.dbg, 'enemy', { get: () => ENEMIES[0] });
-window.dbg.perfLog = perfLog; window.dbg.perfT = perfT;
-Object.assign(window.dbg, { addTarget, dropSafe, removeWreck, sparks });
+Object.defineProperty(DBG, 'enemy', { get: () => ENEMIES[0] });
+DBG.perfLog = perfLog; DBG.perfT = perfT;
+Object.assign(DBG, { addTarget, dropSafe, removeWreck, sparks });
 aoSave();   // 이번에 새로 구운 AO가 있으면 저장 (다음 로딩부터 바로 씀)
 await loadStep(1, 'WARMING UP SHADERS...');
 applyMapPreset(mapIdx);   // 처음 맵 셋팅 (config map.preset)
@@ -11416,6 +11271,11 @@ function warmCompile() {
   fadeKeep.push(...fadeIns.splice(0));
 }
 setBright(brightness);   // 기억해 둔 화면 밝기
+{ // 후처리 세 가지(한 번에·외곽선 dof 모드의 1·2단계)도 미리 컴파일: 그릴 곳(preRT·postRT)에 맞춰서
+  for (const [m, t] of [[postMat, postRT], [preMat, preRT], [post2Mat, postRT]]) { postMesh.material = m; renderer.setRenderTarget(t); renderer.compile(postScene, postCam); }
+  postMesh.material = postMat;
+  renderer.setRenderTarget(olRT); olOwnPass(); camera.layers.set(0); renderer.setRenderTarget(null);   // 전봇대 외곽선 깊이 재질도 (그리는 상태 그대로 한 번)
+}
 warmCompile();   // 처음 보는 재질 때문에 게임 중에 멈칫하지 않게 미리 컴파일
 { // 궤도 자국 마스크(trackRT)를 찍고 지우는 두 장면(stampScene·fadeScene)은 scene 밖이라 위 warmCompile에 안 들어 있다: 게임을 시작하는 순간(타이틀이 끝나 지우기가 처음 돌 때)
   // 처음 쓰이며 컴파일·링크가 끝나길 기다리느라 1.5초나 멈췄다. 그려질 렌더 타깃을 맞춰 미리 컴파일하고, 끝날 때까지 로딩 화면에서 기다린다
@@ -11433,7 +11293,7 @@ fadeLoading();
 // 로딩 화면은 바로 끄지 않고 1초 동안 4x4 디더링 무늬로 점점 비워 가며 사라진다 (게임 해상도 픽셀 단위)
 function fadeLoading() {
   const LOAD_FADE = 1333;   // 사라지는 시간 (ms). 아래에서 위로 쓸어 올리며
-  const el = document.getElementById('loading'), cv = document.getElementById('loadCv');
+  const el = $el('loading'), cv = $el('loadCv');
   removeEventListener('resize', drawLoading);
   if (!cv || !cv._src) { el.remove(); return; }
   el.style.background = 'transparent'; el.style.pointerEvents = 'none';
@@ -11514,6 +11374,15 @@ function overlayFrame() {
   leaveUpdate(uiDt);   // 화면 나가기 덮개 (52_clear.js)
   if (worldFrozen()) pausedDrawn = !leaving && !(UI.closing || UI.glitchT > 0 || UI.dirty || grayK !== gT || hudOffAt || performance.now() < glitchUntil || (UI.screen && UI.screen.busy && UI.screen.busy()));   // busy: 화면이 움직이는 중 (강화 기록 넘기기)
 }
+function olOwnPass() {   // 외곽선 깊이: 정점 셰이더로 움직이는 물체(전봇대)는 자기 깊이 재질로 (지우지 않고 덧그린다)
+  if (!OL_OWN.length) return;
+  camera.layers.set(OUTLINE_OWN);
+  for (const o of OL_OWN) { o.userData.olSrc = o.material; o.material = o.userData.olMat; }
+  const bg = scene.background; scene.background = null;   // 배경이 색이면 three.js가 autoClear와 상관없이 지운다 (앞서 그린 깊이가 사라져 다른 물체의 외곽선·림이 없어졌다)
+  renderer.autoClear = false; renderer.render(scene, camera); renderer.autoClear = true;
+  scene.background = bg;
+  for (const o of OL_OWN) o.material = o.userData.olSrc;
+}
 function frame() {
   const fj0 = performance.now();   // 이 프레임 JS 전체 시간 (끊김 기록용)
   if (perfHudOn) renderer.info.reset();   // 성능 표시: 한 프레임 전체를 센다
@@ -11527,7 +11396,7 @@ function frame() {
   if (frozen && pausedDrawn) { crtPresent(); return; }   // CRT 표현은 멈춰 있어도 돈다 (게임 화면은 그대로)
   if (frozen && pauseScene) {   // 멈춘 뒤에는 장면을 다시 그리지 않는다 (카메라·흔들림이 다시 계산돼 배경이 움찔이지 않게): HUD·창·회색조만
     drawHud(); overlayFrame();
-    renderer.setRenderTarget(postRT); renderer.render(postScene, postCam);   // 회색조는 후처리라 마지막 장면(rt)에서 다시
+    renderPost();   // 회색조는 후처리라 마지막 장면(rt)에서 다시
     renderer.setRenderTarget(null); finalPass();
     return;
   }
@@ -11581,10 +11450,12 @@ function frame() {
   if (!clearHold()) {   // (임무 완료로 배경을 다 지웠으면 장면은 그리지 않고 탱크만)
     renderer.setRenderTarget(rt);
     renderer.render(scene, camera);
-    if (outlineOn) {   // 외곽선: 레이어 1 물체만 깊이로 한 번 더
+    if (outlineOn || rimOn) {   // 외곽선·림 라이트: 레이어 1 물체만 깊이로 한 번 더
       camera.layers.set(OUTLINE_LAYER); scene.overrideMaterial = olMat;
       renderer.setRenderTarget(olRT); renderer.render(scene, camera);
-      scene.overrideMaterial = null; camera.layers.set(0);
+      scene.overrideMaterial = null;
+      olOwnPass();
+      camera.layers.set(0);
     }
   }
   perfMark('장면 그리기');
@@ -11592,8 +11463,7 @@ function frame() {
   postMat.uniforms.uCut.value = clearSeq ? clearSeq.cut : 0;
   const calls = renderer.info.render.calls, tris = renderer.info.render.triangles;
   vfStep(dt);   // 복셀 안개 흉내 유체 (멈추면 dt = 0)
-  renderer.setRenderTarget(postRT);
-  renderer.render(postScene, postCam);
+  renderPost();
   renderer.setRenderTarget(null);
   perfMark('후처리');
   finalPass();   // 게임 해상도 → 화면 (샤프 바이리니어, CRT 표현이면 HUD·UI와 합쳐 CRT로)

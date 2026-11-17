@@ -1540,8 +1540,8 @@ function mgPick(from, range, avoid) {
 // 적 기관총의 표적: 사거리 안에 가리지 않은 내 탱크
 const enemyMgPick = (from, range) => tank.solid && tank.pos.distanceTo(from) < range && mgClear(from, mgTargetPos({ E: tank }, _mgP), null) ? { E: tank } : null;
 // 예광탄: 총구에서 표적으로 빠르게 날아가는 짧고 밝은 선 (점보다 잘 보이게)
-const TRACER_T = 0.12, TRACER_LEN = 0.33, mgTracers = [];   // TRACER_LEN: 꼬리 길이 (날아가는 거리의 비율)
-const TRACER_C = [new THREE.Color(0xffc070), new THREE.Color(0x7aff5a)];   // 예광탄 색: 내 것 (노란빛에 조금 붉게) · 적 (녹색). mgTracers의 en
+const TRACER_T = 0.12, TRACER_LEN = 0.4, mgTracers = [];   // TRACER_LEN: 꼬리 길이 (날아가는 거리의 비율)
+const TRACER_C = [new THREE.Color(0xff7835), new THREE.Color(0x5dff3d)];   // 예광탄 색: 내 것 (노란빛에 조금 붉게) · 적 (녹색). mgTracers의 en
 const tracerLines = new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(48 * 6), 3).setUsage(THREE.DynamicDrawUsage))
   .setAttribute('color', new THREE.BufferAttribute(new Float32Array(48 * 6), 3).setUsage(THREE.DynamicDrawUsage)),
   new THREE.LineBasicMaterial({ vertexColors: true, fog: false }));

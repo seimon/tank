@@ -55,8 +55,8 @@ function gfWrap(t, maxW) {
   return out;
 }
 
-const pui = document.getElementById('pui'), ug = cv2d(pui);
-const puiS = document.getElementById('puiS'), usg = cv2d(puiS);
+const pui = $el('pui'), ug = cv2d(pui);
+const puiS = $el('puiS'), usg = cv2d(puiS);
 pui.style.mixBlendMode = HC.blend;
 const uiC = document.createElement('canvas'), ucx = cv2d(uiC);   // 색
 const uiK = document.createElement('canvas'), ukx = cv2d(uiK);   // 글자·선 그림자
@@ -290,7 +290,7 @@ const missionUI = {
     }
   },
 };
-window.dbg.mission = missionUI;
+DBG.mission = missionUI;
 function startMission() {
   if (missionDone) return;
   Object.assign(missionUI, { t: 0, th: 0, shown: -1 });
@@ -303,7 +303,7 @@ function endMission() {
   if (pauseUI.under === missionUI) pauseUI.under = null;
 }
 // 플레이가 시작되면 (타이틀 전환이 끝나거나, 타이틀을 건너뛰면 로딩 화면이 걷힌 뒤) 한 번
-function missionCheck() { if (!missionDone && !UI.screen && !UI.closing && titleState === 'play' && !document.getElementById('loading')) startMission(); }
+function missionCheck() { if (!missionDone && !UI.screen && !UI.closing && titleState === 'play' && !$el('loading')) startMission(); }
 const offerUI = {
   passive: true, th: 0, freezeT: null,
   draw(ui) {
@@ -781,14 +781,14 @@ function padPoll() {
 }
 
 // 설정 메뉴: 내 탱크를 바로 파괴 / 적군을 바로 섬멸 (남은 증원도 없앤다. 지프는 섬멸 조건이 아님)
-document.getElementById('dbgDie').onclick = (e) => { if (tank.solid) damageTank(tank, 1e6, null, null, 'test'); e.target.blur(); };
-document.getElementById('dbgWipe').onclick = (e) => {
+$el('dbgDie').onclick = (e) => { if (tank.solid) damageTank(tank, 1e6, null, null, 'test'); e.target.blur(); };
+$el('dbgWipe').onclick = (e) => {
   enemyDrops = Math.max(enemyDrops, MAX_DROPS); dropTimers.length = 0; spgTimers.length = 0;
   for (const E of ENEMIES.slice()) if (!E.jeep && E.solid) destroyTankBody(E);
   checkMissionClear(); e.target.blur();
 };
 // 적 1대 물리침: 남은 적 수만 하나 줄인다 (아직 안 내려온 증원 → 내려오는 중 → 남은 한 대 순서). 0이 되면 섬멸과 같다
-document.getElementById('dbgKill1').onclick = (e) => {
+$el('dbgKill1').onclick = (e) => {
   if (enemyDrops < MAX_DROPS) enemyDrops++;
   else if (dropTimers.length) dropTimers.pop();
   else if (spgTimers.length) spgTimers.pop();
@@ -849,7 +849,7 @@ function updateLeaves(dt) {
     if (m.instanceColor) m.instanceColor.needsUpdate = true;
   });
 }
-document.getElementById('debris').value = windDebris; document.getElementById('debrisV').textContent = windDebris.toFixed(2);
+$el('debris').value = windDebris; $el('debrisV').textContent = windDebris.toFixed(2);
 function updateWindDebris(dt) {
   if (windDebris <= 0 || dt <= 0) return;
   const wd = U.uWindDir.value, ws = U.uWind.value, c = controls.target;
@@ -887,8 +887,8 @@ function perfFrame(frameMs, renderMs, progs, jsMs = 0) {
 // 줄마다 왼쪽 = 0.5초 평균 / 가장 큰 값 (ms), 오른쪽 = 왼쪽으로 흘러가는 그래프 (한 칸 = 한 프레임, 초록 → 노랑(주의) → 빨강(위험)).
 // 첫 줄은 프레임 간격(막대)과 그 프레임의 JS 계산 시간(흰 점). 나머지는 단계 묶음별 JS 시간 (perfMark 이름으로 묶는다).
 // 켜져 있는 동안은 renderer.info를 프레임마다 직접 비워(autoReset 끔) 한 프레임 전체의 그리기 호출·삼각형을 센다
-let perfHudOn = loadOpt('perfHud', false);
-const perfHudEl = document.getElementById('perfHud'), perfBtn = document.getElementById('perfBtn'), _phSz = new THREE.Vector2();
+let perfHudOn = DEV && loadOpt('perfHud', false);   // 배포판은 늘 끔
+const perfHudEl = $el('perfHud'), perfBtn = $el('perfBtn'), _phSz = new THREE.Vector2();
 const PH_GROUPS = [   // [이름, perfMark 이름들, 주의 ms, 위험 ms]
   ['물리', ['물리'], 4, 8],
   ['적 AI', ['적 AI'], 2, 4],
@@ -981,7 +981,7 @@ function setPerfHud(v) {
 }
 perfBtn.onclick = (e) => { setPerfHud(!perfHudOn); e.target.blur(); };
 // ! (Shift+1)로도 켜고 끈다. 성장 선택지 1번이 같이 골리지 않게 다른 키 처리보다 먼저 가로챈다
-addEventListener('keydown', (e) => { if (e.code === 'Digit1' && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) { e.stopImmediatePropagation(); e.preventDefault(); if (!e.repeat) setPerfHud(!perfHudOn); } }, true);
+if (DEV) addEventListener('keydown', (e) => { if (e.code === 'Digit1' && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) { e.stopImmediatePropagation(); e.preventDefault(); if (!e.repeat) setPerfHud(!perfHudOn); } }, true);
 setPerfHud(perfHudOn);
 // 타이틀 우하단 키 안내 첫 그리기: 한글 글꼴(GF)이 이 파일에 있어서 80_hud.js 로딩 중에는 그릴 수 없다 (const 선언 전). 여기서
-if (document.getElementById('tPress')) { drawTitleKeys(titlePad); layoutTitle(); }
+if ($el('tPress')) { drawTitleKeys(titlePad); layoutTitle(); }

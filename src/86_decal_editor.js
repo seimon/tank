@@ -1,3 +1,5 @@
+// @dev-file (배포판 index.html에서는 빠지고 아래 //@release 줄만 남는다: tools/build.py)
+//@release let decalMode = false, decalFlip = false; function decalUpdate() {}
 // ---------------------------------------------------------------- 데칼 편집 모드 (설정 메뉴 '데칼 편집 모드', 타이틀 화면에서만. 개발용)
 // 배경을 모두 끄고 내 탱크만 남긴다. 카메라는 마우스로 돌린다. 오른쪽 위 목록에서 그림을 고르면 지금 보이는 포탑 옆면 가운데에 붙는다.
 // 고른 데칼: WASD 옮기기 · QE 돌리기 · RF 크기 (Shift 잘게) · Del 지우기. 아무것도 안 골랐을 때: A/D 셋 바꾸기 · N 새 셋 · T 포탑 뒤집기 · C decals.js 복사
@@ -7,14 +9,14 @@ const decalSelLine = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints
   new THREE.LineBasicMaterial({ color: 0xffffff, depthTest: false, fog: false }));   // 고른 데칼 테두리 (깜빡인다)
 decalSelLine.renderOrder = 7; decalSelLine.userData.noOutline = true;
 function decalNote(t) { decalMsg = t; decalMsgT = 2.5; uiDirty(); }
-const decalBtn = document.getElementById('decalEditBtn');
+const decalBtn = $el('decalEditBtn');
 function setDecalMode(on) {
   if (on === decalMode) return;
   if (on && titleState !== 'title') { decalBtn.textContent = '데칼 편집 모드 (타이틀에서만)'; return; }
   decalMode = on;
   if (on) {
     for (const o of scene.children) if (o !== tankGroup && !o.isLight && !o.isCamera && o.visible) { decalHidden.push(o); o.visible = false; }
-    document.getElementById('title').style.visibility = 'hidden';
+    $el('title').style.visibility = 'hidden';
     decalBg = scene.background; scene.background = new THREE.Color(0x34373a);   // 배경은 어두운 회색 (하늘·안개 대신)
     controls.enabled = true; decalFlip = false;
     decalView(1);
@@ -22,7 +24,7 @@ function setDecalMode(on) {
   } else {
     for (const o of decalHidden) o.visible = true;
     decalHidden.length = 0;
-    document.getElementById('title').style.visibility = '';
+    $el('title').style.visibility = '';
     scene.background = decalBg; applyEnv();   // 배경·그라데이션 되돌리기
     controls.enabled = false; decalSelect(null); decalFlip = false;
     if (UI.screen === decalUI) uiShow(null);
@@ -191,4 +193,4 @@ const decalUI = {
   },
   click(id) { if (id.startsWith('add')) decalAdd(+id.slice(3)); },
 };
-Object.assign(window.dbg, { setDecalMode, decalFileText, DECAL_SETS, setDecalSet });
+Object.assign(DBG, { setDecalMode, decalFileText, DECAL_SETS, setDecalSet });

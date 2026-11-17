@@ -2,6 +2,14 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { DecalGeometry } from 'three/addons/geometries/DecalGeometry.js';
+// ---------------------------------------------------------------- 개발판(dev.html) · 배포판(index.html)
+// build.py가 배포판에서 DEV를 false로 바꾸고, 개발용 파일(첫 줄 @dev-file: 맵·데칼·지형 편집)을 뺀다 (그 파일의 //@release 줄만 남긴다).
+// 배포판에서는 설정 메뉴(#hud)를 문서에서 떼어 둔다: 메뉴를 찾는 코드는 $el로 그대로 돌지만 화면·콘솔에서는 닿지 않는다. 디버그 묶음 DBG도 window.dbg로 내놓지 않는다
+const DEV = /*@DEV*/true;
+const DBG = {}; if (DEV) window.dbg = DBG;
+const DEV_OFF = DEV ? null : document.createElement('div');
+if (DEV_OFF) for (const id of ['hud', 'hudGrip']) { const e = document.getElementById(id); if (e) DEV_OFF.append(e); }
+const $el = (id) => document.getElementById(id) || (DEV_OFF && DEV_OFF.querySelector('#' + id));
 // ---------------------------------------------------------------- 도트 글꼴 · 2D 늘리기 (로딩 화면부터 쓴다)
 // 글자: 5x7 고정폭 (한 글자 6칸). 일곱 줄, 줄마다 다섯 칸을 비트로 (16 = 왼쪽 끝 … 1 = 오른쪽 끝)
 const FONT = {
@@ -141,14 +149,14 @@ function sharpBlit(dst, src, cssW, cssH) {
 // 게임 화면처럼 300줄 해상도 캔버스에 HUD 글꼴·게이지로 그리고 샤프 바이리니어로 창에 늘린다 (영어만)
 let loadLabel = 'LOADING...', loadK = 0;
 const loadImg0 = new Image();   // 로딩 그림 (그림이 없거나 못 읽어도 로딩은 그대로)
-loadImg0.onload = () => { if (document.getElementById('loading')) drawLoading(); };
+loadImg0.onload = () => { if ($el('loading')) drawLoading(); };
 // images/*.png는 build.py가 title_images.js에 data URL로도 담는다: file://로 열면 PNG 파일을 그린 캔버스가 '오염'돼 WebGL(CRT 표현)로 못 올리기 때문
 const imgSrc = (p) => (window.TITLE_IMAGES || {})[p.replace(/^images\//, '').replace(/\.png$/, '')] || p;
 loadImg0.src = imgSrc('images/loading_tank.png');
 function drawLoading() {
-  const cv = document.getElementById('loadCv');
+  const cv = $el('loadCv');
   if (!cv || !innerWidth || !innerHeight) return;
-  let cr = crtOn ? document.getElementById('c').getBoundingClientRect() : null;   // CRT면 게임 화면 자리에 맞춰
+  let cr = crtOn ? $el('c').getBoundingClientRect() : null;   // CRT면 게임 화면 자리에 맞춰
   if (!cr || cr.width < 2 || cr.height < 2) cr = { width: innerWidth, height: innerHeight };
   let H = 300, W = Math.round(H * cr.width / cr.height);   // 세로 300줄. 창이 아주 좁으면 가로 200칸에 맞춰 세로를 늘린다 (픽셀은 늘 정사각형)
   if (W < 200) { W = 200; H = Math.round(W * cr.height / cr.width); }
@@ -282,6 +290,8 @@ const U = {
   // 하늘에서 비추는 원형 빛 (조준 폭발 범위, 자주포 포격 예고): 0 = x, z, 반경, 세기(0이면 꺼짐) / 1 = 색 rgb
   uRing0: { value: Array.from({ length: RING_N }, () => new THREE.Vector4()) },
   uRing1: { value: Array.from({ length: RING_N }, () => new THREE.Vector4()) },
+  // 카툰 명암 (config toon): 빛 받는 정도(dotNL)를 단계로 끊는다. 물체 세기, 땅 세기, 단계 수, 경계 폭, 가장 어두운 단계 밝기
+  uToon: { value: 0 }, uToonG: { value: 0 }, uToonN: { value: 2 }, uToonS: { value: 0.02 }, uToonD: { value: 0 },
 };
 // 탱크·보급품 밑의 부드러운 둥근 사각형 그림자. 지면과 풀 셰이더가 같은 식으로 어둡게 한다 (겹친 면이 없어 z-fighting 없음)
 const SHADOW_GLSL = `
@@ -354,6 +364,16 @@ const SNAP = 'gl_Position.xy = floor(gl_Position.xy / gl_Position.w * uSnap + 0.
 // PS1_NOSNAP이 켜진 동안 만든 재질은 스내핑하지 않는다 (탱크: AO를 굽느라 잘게 나눈 삼각형이 제각각 끌려가
 // 리벳·얼룩이 일그러져 떨리고 가는 삼각형이 뒤집혀 겹쳐 보였다)
 let PS1_NOSNAP = false;
+const TOON_NL = 'float dotNL = saturate( dot( geometryNormal, directLight.direction ) );';
+if (!THREE.ShaderChunk.lights_lambert_pars_fragment.includes(TOON_NL)) console.warn('[카툰] three.js 빛 계산 줄을 찾지 못함');
+const TOON_GLSL = `uniform float uToon, uToonG, uToonN, uToonS, uToonD;
+float toonNL(float x, float k) {
+  if (k <= 0.0) return x;
+  float b = 0.0;
+  for (int i = 1; i <= 6; i++) { if (float(i) > uToonN) break; float t = float(i) / (uToonN + 1.0); b += smoothstep(t - uToonS, t + uToonS, x); }
+  return mix(x, mix(uToonD, 1.0, b / uToonN), k);
+}
+`;
 function ps1(mat, extra, key) {
   const snap = !PS1_NOSNAP;
   mat.onBeforeCompile = function (sh) {   // this = 컴파일되는 재질 (복제본도 같은 함수를 쓴다)
@@ -364,6 +384,14 @@ function ps1(mat, extra, key) {
         (lit ? '\n{ vec4 rw = vec4(transformed, 1.0);\n#ifdef USE_INSTANCING\nrw = instanceMatrix * rw;\n#endif\nvRingW = (modelMatrix * rw).xyz; }' : ''));
     if (extra) extra.call(this, sh);   // (this = 컴파일되는 재질: 재질마다 다른 uniform을 쓸 때)
     if (lit) {
+      // 카툰 명암: 주광·폭발 빛의 dotNL만 단계로 (반구광·발광·그늘은 그대로). 값만 바뀌니 켜고 끌 때 다시 컴파일하지 않는다
+      const tk = this && this.userData.noOcc ? 'uToonG' : 'uToon';
+      for (const k of ['uToon', 'uToonG', 'uToonN', 'uToonS', 'uToonD']) sh.uniforms[k] = U[k];
+      for (const c of ['lights_lambert_pars_fragment', 'lights_phong_pars_fragment']) {
+        const inc = '#include <' + c + '>';
+        if (sh.fragmentShader.includes(inc)) sh.fragmentShader = sh.fragmentShader.replace(inc, THREE.ShaderChunk[c].replace(TOON_NL, 'float dotNL = toonNL(saturate( dot( geometryNormal, directLight.direction ) ), ' + tk + ');'));
+      }
+      sh.fragmentShader = TOON_GLSL + sh.fragmentShader;
       sh.uniforms.uRing0 = U.uRing0; sh.uniforms.uRing1 = U.uRing1;
       sh.fragmentShader = RING_GLSL + 'varying vec3 vRingW;\n' + sh.fragmentShader.replace('#include <emissivemap_fragment>',
         '#include <emissivemap_fragment>\ntotalEmissiveRadiance += ringGlow(vRingW.xz) * (diffuseColor.rgb * 1.6 + 0.12);');
@@ -440,9 +468,14 @@ function updateFadeIns(dt) {
 }
 // 외곽선 대상: 레이어 1에 올린 불투명 물체 (땅·풀·물·돌·파티클·데칼·조준 표시는 userData.noOutline이나 투명이라 빠짐).
 // 외곽선을 켜면 이 레이어만 깊이로 한 번 더 그려서, 깊이가 크게 끊기는 가장자리에 1픽셀 선을 긋는다
-const OUTLINE_LAYER = 1;
+// 정점 셰이더로 움직이는 물체(전봇대 흔들림)는 깊이 재질(olMat)로는 움직임이 빠지므로, 자기 깊이 재질(userData.olMat)을 가진 것은 레이어 4에 따로 두고 그 재질로 한 번 더 그린다 (OL_OWN, 90_loop.js)
+const OUTLINE_LAYER = 1, OUTLINE_OWN = 4, OL_OWN = [];
 function markOutline(root) {
-  root.traverse((o) => { if (o.isMesh && !o.userData.noOutline && o.material && !o.material.transparent && !o.material.isShaderMaterial) o.layers.enable(OUTLINE_LAYER); });
+  root.traverse((o) => {
+    if (!(o.isMesh && !o.userData.noOutline && o.material && !o.material.transparent && !o.material.isShaderMaterial)) return;
+    if (o.userData.olMat) { o.layers.enable(OUTLINE_OWN); if (!OL_OWN.includes(o)) OL_OWN.push(o); }
+    else o.layers.enable(OUTLINE_LAYER);
+  });
   return root;
 }
 

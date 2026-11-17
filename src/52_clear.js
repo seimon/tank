@@ -180,4 +180,4 @@ function leaveUpdate(dt) {
   }
   if (f >= 1 && !leaving.done) { leaving.done = true; setTimeout(() => location.reload(), 30); }   // 다 덮인 화면을 한 번 보이고
 }
-Object.assign(window.dbg, { clearBegin, clearSeq: () => clearSeq });
+Object.assign(DBG, { clearBegin, clearSeq: () => clearSeq });
