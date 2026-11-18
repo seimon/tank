@@ -177,10 +177,17 @@ function drawLoading() {
   if (crtLoadHook) crtLoadHook(src);
 }
 addEventListener('resize', drawLoading);
+// 로딩 시간 기록 (콘솔 [로딩]): 단계마다 쉬지 않고 붙잡고 있던 시간(화면이 멈춘 시간). loadLap(이름)으로 단계 안을 더 잘게
+const LOAD_LOG = [], LOAD_T0 = performance.now();
+let loadLast = LOAD_T0;
+// 긴 반복 안에서: if (loadBusy()) await loadStep(loadK); = 쉬지 않고 0.1초가 넘으면 한 번 화면에 돌려준다 (값·난수 순서는 그대로)
+const loadBusy = () => performance.now() - loadLast > 100;
+function loadLap(name) { const t = performance.now(); LOAD_LOG.push([name, t - loadLast]); loadLast = t; }
 function loadStep(k, label) {
+  loadLap(`${Math.round(loadK * 100)}% ${loadLabel}`);
   loadK = k; if (label) loadLabel = label;
   drawLoading();
-  return new Promise((r) => { let done = false; const go = () => { if (!done) { done = true; setTimeout(r, 0); } }; requestAnimationFrame(go); setTimeout(go, 40); });
+  return new Promise((r) => { let done = false; const go = () => { if (!done) { done = true; loadLast = performance.now(); setTimeout(r, 0); } }; requestAnimationFrame(go); setTimeout(go, 40); });
 }
 
 // ---------------------------------------------------------------- 기본 설정

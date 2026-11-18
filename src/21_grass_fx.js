@@ -118,6 +118,7 @@ const grassHt = new Float32Array(FN * FN);   // 0.5m 칸마다 가장 큰 풀 �
   for (let n = 0; n < GRASS_TARGET && tries < GRASS_TARGET * 3; tries++) {
     const x = grr(-SQ + 0.2, SQ - 0.2), z = grr(-SQ + 0.2, SQ - 0.2);
     if (plant(x, z)) n++;
+    if (loadBusy()) await loadStep(loadK);
   }
   // 2) 원 보드로 새로 생긴 가장자리 땅: 따로 시드한 난수로, 같은 넓이당 시도 횟수만큼
   gseed = 0x51ed2701; planting2 = true;
@@ -126,6 +127,7 @@ const grassHt = new Float32Array(FN * FN);   // 0.5m 칸마다 가장 큰 풀 �
     const x = grr(-E, E), z = grr(-E, E);
     if ((Math.abs(x) < SQ - 0.2 && Math.abs(z) < SQ - 0.2) || !inBoard(x, z, 0.15)) continue;
     plant(x, z);
+    if (loadBusy()) await loadStep(loadK);
   }
   // 3) '풀 있음' 칠: 원래 못 심는 자리(도로·절벽)에서 고른 것을 따로 시드한 난수로 (같은 넓이당 같은 수)
   gseed = 0x2c1b3c6d;
@@ -213,11 +215,13 @@ const grassHt = new Float32Array(FN * FN);   // 0.5m 칸마다 가장 큰 풀 �
     cm.count = list.shown;   // 카드 한 장이 풀잎 여러 개를 그리니 절반만 (심은 순서가 무작위라 앞의 절반도 고르게 퍼져 있다)
     cm.userData.noOutline = true;
     scene.add(cm); grassCard.push(cm);
+    if (loadBusy()) await loadStep(loadK);
   }
 }
 
 // ---------------------------------------------------------------- 불 번짐 / 재생
 for (let j = 0; j < FN; j++) for (let i = 0; i < FN; i++) {
+  if (i === 0 && loadBusy()) await loadStep(loadK);
   const x = -HALF + (i + 0.5) * FCELL, z = -HALF + (j + 0.5) * FCELL, k = j * FN + i;
   const gi = gridIndex(x, z);
   const gp = TD.grass[gi];   // 지형 편집 칠: 풀 없음이면 타지 않고, 풀 있음이면 도로·절벽이어도 탄다

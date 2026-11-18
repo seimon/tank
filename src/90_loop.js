@@ -131,13 +131,22 @@ Object.defineProperty(DBG, 'enemy', { get: () => ENEMIES[0] });
 DBG.perfLog = perfLog; DBG.perfT = perfT;
 Object.assign(DBG, { addTarget, dropSafe, removeWreck, sparks });
 aoSave();   // 이번에 새로 구운 AO가 있으면 저장 (다음 로딩부터 바로 씀)
+loadLap('AO 저장');
 await loadStep(1, 'WARMING UP SHADERS...');
 applyMapPreset(mapIdx);   // 처음 맵 셋팅 (config map.preset)
 markOutline(scene);
 // 미리 컴파일은 실제로 그리는 곳(저해상도 렌더 타깃 rt)에 맞춰서: 화면(캔버스)에 맞추면 출력 색 공간이 달라(srgb ↔ srgb-linear)
 // 미리 만든 셰이더를 하나도 못 쓰고, 처음 보이는 순간마다 다시 컴파일해 끊긴다
+// 컴파일은 모두 시작만 해 두고(compileAsync) 아래에서 한꺼번에 기다린다. 기다리는 동안 무엇이든 그리면(예: 전봇대 외곽선 한 번) 그 자리에서
+// 앞의 컴파일이 다 끝나길 붙잡고 기다려 화면·브라우저가 통째로 멈췄다 (첫 실행 2.8초, RTX 3060). 기다리는 동안은 로딩 화면이 돈다
+const warmPending = [];
+function compileAt(target, sc, cam, tgt = null) {
+  renderer.setRenderTarget(target);
+  if (renderer.compileAsync) warmPending.push(renderer.compileAsync(sc, cam, tgt)); else renderer.compile(sc, cam, tgt);
+  renderer.setRenderTarget(null);
+}
 function warmCompile() {
-  renderer.setRenderTarget(rt); renderer.compile(scene, camera); renderer.setRenderTarget(null);
+  compileAt(rt, scene, camera);
   // 텍스처도 미리 GPU로 올린다 (처음 보이는 순간 올리느라 멈칫하지 않게)
   const seen = new Set();
   scene.traverse((o) => {
@@ -156,24 +165,32 @@ function warmCompile() {
   // 같은 셰이더(customProgramCacheKey)를 쓰는 진짜 낙하 재질이 끝나며 dispose돼도, 이 복제본이 쥐고 있어 프로그램이 남는다
   fadeKeep.push(...fadeIns.splice(0));
 }
+loadLap('셰이더: 낙하 디더 재질');
 setBright(brightness);   // 기억해 둔 화면 밝기
+loadLap('화면 밝기');
 { // 후처리 세 가지(한 번에·외곽선 dof 모드의 1·2단계)도 미리 컴파일: 그릴 곳(preRT·postRT)에 맞춰서
-  for (const [m, t] of [[postMat, postRT], [preMat, preRT], [post2Mat, postRT]]) { postMesh.material = m; renderer.setRenderTarget(t); renderer.compile(postScene, postCam); }
+  for (const [m, t] of [[postMat, postRT], [preMat, preRT], [post2Mat, postRT]]) { postMesh.material = m; compileAt(t, postScene, postCam); }
   postMesh.material = postMat;
-  renderer.setRenderTarget(olRT); olOwnPass(); camera.layers.set(0); renderer.setRenderTarget(null);   // 전봇대 외곽선 깊이 재질도 (그리는 상태 그대로 한 번)
+  // 전봇대 외곽선 깊이 재질도 (그리는 곳 olRT에 맞춰서, 그 물체만: 빛은 scene 것으로)
+  camera.layers.set(OUTLINE_OWN);   // 그릴 때처럼 (빛도 이 레이어로 걸러 센다: 다르면 광원 수가 달라 다시 컴파일된다)
+  for (const o of OL_OWN) { const src = o.material; o.material = o.userData.olMat; compileAt(olRT, o, camera, scene); o.material = src; }
+  camera.layers.set(0);
 }
+loadLap('셰이더: 후처리·전봇대 외곽선');
 warmCompile();   // 처음 보는 재질 때문에 게임 중에 멈칫하지 않게 미리 컴파일
+loadLap('셰이더: 장면 (warmCompile)');
 { // 궤도 자국 마스크(trackRT)를 찍고 지우는 두 장면(stampScene·fadeScene)은 scene 밖이라 위 warmCompile에 안 들어 있다: 게임을 시작하는 순간(타이틀이 끝나 지우기가 처음 돌 때)
   // 처음 쓰이며 컴파일·링크가 끝나길 기다리느라 1.5초나 멈췄다. 그려질 렌더 타깃을 맞춰 미리 컴파일하고, 끝날 때까지 로딩 화면에서 기다린다
   // (병렬 컴파일 때문에 compile()은 시작만 하고 돌아온다. 끝나지 않은 프로그램을 처음 그리는 순간 거기서 멈춘다)
-  const pending = [];
-  if (renderer.compileAsync) {
-    renderer.setRenderTarget(rt); pending.push(renderer.compileAsync(scene, camera));
-    renderer.setRenderTarget(trackRT); pending.push(renderer.compileAsync(stampScene, stampCam), renderer.compileAsync(fadeScene, stampCam));
-    renderer.setRenderTarget(null);
-  } else { renderer.setRenderTarget(trackRT); renderer.compile(stampScene, stampCam); renderer.compile(fadeScene, stampCam); renderer.setRenderTarget(null); }
-  await Promise.race([Promise.all(pending), new Promise((r) => setTimeout(r, 8000))]);   // (끝나지 않아도 8초 뒤엔 넘어간다)
+  compileAt(trackRT, stampScene, stampCam); compileAt(trackRT, fadeScene, stampCam);
+  loadLap('셰이더: 컴파일 시작');
+  await Promise.race([Promise.all(warmPending), new Promise((r) => setTimeout(r, 15000))]);   // (끝나지 않아도 15초 뒤엔 넘어간다)
+  loadLap('셰이더: 컴파일 기다림 (화면은 돎)');
   clrFloor.visible = false;   // 임무 완료 바닥: 위에서 함께 미리 컴파일하고 숨긴다 (52_clear.js)
+}
+{ // 로딩 시간 기록을 콘솔에 (다른 PC에서 첫 로딩이 멈추는 곳 찾기)
+  const tot = performance.now() - LOAD_T0, rows = LOAD_LOG.filter((r) => r[1] >= 1).map((r) => `  ${r[1].toFixed(0).padStart(6)} ms  ${r[0]}`);
+  console.info(`[로딩] 전체 ${tot.toFixed(0)} ms (페이지 시작부터 ${performance.now().toFixed(0)} ms · AO 굽기 ${aoMs.toFixed(0)} ms, 캐시 ${aoHits}덩어리 · 셰이더 ${renderer.info.programs.length}개)\n` + rows.join('\n'));
 }
 fadeLoading();
 // 로딩 화면은 바로 끄지 않고 1초 동안 4x4 디더링 무늬로 점점 비워 가며 사라진다 (게임 해상도 픽셀 단위)
